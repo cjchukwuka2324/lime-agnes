@@ -1,0 +1,4 @@
+Models/SpotifyConnection.swift
+Views/Profile/SpotifyConnectionView.swift
+Views/Profile/SpotifyPresentationContextProvider.swift
+Services/Supabase/SpotifyConnectionService.swift

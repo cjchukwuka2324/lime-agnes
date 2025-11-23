@@ -193,11 +193,24 @@ struct SoundPrintView: View {
             isLoading = true
             errorMessage = nil
         }
+        
+        // Check if Spotify is connected before trying to load data
+        guard authService.isAuthorized() else {
+            await MainActor.run {
+                self.errorMessage = "Please connect your Spotify account in Profile settings to view your SoundPrint."
+                self.isLoading = false
+            }
+            return
+        }
 
         do {
+            print("📊 Loading SoundPrint data...")
             let p = try await api.getUserProfile()
+            print("✅ Got user profile")
             let artists = try await api.getTopArtists(limit: 20)
+            print("✅ Got top artists: \(artists.count)")
             let tracks = try await api.getTopTracks(limit: 20)
+            print("✅ Got top tracks: \(tracks.count)")
 
             let genres = computeGenres(from: artists)
             let pers = FanPersonalityEngine.compute(artists: artists, tracks: tracks)
@@ -210,10 +223,25 @@ struct SoundPrintView: View {
                 self.personality = pers
                 self.isLoading = false
             }
+            
+            print("✅ SoundPrint data loaded successfully")
 
         } catch {
+            print("❌ Error loading SoundPrint data: \(error.localizedDescription)")
+            print("❌ Error domain: \((error as NSError).domain)")
+            print("❌ Error code: \((error as NSError).code)")
+            
             await MainActor.run {
-                self.errorMessage = error.localizedDescription
+                var errorMsg = error.localizedDescription
+                
+                // Provide a friendlier error message
+                if let nsError = error as NSError?, nsError.domain == "SpotifyAuth" {
+                    if let description = nsError.userInfo[NSLocalizedDescriptionKey] as? String {
+                        errorMsg = description
+                    }
+                }
+                
+                self.errorMessage = errorMsg
                 self.isLoading = false
             }
         }
@@ -574,4 +602,4 @@ extension Color {
             opacity: Double(a) / 255
         )
     }
-}gi
+}

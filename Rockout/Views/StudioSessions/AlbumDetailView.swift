@@ -7,56 +7,53 @@ struct AlbumDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showAddTrack = false
+    @State private var showShare = false
 
     private let trackService = TrackService.shared
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(album.title)
-                        .font(.title2)
-                        .bold()
-
-                    if let status = album.release_status {
-                        Text(status.capitalized)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("Tracks") {
-                if isLoading {
-                    ProgressView("Loading tracks...")
-                } else if tracks.isEmpty {
-                    Text("No tracks yet. Add one.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(tracks) { track in
-                        VStack(alignment: .leading) {
-                            Text(track.title)
-                                .font(.headline)
-
-                            if let n = track.track_number {
-                                Text("Track \(n)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
+        ZStack {
+            // Background with gradient
+            LinearGradient(
+                colors: [Color.black, Color(red: 0.1, green: 0.1, blue: 0.15)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header with Cover Art
+                    headerView
+                        .padding(.top, 20)
+                        .padding(.bottom, 32)
+                    
+                    // Tracks List
+                    tracksListView
+                        .padding(.horizontal, 20)
                 }
             }
         }
-        .navigationTitle("Album")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button {
+                    showShare = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundColor(.white)
+                }
+                
                 Button {
                     showAddTrack = true
                 } label: {
                     Image(systemName: "plus")
+                        .foregroundColor(.white)
                 }
             }
+        }
+        .sheet(isPresented: $showShare) {
+            ShareSheetView(resourceType: "album", resourceId: album.id)
         }
         .sheet(isPresented: $showAddTrack) {
             AddTrackView(album: album) {
@@ -66,6 +63,142 @@ struct AlbumDetailView: View {
         .task {
             await loadTracks()
         }
+    }
+    
+    // MARK: - Header View
+    private var headerView: some View {
+        VStack(spacing: 20) {
+            // Cover Art
+            Group {
+                if let urlString = album.cover_art_url,
+                   let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            albumPlaceholder
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            albumPlaceholder
+                        @unknown default:
+                            albumPlaceholder
+                        }
+                    }
+                } else {
+                    albumPlaceholder
+                }
+            }
+            .frame(width: 240, height: 240)
+            .cornerRadius(20)
+            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+            
+            // Album Info
+            VStack(spacing: 8) {
+                Text(album.title)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                
+                if let status = album.release_status, !status.isEmpty {
+                    Text(status.capitalized)
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+    
+    private var albumPlaceholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.2, green: 0.2, blue: 0.3), Color(red: 0.1, green: 0.1, blue: 0.2)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            
+            Image(systemName: "music.note")
+                .font(.system(size: 60))
+                .foregroundColor(.white.opacity(0.3))
+        }
+    }
+    
+    // MARK: - Tracks List View
+    private var tracksListView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Tracks")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                if !tracks.isEmpty {
+                    Text("\(tracks.count)")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+            
+            if isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .tint(.white)
+                        .padding(.vertical, 40)
+                    Spacer()
+                }
+            } else if tracks.isEmpty {
+                emptyTracksView
+            } else {
+                ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                    TrackRow(track: track, trackNumber: index + 1, album: album)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Empty Tracks View
+    private var emptyTracksView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 40))
+                .foregroundColor(.white.opacity(0.3))
+            
+            Text("No tracks yet")
+                .font(.headline)
+                .foregroundColor(.white.opacity(0.7))
+            
+            Text("Add your first track to get started")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.5))
+                .multilineTextAlignment(.center)
+            
+            Button {
+                showAddTrack = true
+            } label: {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Track")
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(.black)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Color.white)
+                .cornerRadius(25)
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 60)
     }
 
     private func loadTracks() async {
@@ -77,5 +210,63 @@ struct AlbumDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+// MARK: - Track Row
+struct TrackRow: View {
+    let track: StudioTrackRecord
+    let trackNumber: Int
+    let album: StudioAlbumRecord
+    
+    var body: some View {
+        NavigationLink {
+            TrackDetailView(track: track, album: album)
+        } label: {
+            HStack(spacing: 16) {
+                // Track Number
+                Text("\(trackNumber)")
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.6))
+                    .frame(width: 30, alignment: .trailing)
+                
+                // Track Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(track.title)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    
+                    if let duration = track.duration, duration > 0 {
+                        Text(formatTime(duration))
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                }
+                
+                Spacer()
+                
+                // Play Icon
+                Image(systemName: "play.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .background(Color.white.opacity(0.05))
+            .cornerRadius(12)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func formatTime(_ time: Double) -> String {
+        guard time.isFinite && !time.isNaN else {
+            return "0:00"
+        }
+        
+        let validTime = max(0, time)
+        let minutes = Int(validTime) / 60
+        let seconds = Int(validTime) % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }

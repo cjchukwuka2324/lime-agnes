@@ -1,0 +1,50 @@
+# Cursor Rules for RockOut Project
+
+## Automatic Xcode File Addition
+
+When creating new Swift files, they should be automatically added to the Xcode project. 
+
+### Quick Setup (One-time):
+```bash
+cd /Users/suinoikhioda/Documents/RockOut
+./Rockout/scripts/install_xcodeproj.sh
+```
+
+### After Creating New Files:
+Run this to automatically add them to Xcode:
+```bash
+cd /Users/suinoikhioda/Documents/RockOut
+ruby Rockout/scripts/auto_add_to_xcode.rb
+```
+
+Or use the detection script to see what needs to be added:
+```bash
+cd /Users/suinoikhioda/Documents/RockOut
+./Rockout/scripts/clean_and_add_files.sh
+```
+
+### Automatic Addition:
+The git hook (`.git/hooks/post-commit`) will automatically add files after commits.
+
+### Manual Addition:
+If automatic addition doesn't work:
+1. Open Xcode
+2. Right-click the appropriate group folder
+3. Select "Add Files to Rockout..."
+4. Select the new files
+
+### Notes:
+- The detection script checks filenames (not full paths) to avoid false positives
+- Only truly new files will be shown
+- Files are automatically organized into correct groups
+
+## File Organization
+
+Files are organized into these groups in Xcode:
+- `Views/` - All SwiftUI views
+- `ViewModels/` - View models and state management
+- `Services/` - Service classes (Supabase, Spotify, etc.)
+- `Models/` - Data models
+- `App/` - App entry point and configuration
+- `Utils/` - Utility functions and helpers
+

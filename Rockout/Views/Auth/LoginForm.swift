@@ -1,22 +1,23 @@
 import SwiftUI
 
-struct ForgotPasswordView: View {
+struct LoginForm: View {
     @EnvironmentObject var authVM: AuthViewModel
 
     @State private var email = ""
-    @State private var message: String?
+    @State private var password = ""
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 20) {
-
-            Text("Reset Password")
-                .font(.title2)
-                .bold()
+        VStack(spacing: 16) {
 
             TextField("Email", text: $email)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+
+            SecureField("Password", text: $password)
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(8)
@@ -26,24 +27,16 @@ struct ForgotPasswordView: View {
                     .foregroundColor(.red)
             }
 
-            if let message = message {
-                Text(message)
-                    .foregroundColor(.green)
-            }
-
             Button {
                 Task {
                     do {
-                        try await authVM.sendPasswordReset(email: email)
-                        message = "Password reset sent!"
-                        errorMessage = nil
+                        try await authVM.login(email: email, password: password)
                     } catch {
                         errorMessage = error.localizedDescription
-                        message = nil
                     }
                 }
             } label: {
-                Text("Send Reset Email")
+                Text("Log In")
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(Color.blue)
@@ -51,6 +44,5 @@ struct ForgotPasswordView: View {
                     .foregroundColor(.white)
             }
         }
-        .padding()
     }
 }

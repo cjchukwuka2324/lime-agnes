@@ -8,10 +8,20 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>rockout.auth</string>
+			<string>RockoutRedirect</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>rockout</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.126775442990-lcfe0r6f3jdbm7ki0ah1ka888borf2kl</string>
 			</array>
 		</dict>
 	</array>
