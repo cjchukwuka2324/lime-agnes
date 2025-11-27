@@ -1,37 +1,53 @@
 import SwiftUI
 
 struct AuthFlowView: View {
-    enum Tab {
-        case login
-        case signup
-    }
-
-    @State private var selectedTab: Tab = .login
-    @State private var showForgotPassword = false
+    @EnvironmentObject var authVM: AuthViewModel
+    @State private var selectedTab: AuthTab = .login
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                Picker("", selection: $selectedTab) {
-                    Text("Log In").tag(Tab.login)
-                    Text("Sign Up").tag(Tab.signup)
-                }
-                .pickerStyle(SegmentedPickerStyle())
-                .padding()
+        VStack(spacing: 28) {
 
+            // LOGO
+            VStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(.white)
+                Text("RockOut")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .padding(.top, 48)
+
+            // TABS
+            Picker("Auth Tabs", selection: $selectedTab) {
+                Text("Login").tag(AuthTab.login)
+                Text("Sign Up").tag(AuthTab.signup)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+
+            // FORMS
+            VStack {
                 switch selectedTab {
                 case .login:
-                    LoginView(showForgotPassword: $showForgotPassword)
+                    LoginForm()
                 case .signup:
-                    SignupView()
+                    SignUpForm()
                 }
+            }
+            .padding(.horizontal)
 
-                Spacer()
-            }
-            .sheet(isPresented: $showForgotPassword) {
-                ForgotPasswordView()
-            }
-            .navigationTitle("RockOut")
+            // GOOGLE BUTTON
+            GoogleLoginButton()
+                .padding(.horizontal)
+
+            Spacer()
         }
+        .background(Color.black.ignoresSafeArea())
     }
+}
+
+enum AuthTab {
+    case login
+    case signup
 }

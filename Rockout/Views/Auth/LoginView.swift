@@ -2,66 +2,47 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject var authVM: AuthViewModel
-
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-
-    @Binding var showForgotPassword: Bool
+    @State private var showSignUp = false
+    @State private var showForgotPassword = false
 
     var body: some View {
-        VStack(spacing: 16) {
-            TextField("Email", text: $email)
-                .textFieldStyle(.roundedBorder)
-                .autocapitalization(.none)
-                .keyboardType(.emailAddress)
+        VStack(spacing: 30) {
 
-            SecureField("Password", text: $password)
-                .textFieldStyle(.roundedBorder)
+            LoginForm()
 
-            if let errorMessage = errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-            }
-
-            Button {
+            Button("Forgot password?") {
                 showForgotPassword = true
-            } label: {
-                Text("Forgot Password?")
-                    .font(.footnote)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .foregroundColor(.blue)
 
-            Button(action: login) {
-                if isLoading {
-                    ProgressView()
-                } else {
-                    Text("Log In")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                }
+            Button("Create an Account") {
+                showSignUp = true
             }
-            .disabled(isLoading || email.isEmpty || password.isEmpty)
-            .padding(.top, 8)
+            .foregroundColor(.blue)
+
+            // Google Login Button
+            Button {
+                authVM.loginWithGoogle()
+            } label: {
+                HStack {
+                    Image(systemName: "globe")
+                    Text("Continue with Google")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(10)
+            }
         }
         .padding()
-    }
-
-    private func login() {
-        errorMessage = nil
-        Task {
-            isLoading = true
-            defer { isLoading = false }
-            do {
-                try await authVM.login(email: email, password: password)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+        .sheet(isPresented: $showSignUp) {
+            SignUpView()
+                .environmentObject(authVM)
+        }
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView()
+                .environmentObject(authVM)
         }
     }
 }
