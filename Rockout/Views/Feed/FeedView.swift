@@ -1,19 +1,37 @@
 import SwiftUI
+import Combine
+
+private struct PostIdWrapper: Identifiable, Hashable {
+    let id: String
+}
+
+private struct ArtistIdWrapper: Identifiable, Hashable {
+    let id: String
+}
 
 struct FeedView: View {
     @StateObject private var viewModel = FeedViewModel()
-    @State private var showCustomDatePicker = false
-    @State private var customStartDate = Date()
-    @State private var customEndDate = Date()
+    @State private var showComposer = false
+    @State private var showUserSearch = false
+    @State private var showNotifications = false
+    @State private var selectedFeedType: FeedType = .forYou
+    @State private var unreadNotificationCount = 0
+    @State private var selectedPostId: PostIdWrapper?
+    @State private var selectedArtistId: ArtistIdWrapper?
     
     var body: some View {
         NavigationStack {
             ZStack {
+                // Animated gradient background matching SoundPrint
+                AnimatedGradientBackground()
+                    .ignoresSafeArea()
+                
                 if viewModel.isLoading {
                     VStack(spacing: 16) {
                         ProgressView()
+                            .tint(.white)
                         Text("Loading feed…")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.white.opacity(0.8))
                     }
                 } else if let error = viewModel.errorMessage {
                     VStack(spacing: 16) {
@@ -22,313 +40,241 @@ struct FeedView: View {
                             .foregroundColor(.red)
                         Text("Error")
                             .font(.headline)
+                            .foregroundColor(.white)
                         Text(error)
                             .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                         
                         Button("Retry") {
-                            viewModel.load()
+                            Task {
+                                await viewModel.load(feedType: selectedFeedType)
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                     }
                     .padding()
-                } else if viewModel.feedItems.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "person.2")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        Text("No Activity Yet")
-                            .font(.headline)
-                        Text("Follow users to see their RockList and StudioSessions comments here, or post a comment yourself!")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                        
-                        if let error = viewModel.errorMessage {
-                            Text("Error: \(error)")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                                .padding(.horizontal)
-                        }
-                    }
-                    .padding()
                 } else {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            // Time Filter
-                            timeFilterSection
+                    ZStack(alignment: .bottomTrailing) {
+                        VStack(spacing: 0) {
+                            // Feed Type Picker
+                            feedTypePicker
                             
-                            // Comment Input (for RockList comments)
-                            if let artistId = viewModel.selectedArtistId {
-                                commentInputSection(artistId: artistId)
-                            }
-                            
-                            // Feed Items
-                            ForEach(viewModel.feedItems) { item in
-                                feedItemRow(item)
-                                    .onTapGesture {
-                                        // Allow posting comments on RockList items
-                                        if item.commentType == "rocklist", let artistId = item.artistId {
-                                            viewModel.selectedArtistId = artistId
+                            if viewModel.posts.isEmpty {
+                                Spacer()
+                                VStack(spacing: 16) {
+                                    Image(systemName: selectedFeedType == .following ? "person.2" : "sparkles")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.white.opacity(0.6))
+                                    Text(selectedFeedType == .following ? "No Posts from Followed Users" : "No Posts Yet")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    Text(selectedFeedType == .following ? "Follow users to see their posts here." : "Be the first to post! Share your music discoveries or comment on leaderboards.")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white.opacity(0.7))
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal)
+                                }
+                                .padding()
+                                Spacer()
+                            } else {
+                                ScrollView {
+                                    VStack(spacing: 20) {
+                                        ForEach(viewModel.posts) { post in
+                                            FeedCardView(
+                                                post: post,
+                                                onLike: { postId in
+                                                    Task {
+                                                        await viewModel.toggleLike(postId: postId)
+                                                    }
+                                                },
+                                                onReply: { parentPost in
+                                                    selectedPostId = PostIdWrapper(id: parentPost.id)
+                                                },
+                                                onNavigateToParent: { parentPostId in
+                                                    selectedPostId = PostIdWrapper(id: parentPostId)
+                                                },
+                                                onNavigateToRockList: { artistId in
+                                                    selectedArtistId = ArtistIdWrapper(id: artistId)
+                                                },
+                                                showInlineReplies: true,
+                                                service: viewModel.service
+                                            )
+                                            .padding(.horizontal, 20)
+                                            .contentShape(Rectangle())
+                                            .onTapGesture {
+                                                // Navigate to post detail when tapping the card
+                                                selectedPostId = PostIdWrapper(id: post.id)
+                                            }
                                         }
                                     }
+                                    .padding(.vertical, 20)
+                                    .padding(.bottom, 100) // Add padding to prevent overlap with FAB
+                                }
                             }
                         }
-                        .padding()
+                        
+                        // Floating Action Button
+                        Button {
+                            showComposer = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.title2.weight(.semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(
+                                    Circle()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color(hex: "#1ED760"),
+                                                    Color(hex: "#1DB954")
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
+                                )
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 100) // Position above tab bar
                     }
                 }
             }
             .navigationTitle("Feed")
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button {
-                        viewModel.refresh()
+                        showNotifications = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                            
+                            if unreadNotificationCount > 0 {
+                                Text("\(unreadNotificationCount > 99 ? "99+" : "\(unreadNotificationCount)")")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(4)
+                                    .background(Color(hex: "#1ED760"))
+                                    .clipShape(Circle())
+                                    .offset(x: 6, y: -6)
+                            }
+                        }
+                    }
+                    
+                    Button {
+                        showUserSearch = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        Task {
+                            await viewModel.load(feedType: selectedFeedType)
+                        }
                     } label: {
                         Image(systemName: "arrow.clockwise")
+                            .foregroundColor(.white)
                     }
                 }
+            }
+            .sheet(isPresented: $showComposer) {
+                PostComposerView {
+                    Task {
+                        await viewModel.refresh(feedType: selectedFeedType)
+                    }
+                }
+            }
+            .sheet(isPresented: $showUserSearch) {
+                UserSearchView()
+            }
+            .sheet(isPresented: $showNotifications) {
+                NotificationsView()
             }
             .onAppear {
-                if viewModel.feedItems.isEmpty && !viewModel.isLoading {
-                    viewModel.load()
-                }
-            }
-            .sheet(isPresented: $showCustomDatePicker) {
-                customDatePickerSheet
-            }
-        }
-    }
-    
-    // MARK: - Time Filter Section
-    
-    private var timeFilterSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Time Range")
-                .font(.headline)
-            
-            Picker("Time Range", selection: $viewModel.selectedTimeFilter) {
-                ForEach(TimeFilter.allCases) { filter in
-                    Text(filter.displayName).tag(filter)
-                }
-                Text("Custom").tag(TimeFilter.custom(start: customStartDate, end: customEndDate))
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: viewModel.selectedTimeFilter) { newValue in
-                if case .custom = newValue {
-                    showCustomDatePicker = true
-                } else {
-                    viewModel.load()
-                }
-            }
-        }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
-    }
-    
-    // MARK: - Feed Item Row
-    
-    @ViewBuilder
-    private func feedItemRow(_ item: FeedItem) -> some View {
-        // Make RockList comments link to the RockList page
-        if item.commentType == "rocklist", let artistId = item.artistId {
-            NavigationLink {
-                RockListView(artistId: artistId)
-            } label: {
-                feedItemContent(item)
-            }
-            .buttonStyle(.plain)
-        } else {
-            feedItemContent(item)
-        }
-    }
-    
-    @ViewBuilder
-    private func feedItemContent(_ item: FeedItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                // Comment Type Badge
-                Group {
-                    if item.commentType == "rocklist" {
-                        Label("RockList", systemImage: "music.note.list")
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.2))
-                            .foregroundColor(.blue)
-                            .cornerRadius(8)
-                    } else if item.commentType == "studio_session" {
-                        Label("Studio", systemImage: "music.mic")
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.purple.opacity(0.2))
-                            .foregroundColor(.purple)
-                            .cornerRadius(8)
-                    }
-                }
-                
-                Spacer()
-                
-                Text(item.createdAt, style: .relative)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            // Artist Info (for RockList comments)
-            if item.commentType == "rocklist", let artistName = item.artistName {
-                HStack(spacing: 12) {
-                    // Artist Image
-                    if let imageURL = item.artistImageURL, let url = URL(string: imageURL) {
-                        AsyncImage(url: url) { image in
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        } placeholder: {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        }
-                        .frame(width: 50, height: 50)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 50, height: 50)
-                            .overlay(
-                                Image(systemName: "music.note")
-                                    .foregroundColor(.secondary)
-                            )
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("on \(artistName)'s RockList")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        
-                        if item.commentType == "rocklist" {
-                            HStack(spacing: 4) {
-                                Text("Tap to view RockList")
-                                    .font(.caption)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(.blue)
-                        }
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.vertical, 4)
-            }
-            
-            // User Info
-            HStack(spacing: 8) {
-                Image(systemName: "person.circle.fill")
-                    .foregroundColor(.secondary)
-                Text(item.displayName)
-                    .font(.headline)
-            }
-            
-            // Comment Content
-            Text(item.content)
-                .font(.body)
-                .padding(.leading, 4)
-        }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.systemGray4), lineWidth: 1)
-        )
-    }
-    
-    // MARK: - Comment Input Section
-    
-    @ViewBuilder
-    private func commentInputSection(artistId: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .foregroundColor(.blue)
-                Text("Post a comment")
-                    .font(.headline)
-            }
-            
-            HStack(spacing: 12) {
-                TextField("Add a comment...", text: $viewModel.commentText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(.systemGray6))
-                    )
-                    .lineLimit(3...6)
-                
-                Button {
+                if viewModel.posts.isEmpty && !viewModel.isLoading {
                     Task {
-                        await viewModel.postRockListComment(artistId: artistId)
-                    }
-                } label: {
-                    if viewModel.isPostingComment {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                            .foregroundColor(.white)
-                            .font(.title3)
-                            .padding(12)
-                            .background(
-                                Circle()
-                                    .fill(Color.blue)
-                            )
+                        await viewModel.load(feedType: selectedFeedType)
                     }
                 }
-                .disabled(viewModel.commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isPostingComment)
+            }
+            .onChange(of: selectedFeedType) { _, newType in
+                Task {
+                    await viewModel.load(feedType: newType)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .feedDidUpdate)) { _ in
+                // Automatically refresh feed when a new post is created
+                Task {
+                    await viewModel.load(feedType: selectedFeedType)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .notificationReceived)) { _ in
+                // Update notification count when new notification is received
+                Task {
+                    unreadNotificationCount = await NotificationService.shared.getUnreadCount()
+                }
+            }
+            .task {
+                // Load initial notification count
+                unreadNotificationCount = await NotificationService.shared.getUnreadCount()
+            }
+            .navigationDestination(item: $selectedPostId) { wrapper in
+                PostDetailView(postId: wrapper.id, service: viewModel.service)
+            }
+            .navigationDestination(item: $selectedArtistId) { wrapper in
+                RockListView(artistId: wrapper.id)
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.systemGray4), lineWidth: 1)
-        )
     }
     
-    // MARK: - Custom Date Picker
+    // MARK: - Feed Type Picker
     
-    private var customDatePickerSheet: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text("Start Date")) {
-                    DatePicker("Start", selection: $customStartDate, displayedComponents: [.date, .hourAndMinute])
-                }
-                
-                Section(header: Text("End Date")) {
-                    DatePicker("End", selection: $customEndDate, displayedComponents: [.date, .hourAndMinute])
-                }
+    private var feedTypePicker: some View {
+        HStack(spacing: 0) {
+            Button {
+                selectedFeedType = .forYou
+            } label: {
+                Text("For You")
+                    .font(.headline)
+                    .foregroundColor(selectedFeedType == .forYou ? .white : .white.opacity(0.6))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 0)
+                            .fill(selectedFeedType == .forYou ? Color.white.opacity(0.2) : Color.clear)
+                    )
             }
-            .navigationTitle("Custom Date Range")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        showCustomDatePicker = false
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Apply") {
-                        viewModel.selectedTimeFilter = .custom(start: customStartDate, end: customEndDate)
-                        viewModel.load()
-                        showCustomDatePicker = false
-                    }
-                }
+            
+            Button {
+                selectedFeedType = .following
+            } label: {
+                Text("Following")
+                    .font(.headline)
+                    .foregroundColor(selectedFeedType == .following ? .white : .white.opacity(0.6))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 0)
+                            .fill(selectedFeedType == .following ? Color.white.opacity(0.2) : Color.clear)
+                    )
             }
         }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.1))
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
     }
 }
-

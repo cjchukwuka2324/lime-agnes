@@ -5,6 +5,14 @@ final class SpotifyAPI: ObservableObject {
 
     private let auth = SpotifyAuthService.shared
     private let baseURL = "https://api.spotify.com/v1"
+    
+    // MARK: - Spotify Time Range
+    
+    enum SpotifyTimeRange: String, CaseIterable {
+        case shortTerm = "short_term"    // ~4 weeks
+        case mediumTerm = "medium_term"  // ~6 months
+        case longTerm = "long_term"      // ~several years
+    }
 
     // Allowed Spotify recommendation genres (Spotify’s official subset)
     private let allowedSeedGenres: Set<String> = [
@@ -52,10 +60,28 @@ final class SpotifyAPI: ObservableObject {
 
         if !(200...299).contains(http.statusCode) {
             let bodyString = String(data: data, encoding: .utf8) ?? "(no error body)"
+            
+            // Provide user-friendly error messages for common status codes
+            let errorMessage: String
+            switch http.statusCode {
+            case 401:
+                errorMessage = "Authentication failed. Please reconnect your Spotify account."
+            case 403:
+                errorMessage = "Access denied. Please check your Spotify app settings:\n\n1. Go to https://developer.spotify.com/dashboard\n2. Open your app settings\n3. Make sure 'rockout://auth' is added to Redirect URIs\n4. If your app is in Development mode, add your Spotify email to Users and Access\n5. Save and wait 1-2 minutes for changes to take effect"
+            case 404:
+                errorMessage = "Spotify resource not found. Please try again."
+            case 429:
+                errorMessage = "Too many requests. Please wait a moment and try again."
+            case 500...599:
+                errorMessage = "Spotify server error. Please try again later."
+            default:
+                errorMessage = "API error (\(http.statusCode)): \(bodyString)"
+            }
+            
             throw NSError(
                 domain: "SpotifyAPI",
                 code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "API error (\(http.statusCode)): \(bodyString)"]
+                userInfo: [NSLocalizedDescriptionKey: errorMessage]
             )
         }
 
@@ -67,31 +93,112 @@ final class SpotifyAPI: ObservableObject {
         let data = try await authedRequest(path: "/me")
         return try JSONDecoder().decode(SpotifyUserProfile.self, from: data)
     }
+    
+    // Alias for compatibility
+    func getCurrentUserProfile() async throws -> SpotifyUserProfile {
+        return try await getUserProfile()
+    }
+    
+    // MARK: - Recently Played
+    func getRecentlyPlayed(limit: Int = 20, after: Date? = nil) async throws -> SpotifyRecentlyPlayedResponse {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        
+        if let after = after {
+            // Convert Date to Unix timestamp in milliseconds
+            let timestampMs = Int64(after.timeIntervalSince1970 * 1000)
+            queryItems.append(URLQueryItem(name: "after", value: "\(timestampMs)"))
+        }
+        
+        let data = try await authedRequest(
+            path: "/me/player/recently-played",
+            queryItems: queryItems
+        )
+        return try JSONDecoder().decode(SpotifyRecentlyPlayedResponse.self, from: data)
+    }
+    
+    // MARK: - Followed Artists
+    func getFollowedArtists(limit: Int = 20, after: String? = nil) async throws -> SpotifyFollowedArtistsResponse {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "type", value: "artist"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        
+        if let after = after {
+            queryItems.append(URLQueryItem(name: "after", value: after))
+        }
+        
+        let data = try await authedRequest(
+            path: "/me/following",
+            queryItems: queryItems
+        )
+        return try JSONDecoder().decode(SpotifyFollowedArtistsResponse.self, from: data)
+    }
 
     // MARK: - Top Artists
-    func getTopArtists(limit: Int = 10) async throws -> [SpotifyArtist] {
+    func getTopArtists(timeRange: SpotifyTimeRange = .mediumTerm, limit: Int = 10) async throws -> SpotifyTopArtistsResponse {
         let data = try await authedRequest(
             path: "/me/top/artists",
             queryItems: [
                 URLQueryItem(name: "limit", value: "\(limit)"),
-                URLQueryItem(name: "time_range", value: "medium_term")
+                URLQueryItem(name: "time_range", value: timeRange.rawValue)
             ]
         )
 
-        return try JSONDecoder().decode(SpotifyTopArtistsResponse.self, from: data).items
+        return try JSONDecoder().decode(SpotifyTopArtistsResponse.self, from: data)
     }
 
     // MARK: - Top Tracks
-    func getTopTracks(limit: Int = 10) async throws -> [SpotifyTrack] {
+    func getTopTracks(timeRange: SpotifyTimeRange = .mediumTerm, limit: Int = 10) async throws -> SpotifyTopTracksResponse {
         let data = try await authedRequest(
             path: "/me/top/tracks",
             queryItems: [
                 URLQueryItem(name: "limit", value: "\(limit)"),
-                URLQueryItem(name: "time_range", value: "medium_term")
+                URLQueryItem(name: "time_range", value: timeRange.rawValue)
             ]
         )
 
-        return try JSONDecoder().decode(SpotifyTopTracksResponse.self, from: data).items
+        return try JSONDecoder().decode(SpotifyTopTracksResponse.self, from: data)
+    }
+    
+    // MARK: - Get Artist(s)
+    
+    /// Fetch a single artist by ID
+    func getArtist(id: String) async throws -> SpotifyArtist {
+        let data = try await authedRequest(path: "/artists/\(id)")
+        return try JSONDecoder().decode(SpotifyArtist.self, from: data)
+    }
+    
+    /// Fetch multiple artists by IDs (up to 50 at a time)
+    func getArtists(ids: [String]) async throws -> [SpotifyArtist] {
+        guard !ids.isEmpty else { return [] }
+        
+        // Spotify API allows up to 50 IDs at a time
+        var allArtists: [SpotifyArtist] = []
+        let chunkSize = 50
+        
+        for i in stride(from: 0, to: ids.count, by: chunkSize) {
+            let endIndex = min(i + chunkSize, ids.count)
+            let chunk = Array(ids[i..<endIndex])
+            let idsString = chunk.joined(separator: ",")
+            
+            let data = try await authedRequest(
+                path: "/artists",
+                queryItems: [
+                    URLQueryItem(name: "ids", value: idsString)
+                ]
+            )
+            
+            struct ArtistsResponse: Codable {
+                let artists: [SpotifyArtist]
+            }
+            
+            let response = try JSONDecoder().decode(ArtistsResponse.self, from: data)
+            allArtists.append(contentsOf: response.artists)
+        }
+        
+        return allArtists
     }
 }
 

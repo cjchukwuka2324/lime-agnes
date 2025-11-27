@@ -33,6 +33,9 @@ struct RockoutApp: App {
                         Task {
                             do {
                                 try await SpotifyAuthService.shared.handleRedirectURL(url)
+                                // RockList ingestion is automatically triggered from RootAppView
+                                // when authentication state changes after successful OAuth
+                                print("✅ Spotify OAuth successful")
                             } catch {
                                 print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
                             }

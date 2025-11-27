@@ -369,8 +369,7 @@ final class RockListDataService {
     ) async throws -> [SpotifyArtist] {
         let response = try await spotifyAPI.getTopArtists(
             timeRange: timeRange,
-            limit: limit,
-            offset: 0
+            limit: limit
         )
         return response.items
     }
@@ -446,8 +445,7 @@ final class RockListDataService {
     ) async throws -> [SpotifyTrack] {
         let response = try await spotifyAPI.getTopTracks(
             timeRange: timeRange,
-            limit: limit,
-            offset: 0
+            limit: limit
         )
         
         // Filter tracks by the specified artist

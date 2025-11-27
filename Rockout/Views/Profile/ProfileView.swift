@@ -1,135 +1,371 @@
 import SwiftUI
+import PhotosUI
 
 struct ProfileView: View {
     @EnvironmentObject var authVM: AuthViewModel
     @StateObject private var spotifyAuth = SpotifyAuthService.shared
+    @StateObject private var userPostsViewModel = FeedViewModel()
+    @StateObject private var userRepliesViewModel = FeedViewModel()
+    @StateObject private var userLikedViewModel = FeedViewModel()
 
     @State private var isLoading = false
     @State private var message: String?
+    @State private var currentUserId: String?
+    @State private var selectedProfileTab: ProfileContentTab = .posts
+    @State private var userProfile: UserProfileService.UserProfile?
+    @State private var profilePictureURL: URL?
+    @State private var showSettings = false
+    @State private var showImagePicker = false
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedImage: UIImage?
+    @State private var isUploadingProfilePicture = false
+    
+    enum ProfileContentTab: String, CaseIterable {
+        case posts = "Posts"
+        case replies = "Replies"
+        case likes = "Likes"
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // Background
-                Color.black.ignoresSafeArea()
+                // Animated gradient background matching SoundPrint
+                AnimatedGradientBackground()
+                    .ignoresSafeArea()
                 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Account Section
-                        accountSection
+                        // Profile Header with Picture
+                        profileHeaderSection
                             .padding(.horizontal, 20)
                             .padding(.top, 20)
                         
-                        // Spotify Connection Section
-                        SpotifyConnectionView()
-                            .environmentObject(spotifyAuth)
+                        // Content Tabs (Posts, Replies, Likes)
+                        if let userId = currentUserId {
+                            profileContentTabs(userId: userId)
+                                .padding(.horizontal, 20)
+                        }
                         
-                        // Logout Section
-                        logoutSection
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 40)
+                        Spacer()
+                            .frame(height: 20)
                     }
                 }
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundColor(.white)
+                            .font(.title3)
+                    }
+                }
+            }
             .task {
                 await authVM.refreshUser()
-                await spotifyAuth.loadConnection()
+                await loadUserProfile()
+                if let userId = currentUserId {
+                    await loadCurrentContent()
+                }
+            }
+            .sheet(isPresented: $showSettings) {
+                AccountSettingsView()
+            }
+            .photosPicker(isPresented: $showImagePicker, selection: $selectedPhoto, matching: .images)
+            .onChange(of: selectedPhoto) { _, newItem in
+                if let item = newItem {
+                    Task {
+                        await loadProfileImage(from: item)
+                    }
+                }
+            }
+            .onChange(of: selectedProfileTab) { _, newTab in
+                if let userId = currentUserId {
+                    Task {
+                        await loadContentForTab(newTab, userId: userId)
+                    }
+                }
             }
         }
     }
     
-    // MARK: - Account Section
-    private var accountSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Account")
-                .font(.title2)
-                .fontWeight(.bold)
+    // MARK: - Profile Header Section
+    
+    private var profileHeaderSection: some View {
+        VStack(spacing: 20) {
+            // Profile Picture
+            Button {
+                showImagePicker = true
+            } label: {
+                ZStack(alignment: .bottomTrailing) {
+                    if let imageURL = profilePictureURL {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .tint(.white)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            case .failure:
+                                defaultProfileAvatar
+                            @unknown default:
+                                defaultProfileAvatar
+                            }
+                        }
+                    } else if let selectedImage = selectedImage {
+                        Image(uiImage: selectedImage)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        defaultProfileAvatar
+                    }
+                    
+                    // Edit Badge
+                    Circle()
+                        .fill(Color(hex: "#1ED760"))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "camera.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 14))
+                        )
+                }
+                .frame(width: 100, height: 100)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.3), lineWidth: 3)
+                )
+                .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+            }
+            .disabled(isUploadingProfilePicture)
+            
+            if isUploadingProfilePicture {
+                ProgressView()
+                    .tint(.white)
+            }
+            
+            // User Name
+            Text(profileDisplayName)
+                .font(.title2.bold())
                 .foregroundColor(.white)
             
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Email")
-                        .foregroundColor(.white.opacity(0.8))
-                    Spacer()
-                    Text(authVM.currentUserEmail ?? "Unknown")
-                        .foregroundColor(.white)
-                }
-                .padding()
-                .background(Color.white.opacity(0.05))
-                
-                Divider()
-                    .background(Color.white.opacity(0.1))
-                
-                NavigationLink {
-                    ResetPasswordView()
-                } label: {
-                    HStack {
-                        Text("Change Password")
-                            .foregroundColor(.white)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(.white.opacity(0.6))
-                            .font(.caption)
-                    }
-                    .padding()
-                    .background(Color.white.opacity(0.05))
-                }
+            if let handle = profileHandle {
+                Text(handle)
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.7))
             }
-            .cornerRadius(12)
         }
     }
     
-    // MARK: - Logout Section
-    private var logoutSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Account Actions")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-            
-            VStack(spacing: 12) {
-                // Log out of Rockout
-                Button(role: .destructive) {
-                    logout()
-                } label: {
-                    HStack {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                        Text("Log Out of Rockout")
-                            .fontWeight(.semibold)
-                    }
+    private var defaultProfileAvatar: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.2),
+                        Color.white.opacity(0.1)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                Text(profileInitials)
+                    .font(.title.bold())
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.red.opacity(0.8))
-                    .cornerRadius(12)
+            )
+    }
+    
+    private var profileDisplayName: String {
+        guard let profile = userProfile else { return "User" }
+        if let firstName = profile.firstName, let lastName = profile.lastName {
+            return "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+        } else if let displayName = profile.displayName {
+            return displayName
+        } else {
+            return authVM.currentUserEmail?.components(separatedBy: "@").first?.capitalized ?? "User"
+        }
+    }
+    
+    private var profileHandle: String? {
+        guard let profile = userProfile else { return nil }
+        if let email = authVM.currentUserEmail {
+            let emailPrefix = email.components(separatedBy: "@").first ?? "user"
+            return "@\(emailPrefix)"
+        } else if let firstName = profile.firstName {
+            return "@\(firstName.lowercased())"
+        }
+        return nil
+    }
+    
+    private var profileInitials: String {
+        guard let profile = userProfile else { return "U" }
+        if let firstName = profile.firstName, let lastName = profile.lastName {
+            let firstInitial = String(firstName.prefix(1)).uppercased()
+            let lastInitial = String(lastName.prefix(1)).uppercased()
+            return "\(firstInitial)\(lastInitial)"
+        } else if let displayName = profile.displayName {
+            return String(displayName.prefix(2)).uppercased()
+        } else if let email = authVM.currentUserEmail {
+            return String(email.prefix(2)).uppercased()
+        }
+        return "U"
+    }
+    
+    
+    // MARK: - Profile Content Tabs
+    
+    @ViewBuilder
+    private func profileContentTabs(userId: String) -> some View {
+        VStack(spacing: 20) {
+            // Tab Picker
+            Picker("Content Type", selection: $selectedProfileTab) {
+                ForEach(ProfileContentTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
                 }
-                .disabled(isLoading)
-                
-                // Note about Spotify
-                if spotifyAuth.isAuthorized() {
-                    Text("Note: Logging out of Rockout will also disconnect Spotify")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            
+            // Content View
+            Group {
+                switch selectedProfileTab {
+                case .posts:
+                    profileContentList(viewModel: userPostsViewModel, emptyIcon: "square.and.pencil", emptyTitle: "No posts yet", emptyMessage: "Share your thoughts and RockList rankings!")
+                case .replies:
+                    profileContentList(viewModel: userRepliesViewModel, emptyIcon: "bubble.left", emptyTitle: "No replies yet", emptyMessage: "Start replying to posts to see them here!")
+                case .likes:
+                    profileContentList(viewModel: userLikedViewModel, emptyIcon: "heart", emptyTitle: "No likes yet", emptyMessage: "Like posts to see them here!")
                 }
             }
         }
     }
-
-    private func logout() {
-        Task {
-            isLoading = true
-            defer { isLoading = false }
+    
+    @ViewBuilder
+    private func profileContentList(viewModel: FeedViewModel, emptyIcon: String, emptyTitle: String, emptyMessage: String) -> some View {
+        if viewModel.isLoading {
+            HStack {
+                Spacer()
+                ProgressView()
+                    .tint(.white)
+                Spacer()
+            }
+            .padding()
+        } else if let error = viewModel.errorMessage {
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundColor(.red)
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+        } else if viewModel.posts.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: emptyIcon)
+                    .font(.largeTitle)
+                    .foregroundColor(.white.opacity(0.5))
+                Text(emptyTitle)
+                    .font(.headline)
+                    .foregroundColor(.white.opacity(0.7))
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+        } else {
+            LazyVStack(spacing: 16) {
+                ForEach(viewModel.posts) { post in
+                    FeedCardView(
+                        post: post,
+                        showInlineReplies: true,
+                        service: InMemoryFeedService.shared
+                    )
+                }
+            }
+        }
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func loadUserProfile() async {
+        if let profile = try? await UserProfileService.shared.getCurrentUserProfile() {
+            userProfile = profile
+            currentUserId = profile.id.uuidString
             
-            // Always disconnect Spotify when logging out (clears local storage too)
-            await spotifyAuth.disconnect()
-            
-            // Log out of Rockout
-            await authVM.logout()
-            message = "Logged out."
+            // Load profile picture URL
+            if let pictureURLString = profile.profilePictureURL, let url = URL(string: pictureURLString) {
+                profilePictureURL = url
+            }
+        }
+    }
+    
+    private func loadCurrentContent() async {
+        guard let userId = currentUserId else { return }
+        await loadContentForTab(selectedProfileTab, userId: userId)
+    }
+    
+    private func loadContentForTab(_ tab: ProfileContentTab, userId: String) async {
+        switch tab {
+        case .posts:
+            await userPostsViewModel.loadUserPosts(userId: userId)
+        case .replies:
+            await userRepliesViewModel.loadUserReplies(userId: userId)
+        case .likes:
+            await userLikedViewModel.loadUserLikedPosts(userId: userId)
+        }
+    }
+    
+    private func loadProfileImage(from item: PhotosPickerItem) async {
+        do {
+            if let data = try await item.loadTransferable(type: Data.self),
+               let image = UIImage(data: data) {
+                selectedImage = image
+                
+                // Upload profile picture
+                isUploadingProfilePicture = true
+                defer { isUploadingProfilePicture = false }
+                
+                // Upload to Supabase storage
+                guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                    message = "Failed to process image"
+                    return
+                }
+                
+                guard let userId = SupabaseService.shared.client.auth.currentUser?.id else {
+                    message = "Not authenticated"
+                    return
+                }
+                
+                let filename = "\(UUID().uuidString).jpg"
+                let path = "profile_pictures/\(userId.uuidString)/\(filename)"
+                
+                let supabase = SupabaseService.shared.client
+                try await supabase.storage
+                    .from("feed-images")
+                    .upload(path: path, file: imageData)
+                
+                let publicURL = try supabase.storage
+                    .from("feed-images")
+                    .getPublicURL(path: path)
+                
+                // Update profile with new picture URL
+                try await UserProfileService.shared.updateProfilePicture(publicURL.absoluteString)
+                
+                profilePictureURL = publicURL
+                await loadUserProfile() // Reload profile
+            }
+        } catch {
+            message = "Failed to upload profile picture: \(error.localizedDescription)"
         }
     }
 }

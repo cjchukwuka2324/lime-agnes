@@ -12,7 +12,7 @@ final class SpotifyAuthService: ObservableObject {
     @Published private(set) var spotifyConnection: SpotifyConnection?
     @Published private(set) var isLoading = false
 
-    private let clientID = "13aa07c310bb445d82fc8035ee426d0c"
+    private let clientID = "0d1441ca6ac6428f83b8980295fe7f14"
     private let redirectURI = "rockout://auth"
     private let tokenURL = "https://accounts.spotify.com/api/token"
     private let scopes = "user-read-email user-read-private user-top-read"
@@ -335,6 +335,8 @@ final class SpotifyAuthService: ObservableObject {
             )
             
             spotifyConnection = connection
+            // RockList ingestion is automatically triggered from RootAppView and RockOutApp
+            // when authentication state changes, avoiding circular dependencies
         } catch {
             print("Failed to save Spotify connection: \(error)")
             // Still save tokens even if profile fetch fails

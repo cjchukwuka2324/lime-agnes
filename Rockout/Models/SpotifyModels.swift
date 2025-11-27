@@ -12,6 +12,7 @@ struct SpotifyUserProfile: Codable, Identifiable {
     let id: String
     let display_name: String?
     let email: String?
+    let country: String?
     let images: [SpotifyImage]?
 
     var imageURL: URL? {
@@ -53,6 +54,11 @@ struct SpotifyTrack: Codable, Identifiable {
     let album: SpotifyAlbum?    // <-- MUST be optional
     let artists: [SpotifyArtist]
     let popularity: Int?
+    let duration_ms: Int?
+    
+    var durationMs: Int {
+        duration_ms ?? 0
+    }
 }
 
 // MARK: - Top endpoints
@@ -62,6 +68,40 @@ struct SpotifyTopArtistsResponse: Codable {
 
 struct SpotifyTopTracksResponse: Codable {
     let items: [SpotifyTrack]
+}
+
+// MARK: - Recently Played
+
+struct SpotifyRecentlyPlayedHistoryItem: Codable {
+    let track: SpotifyTrack
+    let played_at: String?
+    
+    var playedAt: Date? {
+        guard let playedAtString = played_at else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: playedAtString)
+    }
+}
+
+struct SpotifyRecentlyPlayedResponse: Codable {
+    let items: [SpotifyRecentlyPlayedHistoryItem]
+}
+
+// MARK: - Followed Artists
+
+struct SpotifyFollowedArtistsResponse: Codable {
+    let artists: SpotifyCursorBasedPage<SpotifyArtist>
+}
+
+struct SpotifyCursorBasedPage<T: Codable>: Codable {
+    let items: [T]
+    let next: String?
+    let cursors: SpotifyCursor?
+    
+    struct SpotifyCursor: Codable {
+        let after: String?
+    }
 }
 
 // MARK: - Recommendations

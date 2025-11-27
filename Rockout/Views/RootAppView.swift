@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct RootAppView: View {
     @EnvironmentObject var authVM: AuthViewModel
@@ -52,4 +53,5 @@ struct RootAppView: View {
             }
         }
     }
+    
 }

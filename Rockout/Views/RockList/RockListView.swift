@@ -8,6 +8,14 @@ struct RockListView: View {
     @State private var customStartDate = Date()
     @State private var customEndDate = Date()
     @State private var showShareSheet = false
+    @State private var showPostComposer = false
+    @State private var composerLeaderboardEntry: LeaderboardEntrySummary?
+    @State private var composerPrefilledText: String?
+    @State private var showInstagramHandlePrompt = false
+    @State private var instagramHandleInput = ""
+    @State private var currentInstagramHandle: String?
+    @State private var shareImage: UIImage?
+    @State private var isGeneratingRankCardImage = false
     
     init(artistId: String) {
         self.artistId = artistId
@@ -17,31 +25,9 @@ struct RockListView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // STRONG MULTI-PASS SPOTIFY GRADIENT BACKGROUND (matching SoundPrint)
-                LinearGradient(
-                    colors: [
-                        Color(hex: "#050505"), // near-black
-                        Color(hex: "#0C7C38"), // deep green
-                        Color(hex: "#1DB954"), // Spotify green
-                        Color(hex: "#1ED760"), // bright lime
-                        Color(hex: "#050505")  // back to near-black
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-                
-                // Optional subtle vignette
-                RadialGradient(
-                    colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.6)
-                    ],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 600
-                )
-                .ignoresSafeArea()
+                // Animated gradient background matching SoundPrint
+                AnimatedGradientBackground()
+                    .ignoresSafeArea()
                 
                 if case .loading = viewModel.state {
                     VStack(spacing: 16) {
@@ -113,12 +99,39 @@ struct RockListView: View {
                 if case .idle = viewModel.state {
                     viewModel.load()
                 }
+                // Load Instagram handle
+                Task {
+                    await loadInstagramHandle()
+                }
             }
             .sheet(isPresented: $showCustomDatePicker) {
-                customDatePickerSheet
+                customDatePickerSheet(isPresented: $showCustomDatePicker)
             }
             .sheet(isPresented: $showShareSheet) {
-                ShareSheet(items: [viewModel.shareMessage()])
+                if let image = shareImage {
+                    ShareSheet(activityItems: [image])
+                } else {
+                    ShareSheet(activityItems: [viewModel.shareMessage()])
+                }
+            }
+            .sheet(isPresented: $showPostComposer) {
+                PostComposerView(
+                    leaderboardEntry: composerLeaderboardEntry,
+                    prefilledText: composerPrefilledText
+                ) {
+                    // Post created - navigate to Feed tab
+                    NotificationCenter.default.post(name: .navigateToFeed, object: nil)
+                    NotificationCenter.default.post(name: .feedDidUpdate, object: nil)
+                }
+            }
+            .sheet(isPresented: $showInstagramHandlePrompt) {
+                instagramHandlePromptSheet
+            }
+            .onChange(of: showInstagramHandlePrompt) { isPresented in
+                if isPresented {
+                    // Pre-fill Instagram handle if it exists
+                    instagramHandleInput = currentInstagramHandle?.replacingOccurrences(of: "@", with: "") ?? ""
+                }
             }
         }
     }
@@ -338,23 +351,9 @@ struct RockListView: View {
     
     @ViewBuilder
     private func currentUserRankCard(_ entry: RockListEntry, artist: ArtistSummary) -> some View {
-        ZStack {
-            // Gradient background matching SoundPrint style
-            LinearGradient(
-                colors: [
-                    Color(hex: "#1ED760"),
-                    Color(hex: "#1DB954"),
-                    Color(hex: "#109C4B")
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .cornerRadius(20)
-            
-            // Content
-            VStack(alignment: .leading, spacing: 16) {
-                // Artist Header
-                HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
+            // Artist Header
+            HStack(spacing: 12) {
                     // Artist Image - Try Spotify API first, then fallback to backend URL
                     if let spotifyImageURL = viewModel.artistImageURL {
                         AsyncImage(url: spotifyImageURL) { image in
@@ -418,19 +417,6 @@ struct RockListView: View {
                     }
                     
                     Spacer()
-                    
-                    Button {
-                        showShareSheet = true
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .foregroundColor(.white)
-                            .font(.title3)
-                            .padding(8)
-                            .background(
-                                Circle()
-                                    .fill(Color.white.opacity(0.2))
-                            )
-                    }
                 }
                 
                 Divider()
@@ -452,7 +438,7 @@ struct RockListView: View {
                         Text("Score")
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.8))
-                        Text(String(format: "%.0f", entry.score))
+                        Text(formatScore(entry.score))
                             .font(.title2.bold())
                             .foregroundColor(.white)
                     }
@@ -467,14 +453,85 @@ struct RockListView: View {
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.9))
                 }
+                
+                // Social Media Links
+                Divider()
+                    .background(Color.white.opacity(0.2))
+                
+                HStack(spacing: 16) {
+                    Text("Share your ranking:")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                    
+                    Spacer()
+                    
+                    // Instagram Link - Export rank card snapshot to Instagram Stories
+                    Button {
+                        if let handle = currentInstagramHandle, !handle.isEmpty {
+                            // Generate and share rank card to Instagram
+                            Task {
+                                await generateAndShareRankCardImage(entry: entry, artist: artist, toInstagram: true)
+                            }
+                        } else {
+                            // Prompt for Instagram handle
+                            showInstagramHandlePrompt = true
+                        }
+                    } label: {
+                        if isGeneratingRankCardImage {
+                            ProgressView()
+                                .tint(.white)
+                                .frame(width: 36, height: 36)
+                        } else {
+                            Image(systemName: "camera.fill")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                        }
+                    }
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.15))
+                    )
+                    .disabled(isGeneratingRankCardImage)
+                    
+                    // Twitter/X Link
+                    Link(destination: URL(string: "https://twitter.com/rockoutapp")!) {
+                        Image(systemName: "at")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle()
+                                    .fill(Color.white.opacity(0.15))
+                            )
+                    }
+                    
+                    // Share Button - Export rank card to social media
+                    Button {
+                        Task {
+                            await generateAndShareRankCardImage(entry: entry, artist: artist, toInstagram: false)
+                        }
+                    } label: {
+                        if isGeneratingRankCardImage {
+                            ProgressView()
+                                .tint(.white)
+                                .frame(width: 36, height: 36)
+                        } else {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                        }
+                    }
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.15))
+                    )
+                    .disabled(isGeneratingRankCardImage)
+                }
             }
             .padding(20)
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.25), lineWidth: 1.5)
-        )
-        .shadow(color: Color.black.opacity(0.4), radius: 16, x: 0, y: 8)
+            .glassMorphism()
     }
     
     // MARK: - Not Ranked Card
@@ -483,7 +540,7 @@ struct RockListView: View {
     private func notRankedCard(artist: ArtistSummary) -> some View {
         VStack(spacing: 20) {
             // Artist Image - Try Spotify API first, then fallback to backend URL
-            if let spotifyImageURL = viewModel.artistImageURL {
+            if let spotifyImageURL = self.viewModel.artistImageURL {
                 AsyncImage(url: spotifyImageURL) { image in
                     image
                         .resizable()
@@ -594,9 +651,17 @@ struct RockListView: View {
                     .foregroundColor(.white)
             }
             
-            Text("Your comment will appear in the Feed timeline")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.7))
+            if let artistName = viewModel.rockList?.artist.name {
+                Text("Your comment will appear in the Feed timeline and reference the \(artistName) RockList leaderboard")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("Your comment will appear in the Feed timeline and reference this artist's RockList leaderboard")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
             
             Divider()
                 .background(Color.white.opacity(0.2))
@@ -659,72 +724,124 @@ struct RockListView: View {
             }
             
             ForEach(entries) { entry in
-                rockListRow(entry, isCurrentUser: entry.isCurrentUser)
+                rockListRow(entry, isCurrentUser: entry.isCurrentUser, artist: viewModel.rockList?.artist)
             }
         }
+        .padding(20)
+        .glassMorphism()
     }
     
     // MARK: - RockList Row
     
     @ViewBuilder
-    private func rockListRow(_ entry: RockListEntry, isCurrentUser: Bool) -> some View {
-        HStack(spacing: 16) {
-            // Rank
-            ZStack {
-                Circle()
-                    .fill(
-                        isCurrentUser ?
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "#1ED760").opacity(0.3),
-                                Color(hex: "#1DB954").opacity(0.2)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ) :
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.15),
-                                Color.white.opacity(0.05)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+    private func rockListRow(_ entry: RockListEntry, isCurrentUser: Bool, artist: ArtistSummary?) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 16) {
+                // Rank
+                ZStack {
+                    Circle()
+                        .fill(
+                            isCurrentUser ?
+                            LinearGradient(
+                                colors: [
+                                    Color(hex: "#1ED760").opacity(0.3),
+                                    Color(hex: "#1DB954").opacity(0.2)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ) :
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.15),
+                                    Color.white.opacity(0.05)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                    .frame(width: 44, height: 44)
+                        .frame(width: 44, height: 44)
+                    
+                    Text("#\(entry.rank)")
+                        .font(.headline.weight(.bold))
+                        .foregroundColor(isCurrentUser ? Color(hex: "#1ED760") : .white)
+                }
                 
-                Text("#\(entry.rank)")
-                    .font(.headline.weight(.bold))
-                    .foregroundColor(isCurrentUser ? Color(hex: "#1ED760") : .white)
-            }
-            
-            // User Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.displayName)
-                    .font(.body.weight(isCurrentUser ? .semibold : .regular))
-                    .foregroundColor(.white)
-                
-                if isCurrentUser {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption2)
-                        Text("You")
-                            .font(.caption)
+                // User Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.displayName)
+                        .font(.body.weight(isCurrentUser ? .semibold : .regular))
+                        .foregroundColor(.white)
+                    
+                    if isCurrentUser {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                            Text("You")
+                                .font(.caption)
+                        }
+                        .foregroundColor(Color(hex: "#1ED760"))
                     }
-                    .foregroundColor(Color(hex: "#1ED760"))
+                }
+                
+                Spacer()
+                
+                // Score
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(formatScore(entry.score))
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    Text("pts")
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.6))
                 }
             }
             
-            Spacer()
-            
-            // Score
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(String(format: "%.0f", entry.score))
-                    .font(.headline)
-                    .foregroundColor(.white)
-                Text("pts")
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.6))
+            // Action Buttons
+            if let artist = artist {
+                HStack(spacing: 12) {
+                    Button {
+                        let leaderboardEntry = leaderboardEntrySummary(from: entry, artist: artist)
+                        composerLeaderboardEntry = leaderboardEntry
+                        composerPrefilledText = nil
+                        showPostComposer = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bubble.left")
+                                .font(.caption)
+                            Text("Comment")
+                                .font(.caption.weight(.medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.white.opacity(0.15))
+                        )
+                    }
+                    
+                    Button {
+                        let leaderboardEntry = leaderboardEntrySummary(from: entry, artist: artist)
+                        let percentile = calculatePercentile(rank: entry.rank, totalUsers: 100) // Approximate
+                        composerLeaderboardEntry = leaderboardEntry
+                        composerPrefilledText = "Top \(percentile)% for \(artist.name) this month."
+                        showPostComposer = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.caption)
+                            Text("Share")
+                                .font(.caption.weight(.medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(hex: "#1ED760").opacity(0.3))
+                        )
+                    }
+                }
             }
         }
         .padding(16)
@@ -778,7 +895,8 @@ struct RockListView: View {
     
     // MARK: - Custom Date Picker
     
-    private var customDatePickerSheet: some View {
+    @ViewBuilder
+    private func customDatePickerSheet(isPresented: Binding<Bool>) -> some View {
         NavigationStack {
             Form {
                 Section(header: Text("Start Date")) {
@@ -794,7 +912,7 @@ struct RockListView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        showCustomDatePicker = false
+                        isPresented.wrappedValue = false
                     }
                 }
                 
@@ -802,10 +920,354 @@ struct RockListView: View {
                     Button("Apply") {
                         viewModel.selectedTimeFilter = .custom(start: customStartDate, end: customEndDate)
                         viewModel.load()
-                        showCustomDatePicker = false
+                        isPresented.wrappedValue = false
                     }
                 }
             }
+        }
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func leaderboardEntrySummary(from entry: RockListEntry, artist: ArtistSummary) -> LeaderboardEntrySummary {
+        let artistImageURL: URL? = {
+            if let imageURLString = artist.imageURL {
+                return URL(string: imageURLString)
+            } else {
+                return nil
+            }
+        }()
+        
+        let totalUsers = 100 // Approximate - in real app, get from API
+        let percentile = calculatePercentile(rank: entry.rank, totalUsers: totalUsers)
+        let percentileLabel = "Top \(percentile)%"
+        
+        // Estimate minutes listened from score (assuming 1 point per minute)
+        // Ensure score is finite and not NaN before converting
+        let safeScore: Double
+        if entry.score.isFinite && !entry.score.isNaN {
+            safeScore = entry.score
+        } else {
+            safeScore = 0.0
+        }
+        let minutesListened = max(0, Int(safeScore.rounded()))
+        
+        return LeaderboardEntrySummary(
+            id: "\(artist.id)-\(entry.userId.uuidString)",
+            userId: entry.userId.uuidString,
+            userDisplayName: entry.displayName,
+            artistId: artist.id,
+            artistName: artist.name,
+            artistImageURL: artistImageURL,
+            rank: entry.rank,
+            percentileLabel: percentileLabel,
+            minutesListened: minutesListened
+        )
+    }
+    
+    private func calculatePercentile(rank: Int, totalUsers: Int) -> Int {
+        guard totalUsers > 0, rank > 0 else { return 100 }
+        guard rank <= totalUsers else { return 1 }
+        let percentile = Double(totalUsers - rank) / Double(totalUsers) * 100.0
+        guard percentile.isFinite && !percentile.isNaN else { return 50 }
+        return max(1, min(100, Int(percentile.rounded())))
+    }
+    
+    private func formatScore(_ score: Double) -> String {
+        guard score.isFinite && !score.isNaN else { return "0" }
+        return String(format: "%.0f", score)
+    }
+    
+    // MARK: - Instagram Handle Management
+    
+    private func loadInstagramHandle() async {
+        if let profile = try? await UserProfileService.shared.getCurrentUserProfile() {
+            currentInstagramHandle = profile.instagramHandle
+        }
+    }
+    
+    private func saveInstagramHandle(_ handle: String) async {
+        do {
+            try await UserProfileService.shared.updateInstagramHandle(handle)
+            await loadInstagramHandle()
+            showInstagramHandlePrompt = false
+        } catch {
+            print("Failed to save Instagram handle: \(error)")
+        }
+    }
+    
+    // MARK: - Instagram Handle Prompt Sheet
+    
+    @ViewBuilder
+    private var instagramHandlePromptSheet: some View {
+        NavigationStack {
+            ZStack {
+                // Green gradient background
+                LinearGradient(
+                    colors: [
+                        Color(hex: "#050505"),
+                        Color(hex: "#0C7C38"),
+                        Color(hex: "#1DB954"),
+                        Color(hex: "#1ED760"),
+                        Color(hex: "#050505")
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
+                VStack(spacing: 24) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(.white)
+                    
+                    Text("Add Your Instagram Handle")
+                        .font(.title2.bold())
+                        .foregroundColor(.white)
+                    
+                    Text("Link your Instagram to share your RockList rankings to your stories")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Instagram Handle")
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.white.opacity(0.7))
+                        
+                        HStack {
+                            Text("@")
+                                .foregroundColor(.white.opacity(0.6))
+                            TextField("yourhandle", text: $instagramHandleInput)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .foregroundColor(.white)
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.15))
+                        )
+                    }
+                    .padding(.horizontal)
+                    
+                    Button {
+                        let handle = instagramHandleInput.trimmingCharacters(in: .whitespaces)
+                        if !handle.isEmpty {
+                            Task {
+                                await saveInstagramHandle(handle)
+                            }
+                        }
+                    } label: {
+                        Text("Save")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(hex: "#1ED760"))
+                            )
+                    }
+                    .padding(.horizontal)
+                    .disabled(instagramHandleInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                    
+                    Spacer()
+                }
+                .padding(.top, 40)
+            }
+            .navigationTitle("Instagram")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        showInstagramHandlePrompt = false
+                        instagramHandleInput = ""
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Rank Card Image Generation
+    
+    @MainActor
+    private func generateAndShareRankCardImage(entry: RockListEntry, artist: ArtistSummary, toInstagram: Bool) async {
+        guard let rockList = viewModel.rockList else { return }
+        
+        isGeneratingRankCardImage = true
+        defer { isGeneratingRankCardImage = false }
+        
+        // Create a shareable rank card view
+        let rankCardView = RankCardShareableView(
+            entry: entry,
+            artist: artist,
+            displayName: entry.displayName,
+            artistImageURL: viewModel.artistImageURL
+        )
+        
+        // Generate image
+        shareImage = await ShareExporter.renderImage(rankCardView, width: 1080, scale: 3.0)
+        
+        if let image = shareImage {
+            if toInstagram {
+                // Share to Instagram Stories
+                shareToInstagramStories(image: image)
+            } else {
+                // Show share sheet
+                showShareSheet = true
+            }
+        }
+    }
+    
+    private func shareToInstagramStories(image: UIImage) {
+        // Instagram Stories URL scheme
+        guard let instagramURL = URL(string: "instagram-stories://share") else {
+            // Fallback to share sheet
+            showShareSheet = true
+            return
+        }
+        
+        // Check if Instagram is installed
+        if UIApplication.shared.canOpenURL(instagramURL) {
+            // Convert image to data
+            guard let imageData = image.pngData() else {
+                showShareSheet = true
+                return
+            }
+            
+            // Share via Instagram Stories
+            let pasteboard = UIPasteboard.general
+            pasteboard.setData(imageData, forPasteboardType: "public.png")
+            
+            // Open Instagram Stories
+            if let url = URL(string: "instagram-stories://share?source_application=com.rockout.app") {
+                UIApplication.shared.open(url, options: [:]) { success in
+                    if !success {
+                        // Fallback to share sheet
+                        DispatchQueue.main.async {
+                            self.showShareSheet = true
+                        }
+                    }
+                }
+            }
+        } else {
+            // Instagram not installed, use share sheet
+            showShareSheet = true
+        }
+    }
+}
+
+// MARK: - Rank Card Shareable View
+
+struct RankCardShareableView: View {
+    let entry: RockListEntry
+    let artist: ArtistSummary
+    let displayName: String
+    let artistImageURL: URL?
+    
+    var body: some View {
+        ZStack {
+            AnimatedGradientBackground()
+                .ignoresSafeArea()
+            
+            VStack(spacing: 24) {
+                // Artist Header
+                HStack(spacing: 16) {
+                    if let imageURL = artistImageURL {
+                        AsyncImage(url: imageURL) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            } else {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color.white.opacity(0.2))
+                                    .overlay(
+                                        Image(systemName: "music.note")
+                                            .foregroundColor(.white.opacity(0.5))
+                                    )
+                            }
+                        }
+                        .frame(width: 90, height: 90)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    } else {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 90, height: 90)
+                            .overlay(
+                                Image(systemName: "music.note")
+                                    .foregroundColor(.white.opacity(0.5))
+                            )
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Your Rank")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.8))
+                        Text(artist.name)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
+                    
+                    Spacer()
+                }
+                
+                Divider()
+                    .background(Color.white.opacity(0.3))
+                
+                // Rank Display
+                HStack(alignment: .lastTextBaseline, spacing: 8) {
+                    Text("#\(entry.rank)")
+                        .font(.system(size: 72, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    Text("of all listeners")
+                        .font(.title3)
+                        .foregroundColor(.white.opacity(0.9))
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Score")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.8))
+                        Text(formatScore(entry.score))
+                            .font(.title.bold())
+                            .foregroundColor(.white)
+                    }
+                }
+                
+                // User Info
+                HStack(spacing: 6) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.white.opacity(0.8))
+                    Text(displayName)
+                        .font(.title3)
+                        .foregroundColor(.white)
+                }
+            }
+            .padding(32)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(.ultraThinMaterial)
+            )
+            .padding(20)
+        }
+        .frame(width: 1080, height: 1920)
+    }
+    
+    private func formatScore(_ score: Double) -> String {
+        guard score.isFinite && !score.isNaN else { return "0" }
+        if score >= 1000000 {
+            return String(format: "%.1fM", score / 1000000)
+        } else if score >= 1000 {
+            return String(format: "%.1fK", score / 1000)
+        } else {
+            return String(format: "%.0f", score)
         }
     }
 }

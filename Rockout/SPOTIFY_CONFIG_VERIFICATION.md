@@ -42,7 +42,7 @@ rockout://auth?code=XXXXX&state=YYYYY
    - Log in with your Spotify account
 
 2. **Select Your App**
-   - Find the app with Client ID: `13aa07c310bb445d82fc8035ee426d0c`
+   - Find the app with Client ID: `0d1441ca6ac6428f83b8980295fe7f14`
 
 3. **Go to Settings**
    - Click on your app

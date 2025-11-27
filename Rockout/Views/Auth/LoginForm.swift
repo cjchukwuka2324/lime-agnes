@@ -29,10 +29,17 @@ struct LoginForm: View {
 
             Button {
                 Task {
+                    errorMessage = nil
                     do {
                         try await authVM.login(email: email, password: password)
                     } catch {
-                        errorMessage = error.localizedDescription
+                        // Provide user-friendly error messages
+                        let nsError = error as NSError
+                        if let description = nsError.userInfo[NSLocalizedDescriptionKey] as? String {
+                            errorMessage = formatLoginError(description)
+                        } else {
+                            errorMessage = formatLoginError(error.localizedDescription)
+                        }
                     }
                 }
             } label: {
@@ -44,5 +51,29 @@ struct LoginForm: View {
                     .foregroundColor(.white)
             }
         }
+    }
+    
+    // MARK: - Error Formatting
+    
+    private func formatLoginError(_ message: String) -> String {
+        let lowercased = message.lowercased()
+        
+        if lowercased.contains("invalid") && (lowercased.contains("credentials") || lowercased.contains("password") || lowercased.contains("email")) {
+            return "Invalid email or password. Please check and try again."
+        }
+        
+        if lowercased.contains("user not found") || lowercased.contains("no account") {
+            return "No account found with this email. Please sign up first."
+        }
+        
+        if lowercased.contains("email not confirmed") || lowercased.contains("verify") {
+            return "Please check your email and confirm your account before signing in."
+        }
+        
+        if lowercased.contains("network") || lowercased.contains("connection") {
+            return "Network error. Please check your internet connection and try again."
+        }
+        
+        return message
     }
 }

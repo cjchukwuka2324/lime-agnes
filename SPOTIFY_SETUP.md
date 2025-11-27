@@ -2,7 +2,7 @@
 
 ## Current Configuration
 
-**Redirect URI in Code:** `rockout://spotify-callback`
+**Redirect URI in Code:** `rockout://auth`
 
 **URL Scheme in Info.plist:** `rockout`
 
@@ -20,13 +20,13 @@
 In the **"Redirect URIs"** section, add:
 
 ```
-rockout://spotify-callback
+rockout://auth
 ```
 
 **Important:** 
 - Add it exactly as shown above
 - Make sure there are no extra spaces
-- The format is: `scheme://host` (no path needed, but we use `/spotify-callback`)
+- The format is: `scheme://host` (currently using `rockout://auth`)
 
 ### Step 3: Save Settings
 
@@ -37,8 +37,8 @@ rockout://spotify-callback
 ### Step 4: Verify Your App Settings
 
 Your Spotify app should have:
-- **Client ID:** `13aa07c310bb445d82fc8035ee426d0c` (already in code)
-- **Redirect URIs:** `rockout://spotify-callback`
+- **Client ID:** `0d1441ca6ac6428f83b8980295fe7f14` (already in code)
+- **Redirect URIs:** `rockout://auth`
 - **App Type:** Web API (or Mobile App if available)
 
 ## Alternative: If You Want to Use a Different Redirect URI
@@ -47,7 +47,7 @@ If you prefer a different redirect URI, you can change it in two places:
 
 1. **SpotifyAuthService.swift:**
    ```swift
-   private let redirectURI = "rockout://spotify-callback"  // Change this
+   private let redirectURI = "rockout://auth"  // Current value
    ```
 
 2. **Info.plist:**
@@ -84,7 +84,7 @@ After updating the redirect URI in Spotify Dashboard:
 
 ```swift
 // In SpotifyAuthService.swift
-private let redirectURI = "rockout://spotify-callback"
+private let redirectURI = "rockout://auth"
 ```
 
 ```xml
@@ -95,5 +95,5 @@ private let redirectURI = "rockout://spotify-callback"
 </array>
 ```
 
-Make sure your Spotify Dashboard has: `rockout://spotify-callback`
+Make sure your Spotify Dashboard has: `rockout://auth`
 

@@ -246,93 +246,100 @@ struct SoundPrintView: View {
     // MARK: - Overview Tab
     private var overviewTab: some View {
         VStack(spacing: 20) {
-            // Stats Cards
-            HStack(spacing: 16) {
-                StatCard(
-                    title: "Top Artists",
-                    value: "\(topArtists.count)",
-                    icon: "music.mic",
-                    color: Color(red: 0.12, green: 0.72, blue: 0.33)
-                )
-                StatCard(
-                    title: "Top Tracks",
-                    value: "\(topTracks.count)",
-                    icon: "music.note.list",
-                    color: Color(red: 0.18, green: 0.80, blue: 0.44)
-                )
-            }
+            statsCardsSection
             
-            // Top 3 Artists Preview
             if !topArtists.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Top Artists")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
-                    
-                    ForEach(Array(topArtists.prefix(3).enumerated()), id: \.element.id) { index, artist in
-                        ArtistRow(artist: artist, rank: index + 1)
-                    }
-                }
-                .padding(20)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.white.opacity(0.1))
-                        .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.1),
-                                            Color.white.opacity(0.05)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        )
-                )
+                topArtistsPreviewSection
             }
             
-            // Top 3 Tracks Preview
             if !topTracks.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Top Tracks")
-                        .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
-                    
-                    ForEach(Array(topTracks.prefix(3).enumerated()), id: \.element.id) { index, track in
-                        SoundPrintTrackRow(track: track, rank: index + 1)
-                    }
-                }
-                .padding(20)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.white.opacity(0.1))
-                        .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.1),
-                                            Color.white.opacity(0.05)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        )
-                )
+                topTracksPreviewSection
             }
         }
+    }
+    
+    private var statsCardsSection: some View {
+        HStack(spacing: 16) {
+            StatCard(
+                title: "Top Artists",
+                value: "\(topArtists.count)",
+                icon: "music.mic",
+                color: Color(red: 0.12, green: 0.72, blue: 0.33)
+            )
+            StatCard(
+                title: "Top Tracks",
+                value: "\(topTracks.count)",
+                icon: "music.note.list",
+                color: Color(red: 0.18, green: 0.80, blue: 0.44)
+            )
+        }
+    }
+    
+    private var topTracksPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Top Tracks")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+            
+            ForEach(Array(topTracks.prefix(3).enumerated()), id: \.element.id) { index, track in
+                SoundPrintTrackRow(track: track, rank: index + 1)
+            }
+        }
+        .padding(20)
+        .background(glassBackgroundStyle)
+    }
+    
+    private var glassBackgroundStyle: some View {
+        RoundedRectangle(cornerRadius: 20)
+            .fill(Color.white.opacity(0.1))
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.1),
+                                Color.white.opacity(0.05)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
     }
     
     // MARK: - Artists Tab
     private var artistsTab: some View {
         LazyVStack(spacing: 16) {
             ForEach(Array(topArtists.enumerated()), id: \.element.id) { index, artist in
-                ArtistCard(artist: artist, rank: index + 1)
+                NavigationLink {
+                    RockListView(artistId: artist.id)
+                } label: {
+                    ArtistCard(artist: artist, rank: index + 1)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
         }
+    }
+    
+    // MARK: - Helper Views
+    
+    private var topArtistsPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Top Artists")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+            
+            ForEach(Array(topArtists.prefix(3).enumerated()), id: \.element.id) { index, artist in
+                NavigationLink {
+                    RockListView(artistId: artist.id)
+                } label: {
+                    ArtistRow(artist: artist, rank: index + 1)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(20)
+        .background(glassBackgroundStyle)
     }
     
     // MARK: - Tracks Tab
@@ -443,8 +450,10 @@ struct SoundPrintView: View {
         do {
             // Load basic data
             let p = try await api.getUserProfile()
-            let artists = try await api.getTopArtists(limit: 20)
-            let tracks = try await api.getTopTracks(limit: 20)
+            let artistsResponse = try await api.getTopArtists(limit: 20)
+            let tracksResponse = try await api.getTopTracks(limit: 20)
+            let artists = artistsResponse.items
+            let tracks = tracksResponse.items
             let genres = computeGenres(from: artists)
             let pers = FanPersonalityEngine.compute(artists: artists, tracks: tracks)
             
@@ -754,10 +763,10 @@ struct ArtistRow: View {
                 }
             }
 
-                    Spacer()
-                }
-            }
+            Spacer()
         }
+    }
+}
 
 struct SoundPrintTrackRow: View {
     let track: SpotifyTrack
@@ -886,8 +895,8 @@ struct ArtistCard: View {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.white.opacity(0.1))
         )
-            }
-        }
+    }
+}
 
 struct TrackCard: View {
     let track: SpotifyTrack

@@ -76,5 +76,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>RockOut needs microphone access to record voice messages for your posts</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>RockOut needs photo library access to share photos and videos in your posts</string>
+	<key>NSCameraUsageDescription</key>
+	<string>RockOut needs camera access to capture photos and videos for your posts</string>
 </dict>
 </plist>
