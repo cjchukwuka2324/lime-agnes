@@ -98,6 +98,47 @@ final class MyRockListViewModel: ObservableObject {
         load()
     }
     
+    // MARK: - Trigger Ingestion
+    
+    /// Triggers RockList data ingestion if needed (no data exists)
+    func triggerIngestionIfNeeded() async {
+        // Only trigger if Spotify is authorized
+        guard SpotifyAuthService.shared.isAuthorized() else {
+            print("ℹ️ MyRockListViewModel: Spotify not authorized, skipping ingestion")
+            return
+        }
+        
+        do {
+            // Check if user has ingested data before
+            let lastIngested = try await RockListDataService.shared.getLastIngestedTimestamp()
+            
+            if lastIngested == nil {
+                // No data exists - trigger initial ingestion
+                print("🔄 MyRockListViewModel: No data found, triggering initial ingestion...")
+                try await RockListDataService.shared.performInitialBootstrapIngestion()
+                print("✅ MyRockListViewModel: Initial ingestion completed")
+                
+                // Reload data after ingestion
+                await MainActor.run {
+                    load()
+                }
+            } else {
+                // Data exists, do incremental update
+                print("🔄 MyRockListViewModel: Existing data found, doing incremental update...")
+                try await RockListDataService.shared.performIncrementalIngestion(lastIngestedAt: lastIngested)
+                print("✅ MyRockListViewModel: Incremental ingestion completed")
+                
+                // Reload data after ingestion
+                await MainActor.run {
+                    load()
+                }
+            }
+        } catch {
+            print("⚠️ MyRockListViewModel: Failed to trigger ingestion: \(error.localizedDescription)")
+            // Don't update error message - this is background operation
+        }
+    }
+    
     // MARK: - Sorted Sections
     
     var topRanks: [MyRockListRank] {

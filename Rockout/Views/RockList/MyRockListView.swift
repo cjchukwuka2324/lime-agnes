@@ -49,18 +49,38 @@ struct MyRockListView: View {
                     }
                     .padding()
                 } else if viewModel.myRockListRanks.isEmpty {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 20) {
                         Image(systemName: "music.note.list")
                             .font(.largeTitle)
                             .foregroundColor(.white.opacity(0.6))
                         Text("No Rankings Yet")
                             .font(.headline)
                             .foregroundColor(.white)
-                        Text("Start listening to your favorite artists to see your RockList rankings")
+                        Text("Start listening to your favorite artists to see your RockList rankings, or sync your Spotify data to populate rankings now.")
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
+                        
+                        // Manual sync button
+                        Button {
+                            Task {
+                                await viewModel.triggerIngestionIfNeeded()
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Sync Spotify Data")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(hex: "#1ED760"))
+                            )
+                        }
                     }
                     .padding()
                 } else {
@@ -97,8 +117,20 @@ struct MyRockListView: View {
                 }
             }
             .onAppear {
-                if viewModel.myRockListRanks.isEmpty && !viewModel.isLoading {
+                // Always load data when view appears
+                if !viewModel.isLoading {
                     viewModel.load()
+                    
+                    // If no data found, trigger ingestion in background
+                    Task {
+                        // Wait a bit for initial load to complete
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                        
+                        // If still no data after load, trigger ingestion
+                        if viewModel.myRockListRanks.isEmpty {
+                            await viewModel.triggerIngestionIfNeeded()
+                        }
+                    }
                 }
             }
             .sheet(isPresented: $showCustomDatePicker) {
