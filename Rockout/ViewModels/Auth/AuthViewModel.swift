@@ -16,7 +16,9 @@ final class AuthViewModel: ObservableObject {
     @Published var authState: AuthState = .loading
     @Published var currentUserEmail: String?
 
-    private let supabase = SupabaseService.shared.client
+    private var supabase: SupabaseClient {
+        SupabaseService.shared.client
+    }
 
     private let oauthRedirectURL = URL(string: "rockout://auth/callback")!
     private let passwordResetRedirectURL = URL(string: "rockout://password-reset")!

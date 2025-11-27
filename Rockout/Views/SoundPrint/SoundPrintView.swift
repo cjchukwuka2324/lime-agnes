@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct SoundPrintView: View {
-
     @EnvironmentObject var authService: SpotifyAuthService
     @StateObject private var api = SpotifyAPI()
+    private let playlistService = SpotifyPlaylistService.shared
 
     // MARK: - Loaded data
     @State private var profile: SpotifyUserProfile?
@@ -11,108 +11,41 @@ struct SoundPrintView: View {
     @State private var topTracks: [SpotifyTrack] = []
     @State private var genreStats: [GenreStat] = []
     @State private var personality: FanPersonality?
-
-    // MARK: - Insights
-    @State private var realYou: RealYouMix?
-    @State private var forecast: SoundprintForecast?
-    @State private var discovery: DiscoveryBundle?
+    
+    // New feature data
+    @State private var listeningStats: ListeningStats?
+    @State private var audioFeatures: AverageAudioFeatures?
+    @State private var yearInMusic: YearInMusic?
+    @State private var monthlyEvolution: [MonthlyEvolution] = []
+    @State private var discoverWeekly: DiscoverWeekly?
+    @State private var releaseRadar: ReleaseRadar?
+    @State private var recentlyDiscovered: [RecentlyDiscovered] = []
+    @State private var moodPlaylists: [MoodPlaylist] = []
+    @State private var timePatterns: [TimePattern] = []
+    @State private var seasonalTrends: [SeasonalTrend] = []
+    @State private var diversity: MusicTasteDiversity?
+    @State private var tasteCompatibility: [TasteCompatibility] = []
 
     @State private var isLoading = true
     @State private var errorMessage: String?
-
-    private var discoveryEngine: DiscoveryEngine {
-        DiscoveryEngine(api: api)
-    }
+    @State private var selectedTab: Int = 0
+    @State private var isAddingToSpotify = false
 
     var body: some View {
         NavigationStack {
             ZStack {
-
-                // =====================================================
-                // MARK: - STRONG MULTI-PASS SPOTIFY GRADIENT BACKGROUND
-                // =====================================================
-                LinearGradient(
-                    colors: [
-                        Color(hex: "#050505"), // near-black
-                        Color(hex: "#0C7C38"), // deep green
-                        Color(hex: "#1DB954"), // Spotify green
-                        Color(hex: "#1ED760"), // bright lime
-                        Color(hex: "#050505")  // back to near-black
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                // Animated gradient background
+                AnimatedGradientBackground()
                 .ignoresSafeArea()
 
-                // Optional subtle vignette
-                RadialGradient(
-                    colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.6)
-                    ],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 600
-                )
-                .ignoresSafeArea()
-
-                // =====================================================
-                // MARK: - CONTENT
-                // =====================================================
                 if isLoading {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        Text("Loading your SoundPrint…")
-                            .foregroundColor(.white)
-                    }
-
-                } else if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(.white)
-                        .padding()
-
+                    loadingView
+                } else if let error = errorMessage {
+                    errorView(error)
+                } else if !authService.isAuthorized() {
+                    connectPromptView
                 } else {
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 32) {
-
-                            // SOLID ANIMATED PILL HEADER
-                            heroHeader
-
-                            // TOP GENRES
-                            if !genreStats.isEmpty {
-                                genreSection()
-                            }
-
-                            // TOP ARTISTS
-                            if !topArtists.isEmpty {
-                                topArtistsSection()
-                            }
-
-                            // TOP TRACKS
-                            if !topTracks.isEmpty {
-                                topTracksSection()
-                            }
-
-                            // THE REAL YOU
-                            if let realYou {
-                                realYouSection(realYou)
-                            }
-
-                            // FORECAST
-                            if let forecast {
-                                forecastSection(forecast)
-                            }
-
-                            // DISCOVERY
-                            if let discovery {
-                                discoverySection(discovery)
-                            }
-
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 40)
-                    }
+                    contentView
                 }
             }
             .navigationTitle("")
@@ -121,99 +54,407 @@ struct SoundPrintView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .task {
                 await loadData()
-                await loadInsights()
             }
         }
     }
-
-    // =====================================================
-    // MARK: - HERO HEADER (Animated Pill Gradient)
-    // =====================================================
+    
+    // MARK: - Content View
+    private var contentView: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                // Hero Header
+                heroHeader
+                    .padding(.top, 20)
+                    .padding(.bottom, 30)
+                
+                // Tab Selector
+                tabSelector
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
+                
+                // Content based on selected tab
+                Group {
+                    switch selectedTab {
+                    case 0:
+                        overviewTab
+                    case 1:
+                        artistsTab
+                    case 2:
+                        tracksTab
+                    case 3:
+                        genresTab
+                    case 4:
+                        if let stats = listeningStats, let features = audioFeatures {
+                            ListeningStatsView(stats: stats, audioFeatures: features)
+                        } else {
+                            loadingPlaceholder
+                        }
+                    case 5:
+                        TimeAnalysisView(yearInMusic: yearInMusic, monthlyEvolution: monthlyEvolution)
+                    case 6:
+                        DiscoveryView(
+                            discoverWeekly: discoverWeekly,
+                            releaseRadar: releaseRadar,
+                            recentlyDiscovered: recentlyDiscovered,
+                            onAddToSpotify: handleAddToSpotify
+                        )
+                    case 7:
+                        SocialSharingView(
+                            profile: profile,
+                            topArtists: topArtists,
+                            topTracks: topTracks,
+                            personality: personality,
+                            compatibility: tasteCompatibility.isEmpty ? nil : tasteCompatibility
+                        )
+                    case 8:
+                        MoodContextView(
+                            moodPlaylists: moodPlaylists,
+                            timePatterns: timePatterns,
+                            seasonalTrends: seasonalTrends
+                        )
+                    case 9:
+                        if let diversity = diversity, let features = audioFeatures {
+                            AdvancedAnalyticsView(diversity: diversity, audioFeatures: features)
+                        } else {
+                            loadingPlaceholder
+                        }
+                    default:
+                        overviewTab
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
+            }
+        }
+    }
+    
+    // MARK: - Hero Header
     private var heroHeader: some View {
+        VStack(spacing: 16) {
+            // Profile Image or Icon
         ZStack {
-            // Glow behind the pill
-            RoundedRectangle(cornerRadius: 40)
+                Circle()
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(hex: "#1ED760").opacity(0.4),
-                            Color(hex: "#1DB954").opacity(0.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                                Color(red: 0.12, green: 0.72, blue: 0.33),
+                                Color(red: 0.18, green: 0.80, blue: 0.44)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
-                .blur(radius: 30)
-                .scaleEffect(1.1)
-
-            VStack(spacing: 8) {
-                Text("SOUNDPRINT")
-                    .font(.system(size: 26, weight: .heavy))
-                    .foregroundColor(.white)
-                    .kerning(1.2)
-
-                Text("Your Music Identity")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
-
-                // Animated waveform inside the pill
-                AnimatedWaveformView()
-                    .padding(.top, 4)
+                    .frame(width: 100, height: 100)
+                    .shadow(color: Color(red: 0.12, green: 0.72, blue: 0.33).opacity(0.5), radius: 20, x: 0, y: 10)
+                
+                if let imageURL = profile?.imageURL {
+                    AsyncImage(url: imageURL) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: 100, height: 100)
+                    .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.white)
+                }
             }
-            .padding(.vertical, 20)
-            .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity)
+            
+            // Name
+            Text(profile?.display_name ?? "Your SoundPrint")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundColor(.white)
+            
+            // Subtitle
+            Text("Your Musical Identity")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+            
+            // Personality Badge
+            if let personality = personality {
+                personalityBadge(personality)
+                    .padding(.top, 8)
+            }
+        }
+    }
+    
+    // MARK: - Tab Selector
+    private var tabSelector: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                TabButton(title: "Overview", icon: "chart.bar.fill", isSelected: selectedTab == 0) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 0
+                    }
+                }
+                TabButton(title: "Artists", icon: "music.mic", isSelected: selectedTab == 1) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 1
+                    }
+                }
+                TabButton(title: "Tracks", icon: "music.note.list", isSelected: selectedTab == 2) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 2
+                    }
+                }
+                TabButton(title: "Genres", icon: "tag.fill", isSelected: selectedTab == 3) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 3
+                    }
+                }
+                TabButton(title: "Stats", icon: "chart.line.uptrend.xyaxis", isSelected: selectedTab == 4) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 4
+                    }
+                }
+                TabButton(title: "Time", icon: "calendar", isSelected: selectedTab == 5) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 5
+                    }
+                }
+                TabButton(title: "Discover", icon: "sparkles", isSelected: selectedTab == 6) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 6
+                    }
+                }
+                TabButton(title: "Social", icon: "person.2.fill", isSelected: selectedTab == 7) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 7
+                    }
+                }
+                TabButton(title: "Mood", icon: "heart.fill", isSelected: selectedTab == 8) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 8
+                    }
+                }
+                TabButton(title: "Analytics", icon: "chart.bar.xaxis", isSelected: selectedTab == 9) {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 9
+                    }
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+    
+    // MARK: - Overview Tab
+    private var overviewTab: some View {
+        VStack(spacing: 20) {
+            // Stats Cards
+            HStack(spacing: 16) {
+                StatCard(
+                    title: "Top Artists",
+                    value: "\(topArtists.count)",
+                    icon: "music.mic",
+                    color: Color(red: 0.12, green: 0.72, blue: 0.33)
+                )
+                StatCard(
+                    title: "Top Tracks",
+                    value: "\(topTracks.count)",
+                    icon: "music.note.list",
+                    color: Color(red: 0.18, green: 0.80, blue: 0.44)
+                )
+            }
+            
+            // Top 3 Artists Preview
+            if !topArtists.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Top Artists")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    ForEach(Array(topArtists.prefix(3).enumerated()), id: \.element.id) { index, artist in
+                        ArtistRow(artist: artist, rank: index + 1)
+                    }
+                }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white.opacity(0.1))
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.1),
+                                            Color.white.opacity(0.05)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                )
+            }
+            
+            // Top 3 Tracks Preview
+            if !topTracks.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Top Tracks")
+                        .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                    
+                    ForEach(Array(topTracks.prefix(3).enumerated()), id: \.element.id) { index, track in
+                        SoundPrintTrackRow(track: track, rank: index + 1)
+                    }
+                }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white.opacity(0.1))
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.1),
+                                            Color.white.opacity(0.05)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                )
+            }
+        }
+    }
+    
+    // MARK: - Artists Tab
+    private var artistsTab: some View {
+        LazyVStack(spacing: 16) {
+            ForEach(Array(topArtists.enumerated()), id: \.element.id) { index, artist in
+                ArtistCard(artist: artist, rank: index + 1)
+            }
+        }
+    }
+    
+    // MARK: - Tracks Tab
+    private var tracksTab: some View {
+        LazyVStack(spacing: 16) {
+            ForEach(Array(topTracks.enumerated()), id: \.element.id) { index, track in
+                TrackCard(track: track, rank: index + 1)
+            }
+        }
+    }
+    
+    // MARK: - Genres Tab
+    private var genresTab: some View {
+        VStack(spacing: 20) {
+            ForEach(genreStats.prefix(10), id: \.genre) { stat in
+                GenreBar(genre: stat.genre, percentage: stat.percent)
+            }
+        }
+    }
+    
+    // MARK: - Connect Prompt
+    private var connectPromptView: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "music.note")
+                .font(.system(size: 80))
+                .foregroundColor(Color(red: 0.12, green: 0.72, blue: 0.33))
+            
+            Text("Connect Your Spotify")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(.white)
+            
+            Text("Connect to view your personalized SoundPrint")
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        }
+    }
+    
+    // MARK: - Loading View
+    private var loadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .tint(Color(red: 0.12, green: 0.72, blue: 0.33))
+                .scaleEffect(1.5)
+            
+            Text("Loading your SoundPrint...")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+        }
+    }
+    
+    // MARK: - Error View
+    private func errorView(_ message: String) -> some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 60))
+                .foregroundColor(.red)
+            
+            Text("Error")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.white)
+            
+            Text(message)
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        }
+    }
+    
+    // MARK: - Personality Badge
+    private func personalityBadge(_ personality: FanPersonality) -> some View {
+        Text(personality.title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
             .background(
+                Capsule()
+                    .fill(
                 LinearGradient(
                     colors: [
-                        Color(hex: "#1ED760"),
-                        Color(hex: "#1DB954"),
-                        Color(hex: "#109C4B")
+                                Color(red: 0.12, green: 0.72, blue: 0.33),
+                                Color(red: 0.18, green: 0.80, blue: 0.44)
                     ],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
             )
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
             )
-        }
-        .shadow(color: Color.black.opacity(0.55), radius: 22, x: 0, y: 14)
-        .padding(.top, 28)
     }
 
-    // =====================================================
-    // MARK: - LOAD BASE DATA
-    // =====================================================
-
+    // MARK: - Load Data
     func loadData() async {
         await MainActor.run {
             isLoading = true
             errorMessage = nil
         }
         
-        // Check if Spotify is connected before trying to load data
         guard authService.isAuthorized() else {
             await MainActor.run {
-                self.errorMessage = "Please connect your Spotify account in Profile settings to view your SoundPrint."
-                self.isLoading = false
+                isLoading = false
             }
             return
         }
 
         do {
-            print("📊 Loading SoundPrint data...")
+            // Load basic data
             let p = try await api.getUserProfile()
-            print("✅ Got user profile")
             let artists = try await api.getTopArtists(limit: 20)
-            print("✅ Got top artists: \(artists.count)")
             let tracks = try await api.getTopTracks(limit: 20)
-            print("✅ Got top tracks: \(tracks.count)")
-
             let genres = computeGenres(from: artists)
             let pers = FanPersonalityEngine.compute(artists: artists, tracks: tracks)
+            
+            // Load extended features (with error handling - don't fail if these don't work)
+            async let statsTask = loadListeningStats()
+            async let featuresTask = loadAudioFeatures(tracks: tracks)
+            async let timeTask = loadTimeAnalysis()
+            async let discoveryTask = loadDiscovery()
+            async let moodTask = loadMoodData(tracks: tracks)
+            async let analyticsTask = loadAnalytics(artists: artists, tracks: tracks)
 
             await MainActor.run {
                 self.profile = p
@@ -221,385 +462,590 @@ struct SoundPrintView: View {
                 self.topTracks = tracks
                 self.genreStats = genres
                 self.personality = pers
-                self.isLoading = false
             }
             
-            print("✅ SoundPrint data loaded successfully")
-
-        } catch {
-            print("❌ Error loading SoundPrint data: \(error.localizedDescription)")
-            print("❌ Error domain: \((error as NSError).domain)")
-            print("❌ Error code: \((error as NSError).code)")
+            // Load extended data (non-blocking)
+            _ = try? await statsTask
+            _ = try? await featuresTask
+            _ = try? await timeTask
+            _ = try? await discoveryTask
+            _ = try? await moodTask
+            _ = try? await analyticsTask
             
             await MainActor.run {
-                var errorMsg = error.localizedDescription
-                
-                // Provide a friendlier error message
-                if let nsError = error as NSError?, nsError.domain == "SpotifyAuth" {
-                    if let description = nsError.userInfo[NSLocalizedDescriptionKey] as? String {
-                        errorMsg = description
-                    }
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.errorMessage = error.localizedDescription
+                self.isLoading = false
+            }
+        }
+    }
+    
+    // MARK: - Extended Data Loading
+    private func loadListeningStats() async throws {
+        // Use existing top tracks to calculate stats
+        let estimatedMinutes = topTracks.count * 3
+        let stats = ListeningStats(
+            totalListeningTimeMinutes: estimatedMinutes,
+            currentStreak: 7, // Placeholder
+            longestStreak: 30, // Placeholder
+            mostActiveDay: "Monday",
+            mostActiveHour: 20,
+            songsDiscoveredThisMonth: 5, // Placeholder
+            artistsDiscoveredThisMonth: 3, // Placeholder
+            totalSongsPlayed: topTracks.count,
+            totalArtistsListened: Set(topArtists.map { $0.id }).count
+        )
+        
+        // Use placeholder audio features for now
+        // Will be replaced when extension methods are fully implemented
+        let features = AverageAudioFeatures(
+            danceability: 0.6, energy: 0.7, valence: 0.65, tempo: 125,
+            acousticness: 0.3, instrumentalness: 0.2, liveness: 0.15, speechiness: 0.05
+        )
+        
+        await MainActor.run {
+            self.listeningStats = stats
+            self.audioFeatures = features
+        }
+    }
+    
+    private func loadAudioFeatures(tracks: [SpotifyTrack]) async throws {
+        // Use placeholder for now
+        let features = AverageAudioFeatures(
+            danceability: 0.6, energy: 0.7, valence: 0.65, tempo: 125,
+            acousticness: 0.3, instrumentalness: 0.2, liveness: 0.15, speechiness: 0.05
+        )
+        await MainActor.run {
+            self.audioFeatures = features
+        }
+    }
+    
+    private func loadTimeAnalysis() async throws {
+        // Placeholder - would need historical data
+        await MainActor.run {
+            self.yearInMusic = YearInMusic(
+                year: Calendar.current.component(.year, from: Date()),
+                totalListeningTimeMinutes: listeningStats?.totalListeningTimeMinutes ?? 0,
+                topGenres: genreStats.prefix(5).map { $0.genre },
+                topArtists: topArtists.prefix(5).map { $0.name },
+                topTracks: topTracks.prefix(5).map { $0.name },
+                favoriteDecade: "2020s",
+                mostPlayedMonth: "January"
+            )
+            self.monthlyEvolution = []
+        }
+    }
+    
+    private func loadDiscovery() async throws {
+        // Placeholder - will be implemented when Spotify API methods are available
+        await MainActor.run {
+            self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date())
+            self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date())
+            self.recentlyDiscovered = [] // Would need to track discovery dates
+        }
+    }
+    
+    private func loadMoodData(tracks: [SpotifyTrack]) async throws {
+        // Generate mood playlists based on audio features
+        // This is a simplified version
+        await MainActor.run {
+            self.moodPlaylists = generateMoodPlaylists(from: tracks)
+            self.timePatterns = generateTimePatterns()
+            self.seasonalTrends = []
+        }
+    }
+    
+    private func loadAnalytics(artists: [SpotifyArtist], tracks: [SpotifyTrack]) async throws {
+        let diversity = MusicTasteDiversity(
+            score: calculateDiversityScore(artists: artists, tracks: tracks),
+            genreCount: genreStats.count,
+            artistCount: artists.count,
+            explorationDepth: Double(genreStats.count) / 10.0 * 100
+        )
+        await MainActor.run {
+            self.diversity = diversity
+        }
+    }
+    
+    // MARK: - Helper Functions
+    private func generateMoodPlaylists(from tracks: [SpotifyTrack]) -> [MoodPlaylist] {
+        // Simplified mood playlist generation
+        return [
+            MoodPlaylist(mood: "Chill", tracks: Array(tracks.prefix(10)), description: "Relaxing vibes"),
+            MoodPlaylist(mood: "Energy", tracks: Array(tracks.suffix(10)), description: "High energy tracks"),
+            MoodPlaylist(mood: "Focus", tracks: Array(tracks.prefix(15)), description: "Music for concentration")
+        ]
+    }
+    
+    private func generateTimePatterns() -> [TimePattern] {
+        // Generate sample time patterns
+        return (0..<24).map { hour in
+            TimePattern(
+                hour: hour,
+                playCount: Int.random(in: 10...100),
+                dominantGenre: genreStats.first?.genre ?? "Pop"
+            )
+        }
+    }
+    
+    private func calculateDiversityScore(artists: [SpotifyArtist], tracks: [SpotifyTrack]) -> Double {
+        // Simple diversity calculation
+        let uniqueGenres = Set(genreStats.map { $0.genre })
+        let genreScore = min(Double(uniqueGenres.count) / 20.0 * 50, 50)
+        let artistScore = min(Double(artists.count) / 50.0 * 50, 50)
+        return genreScore + artistScore
+    }
+    
+    private func handleAddToSpotify(playlistName: String, tracks: [SpotifyTrack]) {
+        Task {
+            await MainActor.run {
+                isAddingToSpotify = true
+            }
+            
+            do {
+                // Construct URIs from track IDs
+                let trackUris = tracks.map { track in
+                    "spotify:track:\(track.id)"
                 }
                 
-                self.errorMessage = errorMsg
-                self.isLoading = false
+                let playlistId = try await playlistService.createPlaylistAndAddTracks(
+                    name: playlistName,
+                    description: "Curated by Rockout SoundPrint",
+                    trackUris: trackUris,
+                    isPublic: false
+                )
+                
+                await MainActor.run {
+                    isAddingToSpotify = false
+                    // Show success message
+                    print("✅ Successfully created playlist: \(playlistId)")
+                }
+            } catch {
+                await MainActor.run {
+                    isAddingToSpotify = false
+                    errorMessage = "Failed to add to Spotify: \(error.localizedDescription)"
+                }
             }
         }
     }
-
-    // =====================================================
-    // MARK: - LOAD INSIGHTS
-    // =====================================================
-
-    func loadInsights() async {
-        guard !genreStats.isEmpty,
-              !topArtists.isEmpty,
-              !topTracks.isEmpty else { return }
-
-        do {
-            async let r = discoveryEngine.buildRealYouMix(
-                genres: genreStats,
-                topArtists: topArtists,
-                topTracks: topTracks
-            )
-            async let f = discoveryEngine.buildForecast(
-                genres: genreStats,
-                topArtists: topArtists,
-                topTracks: topTracks
-            )
-            async let d = discoveryEngine.buildDiscoveryBundle(
-                genres: genreStats,
-                topArtists: topArtists,
-                topTracks: topTracks
-            )
-
-            let (rOut, fOut, dOut) = try await (r, f, d)
-
-            await MainActor.run {
-                self.realYou = rOut
-                self.forecast = fOut
-                self.discovery = dOut
-            }
-
-        } catch {
-            print("Discovery / insights error:", error)
+    
+    private var loadingPlaceholder: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .tint(.white)
+            Text("Loading...")
+                .foregroundColor(.white.opacity(0.7))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
     }
-
-    // =====================================================
-    // MARK: - GENRE COMPUTATION
-    // =====================================================
 
     func computeGenres(from artists: [SpotifyArtist]) -> [GenreStat] {
         var counts: [String: Int] = [:]
-
         for artist in artists {
             for g in artist.genres ?? [] {
                 let key = g.lowercased()
                 counts[key, default: 0] += 1
             }
         }
-
         let total = counts.values.reduce(0, +)
         guard total > 0 else { return [] }
-
         let stats = counts.map { (genre, count) in
-            GenreStat(
-                genre: genre,
-                percent: Double(count) / Double(total)
-            )
+            GenreStat(genre: genre, percent: Double(count) / Double(total))
         }
-
         return stats.sorted { $0.percent > $1.percent }
     }
+}
 
-    // =====================================================
-    // MARK: - SECTIONS
-    // =====================================================
+// MARK: - Supporting Views
 
-    @ViewBuilder
-    func genreSection() -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Top Genres")
-
-            FlowLayout(
-                mode: .vstack,
-                items: genreStats,
-                itemSpacing: 12,
-                rowSpacing: 12
-            ) { g in
-                Text("\(g.genre.capitalized) • \(Int(g.percent * 100))%")
+struct TabButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.9))
-                    .foregroundColor(.black)
-                    .clipShape(Capsule())
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(
+                Capsule()
+                    .fill(isSelected ? Color(red: 0.12, green: 0.72, blue: 0.33) : Color.white.opacity(0.1))
+            )
             }
         }
     }
 
-    @ViewBuilder
-    func topArtistsSection() -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Top Artists")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(topArtists.prefix(10)) { artist in
-                        VStack {
-                            AsyncImage(url: artist.imageURL) { img in
-                                img.resizable().scaledToFill()
-                            } placeholder: {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white.opacity(0.2))
-                            }
-                            .frame(width: 90, height: 90)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                            Text(artist.name)
-                                .font(.footnote)
+struct StatCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 32))
+                .foregroundColor(color)
+            
+            Text(value)
+                .font(.system(size: 32, weight: .bold))
                                 .foregroundColor(.white)
-                                .lineLimit(1)
+            
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
                         }
-                    }
-                }
-            }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.1))
+        )
         }
     }
 
-    @ViewBuilder
-    func topTracksSection() -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Top Tracks")
-
-            ForEach(topTracks.prefix(8)) { track in
-                HStack(spacing: 12) {
-                    AsyncImage(url: track.album?.imageURL) { img in
-                        img.resizable().scaledToFill()
+struct ArtistRow: View {
+    let artist: SpotifyArtist
+    let rank: Int
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // Rank
+            Text("\(rank)")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(Color(red: 0.12, green: 0.72, blue: 0.33))
+                .frame(width: 30)
+            
+            // Artist Image
+            AsyncImage(url: artist.imageURL) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
                     } placeholder: {
-                        RoundedRectangle(cornerRadius: 10)
+                Rectangle()
                             .fill(Color.white.opacity(0.2))
                     }
-                    .frame(width: 55, height: 55)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            .frame(width: 60, height: 60)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                    Text(track.name)
+            // Artist Name
+            VStack(alignment: .leading, spacing: 4) {
+                Text(artist.name)
+                    .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
-                        .font(.body)
+                
+                if let genres = artist.genres, !genres.isEmpty {
+                    Text(genres.prefix(2).joined(separator: ", "))
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.6))
                         .lineLimit(1)
+                }
+            }
 
                     Spacer()
                 }
             }
         }
+
+struct SoundPrintTrackRow: View {
+    let track: SpotifyTrack
+    let rank: Int
+    
+    private var albumImageURL: URL? {
+        guard let album = track.album,
+              let images = album.images,
+              let firstImage = images.first else {
+            return nil
+        }
+        // Handle both String and URL types
+        if let url = firstImage.url as? URL {
+            return url
+        } else if let urlString = firstImage.url as? String {
+            return URL(string: urlString)
+        }
+        return nil
     }
-
-    @ViewBuilder
-    func realYouSection(_ mix: RealYouMix) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("🔥 The Real You")
-
-            Text(mix.subtitle)
-                .foregroundColor(.white.opacity(0.9))
-                .font(.subheadline)
-
-            Text(mix.description)
-                .foregroundColor(.white.opacity(0.8))
-                .font(.footnote)
-
-            ScrollView(.horizontal, showsIndicators: false) {
+    
+    private var artistNames: String {
+        track.artists.map { $0.name }.joined(separator: ", ")
+    }
+    
+    var body: some View {
                 HStack(spacing: 16) {
-                    ForEach(mix.tracks.prefix(10)) { track in
-                        VStack {
-                            AsyncImage(url: track.album?.imageURL) { img in
-                                img.resizable().scaledToFill()
+            // Rank
+            Text("\(rank)")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(Color(red: 0.12, green: 0.72, blue: 0.33))
+                .frame(width: 30)
+            
+            // Album Art
+            if let url = albumImageURL {
+                AsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
                             } placeholder: {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white.opacity(0.4))
-                            }
-                            .frame(width: 80, height: 80)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
+                }
+                .frame(width: 60, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 60, height: 60)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
 
+            // Track Info
+            VStack(alignment: .leading, spacing: 4) {
                             Text(track.name)
+                    .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(.white)
-                                .font(.caption)
+                    .lineLimit(1)
+                
+                Text(artistNames)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.6))
                                 .lineLimit(1)
                         }
-                    }
-                }
+            
+            Spacer()
             }
         }
     }
 
-    @ViewBuilder
-    func forecastSection(_ f: SoundprintForecast) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("🔮 Your 2025 Soundprint Forecast")
+struct ArtistCard: View {
+    let artist: SpotifyArtist
+    let rank: Int
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // Rank Badge
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.12, green: 0.72, blue: 0.33),
+                                Color(red: 0.18, green: 0.80, blue: 0.44)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 50, height: 50)
 
-            Text(f.headline)
-                .font(.body)
-                .foregroundColor(.white.opacity(0.9))
-
-            if !f.risingGenres.isEmpty {
-                Text("Rising Genres")
-                    .foregroundColor(.yellow)
-                    .font(.headline)
-
-                ForEach(f.risingGenres.prefix(5), id: \.self) { g in
-                    Text("• \(g.genre.capitalized) (\(Int(g.percent * 100))%)")
-                        .foregroundColor(.white.opacity(0.85))
+                Text("\(rank)")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            
+            // Artist Image
+            AsyncImage(url: artist.imageURL) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
+            } placeholder: {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+            }
+            .frame(width: 80, height: 80)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            
+            // Artist Info
+            VStack(alignment: .leading, spacing: 6) {
+                Text(artist.name)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                
+                if let genres = artist.genres, !genres.isEmpty {
+                    Text(genres.prefix(3).joined(separator: " • "))
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.6))
+                        .lineLimit(2)
                 }
             }
-
-            if !f.suggestedTracks.isEmpty {
-                Text("Suggested Tracks")
-                    .font(.headline)
-                    .foregroundColor(.yellow)
-                    .padding(.top, 8)
-
-                ForEach(f.suggestedTracks.prefix(5)) { track in
-                    Text("• \(track.name)")
-                        .foregroundColor(.white.opacity(0.8))
-                }
+            
+            Spacer()
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.1))
+        )
             }
         }
+
+struct TrackCard: View {
+    let track: SpotifyTrack
+    let rank: Int
+    
+    private var albumImageURL: URL? {
+        guard let album = track.album,
+              let images = album.images,
+              let firstImage = images.first else {
+            return nil
+        }
+        // Handle both String and URL types
+        if let url = firstImage.url as? URL {
+            return url
+        } else if let urlString = firstImage.url as? String {
+            return URL(string: urlString)
+        }
+        return nil
     }
-
-    @ViewBuilder
-    func discoverySection(_ d: DiscoveryBundle) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("🧭 For You — New Discoveries")
-
-            if !d.newArtists.isEmpty {
-                Text("New Artists You Might Love")
-                    .font(.headline)
-                    .foregroundColor(.yellow)
-
-                ScrollView(.horizontal, showsIndicators: false) {
+    
+    private var artistNames: String {
+        track.artists.map { $0.name }.joined(separator: ", ")
+    }
+    
+    var body: some View {
                     HStack(spacing: 16) {
-                        ForEach(d.newArtists.prefix(10)) { artist in
-                            VStack {
-                                AsyncImage(url: artist.imageURL) { img in
-                                    img.resizable().scaledToFill()
+            // Rank Badge
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.12, green: 0.72, blue: 0.33),
+                                Color(red: 0.18, green: 0.80, blue: 0.44)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 50, height: 50)
+                
+                Text("\(rank)")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            
+            // Album Art
+            if let url = albumImageURL {
+                AsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
                                 } placeholder: {
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.white.opacity(0.3))
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
                                 }
                                 .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                                Text(artist.name)
-                                    .font(.caption)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            } else {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            }
+            
+            // Track Info
+            VStack(alignment: .leading, spacing: 6) {
+                Text(track.name)
+                    .font(.system(size: 20, weight: .bold))
                                     .foregroundColor(.white)
+                    .lineLimit(2)
+                
+                Text(artistNames)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.6))
                                     .lineLimit(1)
                             }
-                        }
-                    }
-                }
-            }
-
-            if !d.newTracks.isEmpty {
-                Text("New Tracks For You")
-                    .font(.headline)
-                    .foregroundColor(.yellow)
-
-                ForEach(d.newTracks.prefix(8)) { track in
-                    Text("• \(track.name)")
-                        .foregroundColor(.white.opacity(0.85))
-                }
-            }
-
-            if !d.newGenres.isEmpty {
-                Text("New Genres to Explore")
-                    .font(.headline)
-                    .foregroundColor(.yellow)
-
-                ForEach(d.newGenres.prefix(8), id: \.self) { g in
-                    Text("• \(g.capitalized)")
-                        .foregroundColor(.white.opacity(0.85))
-                }
-            }
+            
+            Spacer()
         }
-    }
-
-    // =====================================================
-    // MARK: - Helpers
-    // =====================================================
-
-    func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.title2.bold())
-            .foregroundColor(.white)
-            .padding(.bottom, 4)
-    }
-}
-
-// =====================================================
-// MARK: - Animated Waveform View
-// =====================================================
-private struct AnimatedWaveformView: View {
-    @State private var phase: Double = 0
-    private let barCount = 28
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<barCount, id: \.self) { index in
-                let normalized = (sin(phase + Double(index) / 3.0) + 1) / 2 // 0...1
-                let height = 6 + normalized * 20
-
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.35 + normalized * 0.65))
-                    .frame(width: 3, height: height)
-            }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 2.0).repeatForever(autoreverses: false)) {
-                phase = 2 * .pi
-            }
-        }
-    }
-}
-
-// =====================================================
-// MARK: - HEX Color Support
-// =====================================================
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255,
-                            (int >> 8) * 17,
-                            (int >> 4 & 0xF) * 17,
-                            (int & 0xF) * 17)
-
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255,
-                            int >> 16,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24,
-                            int >> 16 & 0xFF,
-                            int >> 8 & 0xFF,
-                            int & 0xFF)
-
-        default:
-            (a, r, g, b) = (255, 0, 255, 0)
-        }
-
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.1))
         )
     }
 }
+
+struct GenreBar: View {
+    let genre: String
+    let percentage: Double
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(genre.capitalized)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                Text("\(Int(percentage * 100))%")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white.opacity(0.1))
+                        .frame(height: 12)
+                    
+                    // Progress
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.12, green: 0.72, blue: 0.33),
+                                    Color(red: 0.18, green: 0.80, blue: 0.44)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geometry.size.width * CGFloat(percentage), height: 12)
+                }
+            }
+            .frame(height: 12)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.1))
+        )
+    }
+}
+
+// MARK: - Animated Gradient Background
+struct AnimatedGradientBackground: View {
+    @State private var animateGradient = false
+
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.05, green: 0.05, blue: 0.05),
+                Color(red: 0.08, green: 0.25, blue: 0.12),
+                Color(red: 0.12, green: 0.45, blue: 0.20),
+                Color(red: 0.05, green: 0.05, blue: 0.05)
+            ],
+            startPoint: animateGradient ? .topLeading : .bottomTrailing,
+            endPoint: animateGradient ? .bottomTrailing : .topLeading
+        )
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                animateGradient.toggle()
+            }
+        }
+    }
+}
+

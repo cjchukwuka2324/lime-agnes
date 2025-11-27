@@ -7,13 +7,16 @@ final class StudioSessionsViewModel: ObservableObject {
     // MARK: - Published Properties
 
     @Published var albums: [StudioAlbumRecord] = []
+    @Published var sharedAlbums: [StudioAlbumRecord] = []
     @Published var tracks: [StudioTrackRecord] = []
     @Published var isLoadingAlbums = false
+    @Published var isLoadingSharedAlbums = false
     @Published var isLoadingTracks = false
     @Published var errorMessage: String?
 
     private let albumService = AlbumService.shared
     private let trackService = TrackService.shared
+    private let shareService = ShareService.shared
 
 
     // MARK: - Load Albums
@@ -36,7 +39,7 @@ final class StudioSessionsViewModel: ObservableObject {
 
     // MARK: - Create Album With Optional Cover Art
 
-    func createAlbum(title: String, coverArtData: Data?) {
+    func createAlbum(title: String, artistName: String?, coverArtData: Data?) {
         Task {
             isLoadingAlbums = true
             errorMessage = nil
@@ -45,6 +48,7 @@ final class StudioSessionsViewModel: ObservableObject {
             do {
                 let newAlbum = try await albumService.createAlbum(
                     title: title,
+                    artistName: artistName,
                     coverArtData: coverArtData
                 )
                 albums.insert(newAlbum, at: 0)
@@ -95,6 +99,40 @@ final class StudioSessionsViewModel: ObservableObject {
             do {
                 try await trackService.deleteTrack(track)
                 tracks.removeAll { $0.id == track.id }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+    
+    // MARK: - Load Shared Albums
+    
+    func loadSharedAlbums() async {
+        isLoadingSharedAlbums = true
+        errorMessage = nil
+        defer { isLoadingSharedAlbums = false }
+        
+        do {
+            let result = try await albumService.fetchSharedAlbums()
+            sharedAlbums = result
+            print("✅ Loaded \(result.count) shared album(s)")
+        } catch {
+            errorMessage = error.localizedDescription
+            print("❌ Error loading shared albums: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Accept Shared Album
+    
+    func acceptSharedAlbum(shareToken: String) {
+        Task {
+            isLoadingSharedAlbums = true
+            errorMessage = nil
+            defer { isLoadingSharedAlbums = false }
+            
+            do {
+                let album = try await shareService.acceptSharedAlbum(shareToken: shareToken)
+                sharedAlbums.insert(album, at: 0)
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0F8332FCCA5BD10C2C9D343A /* TimeAnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B136191FE77341A6CBB9EE /* TimeAnalysisView.swift */; };
+		44432E425AE84D650C3B19B7 /* ListeningStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 329007DE8BCA069A84E61F53 /* ListeningStatsView.swift */; };
+		4E2455A9EA3E63548F22D4B5 /* AcceptSharedAlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499E9C349A6C5E0743F7088 /* AcceptSharedAlbumView.swift */; };
+		72A4FFD28A02B1AE9D4099E4 /* SpotifyPlaylistService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21F3F4E4FC290D45953BC755 /* SpotifyPlaylistService.swift */; };
+		7B583E531FE9B881B6BF68A8 /* MoodContextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA5E5E7918585FF376E8F66 /* MoodContextView.swift */; };
+		919E64307B3DF405BF4A2B0C /* SpotifyListeningStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963EB8366FB850FE18727D84 /* SpotifyListeningStats.swift */; };
+		A2CFF431FCF6D693FDB2A9D3 /* AdvancedAnalyticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E27A24E75CA399779B2D781 /* AdvancedAnalyticsView.swift */; };
 		B961E40A2ECBD7ED000D8614 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961E4092ECBD7ED000D8614 /* ContentView.swift */; };
 		B961E40C2ECBD7ED000D8614 /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961E40B2ECBD7ED000D8614 /* Item.swift */; };
 		B961E4122ECBD7F0000D8614 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B961E4112ECBD7F0000D8614 /* Preview Assets.xcassets */; };
@@ -151,7 +158,10 @@
 		B9FB70962ECC8D310084B284 /* GenreStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB70952ECC8D310084B284 /* GenreStyle.swift */; };
 		B9FB70982ECC8D830084B284 /* FanPersonality.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB70972ECC8D830084B284 /* FanPersonality.swift */; };
 		B9FB709A2ECC8E690084B284 /* WrappedStoryMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB70992ECC8E690084B284 /* WrappedStoryMode.swift */; };
+		C80510185CAB63454DE6788D /* DiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8A4A42B8F037D2A615521B /* DiscoveryView.swift */; };
 		CA4C4AAE4C6527E224D8343B /* RockOutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C5910AC9C748CBA45954EF /* RockOutApp.swift */; };
+		D1AD5D2660E1F35D7EC7E87C /* SocialSharingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B0119752A4E06F4272C288 /* SocialSharingView.swift */; };
+		D6F7EAB9A31CBBF03B6438EE /* SharedAlbumHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FC8CA51CD9F1A1DED0F1EC /* SharedAlbumHandler.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -173,6 +183,15 @@
 
 /* Begin PBXFileReference section */
 		09C5910AC9C748CBA45954EF /* RockOutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockOutApp.swift; sourceTree = "<group>"; };
+		21F3F4E4FC290D45953BC755 /* SpotifyPlaylistService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Services/Spotify/SpotifyPlaylistService.swift; sourceTree = "<absolute>"; };
+		329007DE8BCA069A84E61F53 /* ListeningStatsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ListeningStatsView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/SoundPrint/Features/ListeningStatsView.swift; sourceTree = "<absolute>"; };
+		41B136191FE77341A6CBB9EE /* TimeAnalysisView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TimeAnalysisView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/SoundPrint/Features/TimeAnalysisView.swift; sourceTree = "<absolute>"; };
+		41FC8CA51CD9F1A1DED0F1EC /* SharedAlbumHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SharedAlbumHandler.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/ViewModels/SharedAlbumHandler.swift; sourceTree = "<absolute>"; };
+		6B8A4A42B8F037D2A615521B /* DiscoveryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiscoveryView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/SoundPrint/Features/DiscoveryView.swift; sourceTree = "<absolute>"; };
+		8499E9C349A6C5E0743F7088 /* AcceptSharedAlbumView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AcceptSharedAlbumView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/StudioSessions/AcceptSharedAlbumView.swift; sourceTree = "<absolute>"; };
+		89B0119752A4E06F4272C288 /* SocialSharingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialSharingView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/SoundPrint/Features/SocialSharingView.swift; sourceTree = "<absolute>"; };
+		963EB8366FB850FE18727D84 /* SpotifyListeningStats.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SpotifyListeningStats.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Models/SpotifyListeningStats.swift; sourceTree = "<absolute>"; };
+		9E27A24E75CA399779B2D781 /* AdvancedAnalyticsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AdvancedAnalyticsView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/SoundPrint/Features/AdvancedAnalyticsView.swift; sourceTree = "<absolute>"; };
 		B961E4042ECBD7ED000D8614 /* Rockout.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rockout.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B961E4092ECBD7ED000D8614 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B961E40B2ECBD7ED000D8614 /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
@@ -320,6 +339,7 @@
 		B9FB70952ECC8D310084B284 /* GenreStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenreStyle.swift; sourceTree = "<group>"; };
 		B9FB70972ECC8D830084B284 /* FanPersonality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanPersonality.swift; sourceTree = "<group>"; };
 		B9FB70992ECC8E690084B284 /* WrappedStoryMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WrappedStoryMode.swift; sourceTree = "<group>"; };
+		DAA5E5E7918585FF376E8F66 /* MoodContextView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MoodContextView.swift; path = /Users/suinoikhioda/Desktop/RockOut/Rockout/Views/SoundPrint/Features/MoodContextView.swift; sourceTree = "<absolute>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -411,6 +431,13 @@
 			name = Assets;
 			sourceTree = "<group>";
 		};
+		225450E93BF77BB880CE6EF9 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = ViewModels;
+			sourceTree = "<group>";
+		};
 		26CBA4D6F3870DE2FF37CDC6 /* Spotify */ = {
 			isa = PBXGroup;
 			children = (
@@ -433,6 +460,19 @@
 				B97A6B302ECCC66900368E8B /* User.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		4E162632D650B802747BDBF4 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				329007DE8BCA069A84E61F53 /* ListeningStatsView.swift */,
+				41B136191FE77341A6CBB9EE /* TimeAnalysisView.swift */,
+				6B8A4A42B8F037D2A615521B /* DiscoveryView.swift */,
+				89B0119752A4E06F4272C288 /* SocialSharingView.swift */,
+				DAA5E5E7918585FF376E8F66 /* MoodContextView.swift */,
+				9E27A24E75CA399779B2D781 /* AdvancedAnalyticsView.swift */,
+			);
+			name = Features;
 			sourceTree = "<group>";
 		};
 		69F94ACAF317F5473E0F611B /* Welcome */ = {
@@ -478,6 +518,30 @@
 			path = SoundPrint;
 			sourceTree = "<group>";
 		};
+		8AB4081177EABBE666FD6248 /* SoundPrint */ = {
+			isa = PBXGroup;
+			children = (
+				9E3A0F55E132673CB49C351B /* Features */,
+			);
+			name = SoundPrint;
+			sourceTree = "<group>";
+		};
+		9E3A0F55E132673CB49C351B /* Features */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Features;
+			sourceTree = "<group>";
+		};
+		AB8692D70AD8D73BC58266A3 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				8AB4081177EABBE666FD6248 /* SoundPrint */,
+				BF90BE75A10EBFB7124757BC /* StudioSessions */,
+			);
+			name = Views;
+			sourceTree = "<group>";
+		};
 		B961E3FB2ECBD7ED000D8614 = {
 			isa = PBXGroup;
 			children = (
@@ -487,6 +551,8 @@
 				B961E4242ECBD7F1000D8614 /* RockoutUITests */,
 				B961E4052ECBD7ED000D8614 /* Products */,
 				B9E0E7E82ECBE021006C7549 /* Frameworks */,
+				AB8692D70AD8D73BC58266A3 /* Views */,
+				225450E93BF77BB880CE6EF9 /* ViewModels */,
 			);
 			sourceTree = "<group>";
 		};
@@ -615,6 +681,7 @@
 				B9C25E602ED0A38A003AA60B /* SpotifyModels.swift */,
 				B9C25E612ED0A38A003AA60B /* SpotifyTokens.swift */,
 				B9C25E622ED0A38A003AA60B /* User.swift */,
+				963EB8366FB850FE18727D84 /* SpotifyListeningStats.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -643,6 +710,7 @@
 				B9C25E6B2ED0A38A003AA60B /* SpotifyAuthService.swift */,
 				B9C25E6C2ED0A38A003AA60B /* SpotifyError.swift */,
 				B9C25E6D2ED0A38A003AA60B /* SpotifyTokenStore.swift */,
+				21F3F4E4FC290D45953BC755 /* SpotifyPlaylistService.swift */,
 			);
 			path = Spotify;
 			sourceTree = "<group>";
@@ -705,6 +773,7 @@
 				B9C25E822ED0A38A003AA60B /* Auth */,
 				B9C25E832ED0A38A003AA60B /* AudioPlayerViewModel.swift */,
 				B9C25E842ED0A38A003AA60B /* StudioSessionsViewModel.swift */,
+				41FC8CA51CD9F1A1DED0F1EC /* SharedAlbumHandler.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -775,6 +844,7 @@
 				B9C25EA32ED0A38A003AA60B /* SoundPrintCard.swift */,
 				B9C25EA42ED0A38A003AA60B /* SoundPrintView.swift */,
 				B9C25EA52ED0A38A003AA60B /* WrappedStoryMode.swift */,
+				4E162632D650B802747BDBF4 /* Features */,
 			);
 			path = SoundPrint;
 			sourceTree = "<group>";
@@ -791,6 +861,7 @@
 				B9C25EAE2ED0A38A003AA60B /* TrackDetailView.swift */,
 				B9C25EAF2ED0A38A003AA60B /* UploadTrackSelectorView.swift */,
 				B9C25EB02ED0A38A003AA60B /* VersionHistoryView.swift */,
+				8499E9C349A6C5E0743F7088 /* AcceptSharedAlbumView.swift */,
 			);
 			path = StudioSessions;
 			sourceTree = "<group>";
@@ -891,6 +962,13 @@
 				B9D75FA42ECEA0A500DC607F /* ImagePicker.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		BF90BE75A10EBFB7124757BC /* StudioSessions */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = StudioSessions;
 			sourceTree = "<group>";
 		};
 		D1BDF91AD37D6724954A790D /* Views */ = {
@@ -1213,6 +1291,16 @@
 				B9FB70982ECC8D830084B284 /* FanPersonality.swift in Sources */,
 				B9E0E7F22ECBE3B9006C7549 /* WelcomeView.swift in Sources */,
 				B97A6B362ECCC6E900368E8B /* AuthViewModel.swift in Sources */,
+				44432E425AE84D650C3B19B7 /* ListeningStatsView.swift in Sources */,
+				0F8332FCCA5BD10C2C9D343A /* TimeAnalysisView.swift in Sources */,
+				C80510185CAB63454DE6788D /* DiscoveryView.swift in Sources */,
+				D1AD5D2660E1F35D7EC7E87C /* SocialSharingView.swift in Sources */,
+				7B583E531FE9B881B6BF68A8 /* MoodContextView.swift in Sources */,
+				A2CFF431FCF6D693FDB2A9D3 /* AdvancedAnalyticsView.swift in Sources */,
+				D6F7EAB9A31CBBF03B6438EE /* SharedAlbumHandler.swift in Sources */,
+				4E2455A9EA3E63548F22D4B5 /* AcceptSharedAlbumView.swift in Sources */,
+				919E64307B3DF405BF4A2B0C /* SpotifyListeningStats.swift in Sources */,
+				72A4FFD28A02B1AE9D4099E4 /* SpotifyPlaylistService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1395,6 +1483,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = suinoik.RockOut;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
+				SRCROOT = "$(SRCROOT)/Rockout";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -1434,6 +1523,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = suinoik.RockOut;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
+				SRCROOT = "$(SRCROOT)/Rockout";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @StateObject private var spotifyAuth = SpotifyAuthService.shared
+    @EnvironmentObject var shareHandler: SharedAlbumHandler
     
     var body: some View {
         TabView {
@@ -13,6 +14,7 @@ struct MainTabView: View {
                 }
 
             StudioSessionsView()
+                .environmentObject(shareHandler)
                 .tabItem {
                     Label("Studiosessions", systemImage: "music.note.list")
                 }

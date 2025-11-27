@@ -102,6 +102,14 @@ struct AlbumDetailView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                 
+                if let artistName = album.artist_name, !artistName.isEmpty {
+                    Text(artistName)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                
                 if let status = album.release_status, !status.isEmpty {
                     Text(status.capitalized)
                         .font(.subheadline)
@@ -270,3 +278,4 @@ struct TrackRow: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
+

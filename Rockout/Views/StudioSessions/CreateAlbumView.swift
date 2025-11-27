@@ -6,6 +6,7 @@ struct CreateAlbumView: View {
     @ObservedObject var vm: StudioSessionsViewModel
 
     @State private var title: String = ""
+    @State private var artistName: String = ""
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var coverImage: UIImage?
     @State private var isSaving = false
@@ -16,6 +17,8 @@ struct CreateAlbumView: View {
             Form {
                 Section("Album Info") {
                     TextField("Album title", text: $title)
+                    TextField("Artist name (optional)", text: $artistName)
+                        .autocapitalization(.words)
                 }
 
                 Section("Cover Art (optional)") {
@@ -100,7 +103,8 @@ struct CreateAlbumView: View {
                 coverData = img.jpegData(compressionQuality: 0.9)
             }
 
-            await vm.createAlbum(title: title, coverArtData: coverData)
+            let artistNameValue = artistName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : artistName.trimmingCharacters(in: .whitespaces)
+            await vm.createAlbum(title: title, artistName: artistNameValue, coverArtData: coverData)
             isSaving = false
             dismiss()
         } catch {

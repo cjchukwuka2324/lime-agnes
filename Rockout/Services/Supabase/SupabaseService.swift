@@ -28,8 +28,21 @@ final class SupabaseService {
         )
 
         // FINALLY THE CLIENT
+        guard let supabaseURL = URL(string: Secrets.supabaseUrl) else {
+            print("❌ ERROR: Invalid Supabase URL in Secrets.swift: \(Secrets.supabaseUrl)")
+            // Use a dummy URL to prevent crash - will fail gracefully later
+            let dummyURL = URL(string: "https://invalid.supabase.co")!
+            client = SupabaseClient(
+                supabaseURL: dummyURL,
+                supabaseKey: "invalid",
+                options: options
+            )
+            print("⚠️ Using dummy Supabase client - app may not work correctly")
+            return
+        }
+        
         client = SupabaseClient(
-            supabaseURL: URL(string: Secrets.supabaseUrl)!,
+            supabaseURL: supabaseURL,
             supabaseKey: Secrets.supabaseAnonKey,
             options: options
         )
