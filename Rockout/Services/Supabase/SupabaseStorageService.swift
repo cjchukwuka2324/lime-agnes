@@ -40,7 +40,7 @@ class SupabaseStorageService {
         let path = "\(artistId)/\(albumId)/cover.jpg"
 
         try await client.storage
-            .from("cover-art")
+            .from("album-cover-art")
             .upload(
                 path: path,
                 file: data
@@ -79,7 +79,7 @@ class SupabaseStorageService {
         let path = "\(artistId)/\(albumId)/cover.jpg"
 
         let signedURL: URL = try await client.storage
-            .from("cover-art")
+            .from("album-cover-art")
             .createSignedURL(
                 path: path,
                 expiresIn: seconds

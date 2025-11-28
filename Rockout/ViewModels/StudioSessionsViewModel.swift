@@ -8,9 +8,11 @@ final class StudioSessionsViewModel: ObservableObject {
 
     @Published var albums: [StudioAlbumRecord] = []
     @Published var sharedAlbums: [StudioAlbumRecord] = []
+    @Published var collaborativeAlbums: [StudioAlbumRecord] = []
     @Published var tracks: [StudioTrackRecord] = []
     @Published var isLoadingAlbums = false
     @Published var isLoadingSharedAlbums = false
+    @Published var isLoadingCollaborativeAlbums = false
     @Published var isLoadingTracks = false
     @Published var errorMessage: String?
 
@@ -136,6 +138,23 @@ final class StudioSessionsViewModel: ObservableObject {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+    
+    // MARK: - Load Collaborative Albums
+    
+    func loadCollaborativeAlbums() async {
+        isLoadingCollaborativeAlbums = true
+        errorMessage = nil
+        defer { isLoadingCollaborativeAlbums = false }
+        
+        do {
+            let result = try await albumService.fetchCollaborativeAlbums()
+            collaborativeAlbums = result
+            print("✅ Loaded \(result.count) collaborative album(s)")
+        } catch {
+            errorMessage = error.localizedDescription
+            print("❌ Error loading collaborative albums: \(error.localizedDescription)")
         }
     }
 }

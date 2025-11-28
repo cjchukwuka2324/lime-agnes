@@ -8,7 +8,7 @@ final class ShareService {
     private let supabase = SupabaseService.shared.client
     
     // MARK: - Create Share Link for Album
-    func createShareLink(for albumId: UUID) async throws -> String {
+    func createShareLink(for albumId: UUID, isCollaboration: Bool = false) async throws -> String {
         let session = try await supabase.auth.session
         let userId = session.user.id.uuidString
         
@@ -21,24 +21,29 @@ final class ShareService {
             let resource_id: String
             let share_token: String
             let created_by: String
+            let is_collaboration: Bool
         }
         
         let linkDTO = ShareableLinkDTO(
             resource_type: "album",
             resource_id: albumId.uuidString,
             share_token: shareToken,
-            created_by: userId
+            created_by: userId,
+            is_collaboration: isCollaboration
         )
         
-        // Check if share link already exists
+        // Check if any share link already exists for this album
+        struct ExistingLink: Codable {
+            let id: UUID
+            let share_token: String
+            let is_collaboration: Bool?
+        }
+        
         do {
-            struct ExistingLink: Codable {
-                let share_token: String
-            }
-            
+            // Check for existing link (regardless of collaboration setting)
             let existing: ExistingLink = try await supabase
                 .from("shareable_links")
-                .select("share_token")
+                .select("id, share_token, is_collaboration")
                 .eq("resource_type", value: "album")
                 .eq("resource_id", value: albumId.uuidString)
                 .eq("created_by", value: userId)
@@ -47,7 +52,29 @@ final class ShareService {
                 .execute()
                 .value
             
-            return existing.share_token
+            // If collaboration setting matches, return existing token
+            if (existing.is_collaboration ?? false) == isCollaboration {
+                return existing.share_token
+            }
+            
+            // Collaboration setting is different, update the existing link
+            struct UpdateDTO: Encodable {
+                let share_token: String
+                let is_collaboration: Bool
+            }
+            
+            let updateDTO = UpdateDTO(
+                share_token: shareToken,
+                is_collaboration: isCollaboration
+            )
+            
+            try await supabase
+                .from("shareable_links")
+                .update(updateDTO)
+                .eq("id", value: existing.id.uuidString)
+                .execute()
+            
+            return shareToken
         } catch {
             // No existing link, create new one
             try await supabase
@@ -69,6 +96,7 @@ final class ShareService {
             let id: UUID
             let resource_id: UUID
             let created_by: UUID
+            let is_collaboration: Bool?
         }
         
         struct AlbumCheck: Codable {
@@ -78,7 +106,7 @@ final class ShareService {
         
         let shareLinkResponse = try await supabase
             .from("shareable_links")
-            .select("id, resource_id, created_by")
+            .select("id, resource_id, created_by, is_collaboration")
             .eq("share_token", value: shareToken)
             .eq("is_active", value: true)
             .limit(1)
@@ -144,6 +172,7 @@ final class ShareService {
             let shared_with: String
             let share_token: String
             let accepted_at: String
+            let is_collaboration: Bool
         }
         
         let now = ISO8601DateFormatter().string(from: Date())
@@ -152,7 +181,8 @@ final class ShareService {
             shared_by: shareLink.created_by.uuidString,
             shared_with: userId,
             share_token: shareToken,
-            accepted_at: now
+            accepted_at: now,
+            is_collaboration: shareLink.is_collaboration ?? false
         )
         
         do {
@@ -220,7 +250,7 @@ final class ShareService {
                 }
                 
                 let artistResponse = try await supabase
-                    .from("artists")
+                    .from("studio_artists")
                     .select("name")
                     .eq("id", value: album.artist_id.uuidString)
                     .limit(1)

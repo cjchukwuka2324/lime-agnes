@@ -11,6 +11,7 @@
 		0B1F10A14C9B74CE6B88C96B /* PostComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 340D23A6681F8E602018FDB1 /* PostComposerView.swift */; };
 		0EC4E414180909299697E285 /* TimeAnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DD0088939070446E1544DC /* TimeAnalysisView.swift */; };
 		129B6747C2B4692870B895A5 /* SpotifyAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA977B009B7F472A216158B5 /* SpotifyAuthService.swift */; };
+		12FE1BA641450AAEF1BA9D38 /* EditAlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37A952A7F2468FFC65F90670 /* EditAlbumView.swift */; };
 		13C88F5A6299F141ECFB5C24 /* SpotifyTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5F159ED42FA5515EE44CF1 /* SpotifyTokenStore.swift */; };
 		14288FC1DCD57EAA5744CB15 /* SoundPrintCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B727772DC5BDEA6EF20B34C8 /* SoundPrintCard.swift */; };
 		17846A7A2A8433E281DF28E9 /* EditUsernameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 077605BEAC267A283A6ACB3D /* EditUsernameView.swift */; };
@@ -172,7 +173,7 @@
 		03BCCC390A96867524BA9351 /* FeedViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedViewModel.swift; sourceTree = "<group>"; };
 		03D555781EAFD37216FAE87A /* PostDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostDetailView.swift; sourceTree = "<group>"; };
 		04CD46E8EB2B040171450936 /* View+GlassMorphism.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "View+GlassMorphism.swift"; sourceTree = "<group>"; };
-		077605BEAC267A283A6ACB3D /* EditUsernameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EditUsernameView.swift; path = EditUsernameView.swift; sourceTree = "<group>"; };
+		077605BEAC267A283A6ACB3D /* EditUsernameView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EditUsernameView.swift; sourceTree = "<group>"; };
 		0A82B0AAC3BC5FD1E730F2C5 /* SpotifyPlaylistService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyPlaylistService.swift; sourceTree = "<group>"; };
 		0A8461C6442E8F15926F33B1 /* SupabaseService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SupabaseService.swift; sourceTree = "<group>"; };
 		0C277C653B20E318B24462F9 /* SupabaseStorageService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SupabaseStorageService.swift; sourceTree = "<group>"; };
@@ -188,12 +189,13 @@
 		1C4A3C7A9B06C71E21863616 /* RockListViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockListViewModel.swift; sourceTree = "<group>"; };
 		1F4304AE6C9EEE20E0171A16 /* RockListDataService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockListDataService.swift; sourceTree = "<group>"; };
 		1FE6B63DB7772DB25C2D6249 /* AnimatedGenreBarChart.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnimatedGenreBarChart.swift; sourceTree = "<group>"; };
-		25DEB5B61CE7B37F336EE00B /* VideoPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VideoPicker.swift; path = VideoPicker.swift; sourceTree = "<group>"; };
+		25DEB5B61CE7B37F336EE00B /* VideoPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoPicker.swift; sourceTree = "<group>"; };
 		2F76F7FE480E8E0139A9DE67 /* AuthFlowView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthFlowView.swift; sourceTree = "<group>"; };
 		332A004E0E74A65DB9C2D963 /* SpotifyListeningStats.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyListeningStats.swift; sourceTree = "<group>"; };
 		33616CFF9ED4DB3E0F8932EE /* PostDetailViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostDetailViewModel.swift; sourceTree = "<group>"; };
 		340D23A6681F8E602018FDB1 /* PostComposerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostComposerView.swift; sourceTree = "<group>"; };
 		3696ED431A4414480BCC7C3E /* ImagePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ImagePicker.swift; sourceTree = "<group>"; };
+		37A952A7F2468FFC65F90670 /* EditAlbumView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EditAlbumView.swift; sourceTree = "<group>"; };
 		397BA1FAA6CF6DB4C78732C0 /* Notification.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Notification.swift; sourceTree = "<group>"; };
 		399EC87587BA0131AAAB3B60 /* SpotifyTokens.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyTokens.swift; sourceTree = "<group>"; };
 		39DFF1F5A5925674DD87CC1B /* MyArtistRanksViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MyArtistRanksViewModel.swift; sourceTree = "<group>"; };
@@ -217,11 +219,11 @@
 		686E337CC4CDBD20A6399458 /* ArtistCarousel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ArtistCarousel.swift; sourceTree = "<group>"; };
 		6B776BBB2F46542E3E211014 /* StudioSessionsViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StudioSessionsViewModel.swift; sourceTree = "<group>"; };
 		6BA1D508E84FB60F8B831AF0 /* FlowLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
-		6C99C7AD3D54B3EC2F26A7D5 /* EditSocialMediaView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EditSocialMediaView.swift; path = EditSocialMediaView.swift; sourceTree = "<group>"; };
+		6C99C7AD3D54B3EC2F26A7D5 /* EditSocialMediaView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EditSocialMediaView.swift; sourceTree = "<group>"; };
 		70F985E0CE9BE6C3BC449826 /* GoogleLoginButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoogleLoginButton.swift; sourceTree = "<group>"; };
 		73655C3D43EA4DFA50F14910 /* StudioSessionsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StudioSessionsView.swift; sourceTree = "<group>"; };
 		7930F8AB2366AC0F4C57318A /* SoundPrintView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SoundPrintView.swift; sourceTree = "<group>"; };
-		7C967B46E9DDA7054C533079 /* SocialMediaButtonsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialMediaButtonsView.swift; path = SocialMediaButtonsView.swift; sourceTree = "<group>"; };
+		7C967B46E9DDA7054C533079 /* SocialMediaButtonsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SocialMediaButtonsView.swift; sourceTree = "<group>"; };
 		7CD90B7A85B7DFB547EA8495 /* NotificationsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		7D7CF8D94367C51C8312E43C /* BackgroundView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundView.swift; sourceTree = "<group>"; };
 		7E573796463E9B3292953690 /* RockListService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockListService.swift; sourceTree = "<group>"; };
@@ -244,7 +246,7 @@
 		A24F054431644D485E907CA8 /* VersionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VersionService.swift; sourceTree = "<group>"; };
 		A2E69F80A15DCB95740B1D33 /* CreateAlbumView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CreateAlbumView.swift; sourceTree = "<group>"; };
 		A653D413BAFEDB403E96EAA0 /* ForgotPasswordView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ForgotPasswordView.swift; sourceTree = "<group>"; };
-		A7668E98F885F857A87BC82D /* SocialMediaPlatform.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialMediaPlatform.swift; path = SocialMediaPlatform.swift; sourceTree = "<group>"; };
+		A7668E98F885F857A87BC82D /* SocialMediaPlatform.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SocialMediaPlatform.swift; sourceTree = "<group>"; };
 		A7E3E5174E64E51074144596 /* SpotifyModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyModels.swift; sourceTree = "<group>"; };
 		A957701A4B9946A221818CA6 /* ListeningStatsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ListeningStatsView.swift; sourceTree = "<group>"; };
 		A961EF1741986382897D0856 /* LoginForm.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LoginForm.swift; sourceTree = "<group>"; };
@@ -252,7 +254,7 @@
 		AD02D91BDE20C88D0B8BCDE7 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AD506BCE15D7644DBF632BE4 /* Dictionary+PercentEncoding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Dictionary+PercentEncoding.swift"; sourceTree = "<group>"; };
 		AD6D653674B5003EF8E06248 /* ShareExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExporter.swift; sourceTree = "<group>"; };
-		B060C7E8506703F64021CDED /* SocialMediaPlatformSelectorView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialMediaPlatformSelectorView.swift; path = SocialMediaPlatformSelectorView.swift; sourceTree = "<group>"; };
+		B060C7E8506703F64021CDED /* SocialMediaPlatformSelectorView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SocialMediaPlatformSelectorView.swift; sourceTree = "<group>"; };
 		B125E8F614A70D03A5E4C138 /* RockOutApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockOutApp.swift; sourceTree = "<group>"; };
 		B331817D075C475683972AAE /* ResetPasswordView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ResetPasswordView.swift; sourceTree = "<group>"; };
 		B5DD0088939070446E1544DC /* TimeAnalysisView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeAnalysisView.swift; sourceTree = "<group>"; };
@@ -393,7 +395,6 @@
 				D13F1F78FEA031AF356648B9 /* Feed */,
 				EC7EE6E822C9B434B0C792A4 /* FollowService.swift */,
 			);
-			name = Services;
 			path = Services;
 			sourceTree = "<group>";
 		};
@@ -409,7 +410,6 @@
 			children = (
 				B125E8F614A70D03A5E4C138 /* RockOutApp.swift */,
 			);
-			name = App;
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -455,8 +455,8 @@
 				1682D96FC7074E442D822D10 /* UploadTrackSelectorView.swift */,
 				8D0F96A9AF221553F7FDD9BC /* AudioPlayerView.swift */,
 				BAA5FFA6EFBD5F4A8BF93170 /* AcceptSharedAlbumView.swift */,
+				37A952A7F2468FFC65F90670 /* EditAlbumView.swift */,
 			);
-			name = StudioSessions;
 			path = StudioSessions;
 			sourceTree = "<group>";
 		};
@@ -484,7 +484,6 @@
 				82E62989E8ECBCE66C0E2DA5 /* ArtistLeaderboardViewModel.swift */,
 				39DFF1F5A5925674DD87CC1B /* MyArtistRanksViewModel.swift */,
 			);
-			name = Leaderboard;
 			path = Leaderboard;
 			sourceTree = "<group>";
 		};
@@ -509,7 +508,6 @@
 				7CD90B7A85B7DFB547EA8495 /* NotificationsView.swift */,
 				C44D09F333644D7A3A2F6673 /* FeedView.swift */,
 			);
-			name = Feed;
 			path = Feed;
 			sourceTree = "<group>";
 		};
@@ -532,7 +530,6 @@
 			children = (
 				ED3EFADD8299F73F76D9D9B1 /* DiscoveryEngine.swift */,
 			);
-			name = Discovery;
 			path = Discovery;
 			sourceTree = "<group>";
 		};
@@ -558,7 +555,6 @@
 				0CEEE4988D696A20729A1B6F /* MyArtistRanksView.swift */,
 				F197C0482428CDB625C89A5C /* ArtistLeaderboardView.swift */,
 			);
-			name = Leaderboard;
 			path = Leaderboard;
 			sourceTree = "<group>";
 		};
@@ -585,7 +581,6 @@
 				4112ED33E472CE7A58F1752E /* Main */,
 				AD02D91BDE20C88D0B8BCDE7 /* ContentView.swift */,
 			);
-			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -605,7 +600,6 @@
 			children = (
 				C2E43C63FC7E7139F6C88D82 /* MainTabView.swift */,
 			);
-			name = Main;
 			path = Main;
 			sourceTree = "<group>";
 		};
@@ -619,7 +613,6 @@
 				5CEC735C6F1C45E3CC495D73 /* DiscoveryView.swift */,
 				B5DD0088939070446E1544DC /* TimeAnalysisView.swift */,
 			);
-			name = Features;
 			path = Features;
 			sourceTree = "<group>";
 		};
@@ -636,7 +629,6 @@
 				397BA1FAA6CF6DB4C78732C0 /* Notification.swift */,
 				64FB4F65C387496EB9BBEE87 /* Post.swift */,
 			);
-			name = Feed;
 			path = Feed;
 			sourceTree = "<group>";
 		};
@@ -656,7 +648,6 @@
 				E4E9F02931FB753F61CDEA9A /* SharedFilters.swift */,
 				A7668E98F885F857A87BC82D /* SocialMediaPlatform.swift */,
 			);
-			name = Models;
 			path = Models;
 			sourceTree = "<group>";
 		};
@@ -672,7 +663,6 @@
 				A24F054431644D485E907CA8 /* VersionService.swift */,
 				0A8461C6442E8F15926F33B1 /* SupabaseService.swift */,
 			);
-			name = Supabase;
 			path = Supabase;
 			sourceTree = "<group>";
 		};
@@ -681,7 +671,6 @@
 			children = (
 				C487BB8B4E4266ADF1B9E72E /* WelcomeView.swift */,
 			);
-			name = Welcome;
 			path = Welcome;
 			sourceTree = "<group>";
 		};
@@ -696,7 +685,6 @@
 			isa = PBXGroup;
 			children = (
 			);
-			name = Shared;
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -722,7 +710,6 @@
 				ABD230FD5715D0A1F34861EA /* StudioAlbumRecord.swift */,
 				EB3DA3543E9E58236E21BA9A /* TrackVersion.swift */,
 			);
-			name = StudioSessions;
 			path = StudioSessions;
 			sourceTree = "<group>";
 		};
@@ -753,7 +740,6 @@
 				60E0BA4F05EB0F25457191F5 /* ImageCache.swift */,
 				AD6D653674B5003EF8E06248 /* ShareExporter.swift */,
 			);
-			name = Utils;
 			path = Utils;
 			sourceTree = "<group>";
 		};
@@ -774,7 +760,6 @@
 				0F5F159ED42FA5515EE44CF1 /* SpotifyTokenStore.swift */,
 				5D9C7AF2E975D5D1581D058C /* SpotifyError.swift */,
 			);
-			name = Spotify;
 			path = Spotify;
 			sourceTree = "<group>";
 		};
@@ -822,7 +807,6 @@
 				7E573796463E9B3292953690 /* RockListService.swift */,
 				1F4304AE6C9EEE20E0171A16 /* RockListDataService.swift */,
 			);
-			name = RockList;
 			path = RockList;
 			sourceTree = "<group>";
 		};
@@ -832,7 +816,6 @@
 				E288D9EAD4710696D10C6AC9 /* MyRockListViewModel.swift */,
 				1C4A3C7A9B06C71E21863616 /* RockListViewModel.swift */,
 			);
-			name = RockList;
 			path = RockList;
 			sourceTree = "<group>";
 		};
@@ -844,7 +827,6 @@
 				619933915E51716F728FE722 /* AnimatedGradientBackground.swift */,
 				25DEB5B61CE7B37F336EE00B /* VideoPicker.swift */,
 			);
-			name = Shared;
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -854,7 +836,6 @@
 				8E870387492477DFB204DFD0 /* ArtistLeaderboardModels.swift */,
 				F2AC775BE54677F79A4BAE2B /* LeaderboardFilters.swift */,
 			);
-			name = Leaderboard;
 			path = Leaderboard;
 			sourceTree = "<group>";
 		};
@@ -863,7 +844,6 @@
 			children = (
 				E9DE6241292C1BD76D243758 /* AuthViewModel.swift */,
 			);
-			name = Auth;
 			path = Auth;
 			sourceTree = "<group>";
 		};
@@ -887,7 +867,6 @@
 				33616CFF9ED4DB3E0F8932EE /* PostDetailViewModel.swift */,
 				03BCCC390A96867524BA9351 /* FeedViewModel.swift */,
 			);
-			name = Feed;
 			path = Feed;
 			sourceTree = "<group>";
 		};
@@ -904,7 +883,6 @@
 				7C967B46E9DDA7054C533079 /* SocialMediaButtonsView.swift */,
 				B060C7E8506703F64021CDED /* SocialMediaPlatformSelectorView.swift */,
 			);
-			name = Profile;
 			path = Profile;
 			sourceTree = "<group>";
 		};
@@ -922,7 +900,6 @@
 				59DA23745EB4F13BEA9D2D08 /* Feed */,
 				D2C53B62BE0A89EF93B05366 /* Main */,
 			);
-			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -937,7 +914,6 @@
 				8E1FC263233830020A437654 /* RockList */,
 				A21BCA1BFAA59E8F0A8A4ADB /* Feed */,
 			);
-			name = ViewModels;
 			path = ViewModels;
 			sourceTree = "<group>";
 		};
@@ -961,7 +937,6 @@
 				B9CA3396230E6A6B6B88F472 /* RockListFilters.swift */,
 				C04AFC9857C4A37EF63170AB /* RockListModels.swift */,
 			);
-			name = RockList;
 			path = RockList;
 			sourceTree = "<group>";
 		};
@@ -977,7 +952,6 @@
 				E24F650B31E3FFC4B2B3F881 /* WrappedStoryMode.swift */,
 				3A31024D27480B7E53A4434B /* ShareCardView.swift */,
 			);
-			name = SoundPrint;
 			path = SoundPrint;
 			sourceTree = "<group>";
 		};
@@ -1155,7 +1129,6 @@
 				872E867748F971A25153E307 /* MyRockListView.swift */,
 				0F292FEE09D10E2F826297CE /* RockListView.swift */,
 			);
-			name = RockList;
 			path = RockList;
 			sourceTree = "<group>";
 		};
@@ -1189,7 +1162,6 @@
 				E351CDFB06A96B9E0D67AA67 /* Notification+Feed.swift */,
 				04CD46E8EB2B040171450936 /* View+GlassMorphism.swift */,
 			);
-			name = Extensions;
 			path = Extensions;
 			sourceTree = "<group>";
 		};
@@ -1206,7 +1178,6 @@
 				F0F4ECF5319F4F47594AB45A /* SignUpView.swift */,
 				A961EF1741986382897D0856 /* LoginForm.swift */,
 			);
-			name = Auth;
 			path = Auth;
 			sourceTree = "<group>";
 		};
@@ -1215,7 +1186,6 @@
 			children = (
 				65BE2C64E24E7D5C3B0EC22D /* LeaderboardService.swift */,
 			);
-			name = Leaderboard;
 			path = Leaderboard;
 			sourceTree = "<group>";
 		};
@@ -1227,7 +1197,6 @@
 				607295F9464462D4A0332D39 /* FeedImageService.swift */,
 				8DC89FA26DC92E80E44FF256 /* FeedMediaService.swift */,
 			);
-			name = Feed;
 			path = Feed;
 			sourceTree = "<group>";
 		};
@@ -1341,7 +1310,6 @@
 				8286B05C5F9564BBB173365B /* FanPersonality.swift */,
 				8BEE846B7562C34BD76965D8 /* AvatarView.swift */,
 			);
-			name = Components;
 			path = Components;
 			sourceTree = "<group>";
 		};
@@ -1642,6 +1610,7 @@
 				FC77326E50214F6A2B7CA251 /* EditSocialMediaView.swift in Sources */,
 				661ACEBEA611D51A8208A864 /* SocialMediaButtonsView.swift in Sources */,
 				FEC6EE1AC0D061B5DDDA6780 /* SocialMediaPlatformSelectorView.swift in Sources */,
+				12FE1BA641450AAEF1BA9D38 /* EditAlbumView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1795,6 +1764,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Rockout/Rockout.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Rockout/Preview Content\"";
@@ -1816,8 +1786,9 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = suinoik.RockOut;
+				PRODUCT_BUNDLE_IDENTIFIER = com.suinoik.rockout;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SRCROOT = "$(SRCROOT)/Rockout";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1833,6 +1804,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Rockout/Rockout.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Rockout/Preview Content\"";
@@ -1854,8 +1826,9 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = suinoik.RockOut;
+				PRODUCT_BUNDLE_IDENTIFIER = com.suinoik.rockout;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SRCROOT = "$(SRCROOT)/Rockout";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

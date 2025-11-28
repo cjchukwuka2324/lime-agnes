@@ -8,8 +8,15 @@ struct AlbumDetailView: View {
     @State private var errorMessage: String?
     @State private var showAddTrack = false
     @State private var showShare = false
+    @State private var showEditAlbum = false
+    @State private var currentAlbum: StudioAlbumRecord
 
     private let trackService = TrackService.shared
+    
+    init(album: StudioAlbumRecord) {
+        self.album = album
+        _currentAlbum = State(initialValue: album)
+    }
 
     var body: some View {
         ZStack {
@@ -35,8 +42,28 @@ struct AlbumDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .onAppear {
+            // Ensure navigation bar is always opaque
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = .black
+            appearance.shadowColor = .clear
+            
+            UINavigationBar.appearance().standardAppearance = appearance
+            UINavigationBar.appearance().scrollEdgeAppearance = appearance
+            UINavigationBar.appearance().compactAppearance = appearance
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button {
+                    showEditAlbum = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .foregroundColor(.white)
+                }
+                
                 Button {
                     showShare = true
                 } label: {
@@ -56,7 +83,13 @@ struct AlbumDetailView: View {
             ShareSheetView(resourceType: "album", resourceId: album.id)
         }
         .sheet(isPresented: $showAddTrack) {
-            AddTrackView(album: album) {
+            AddTrackView(album: currentAlbum) {
+                Task { await loadTracks() }
+            }
+        }
+        .sheet(isPresented: $showEditAlbum) {
+            EditAlbumView(album: currentAlbum) { updatedAlbum in
+                currentAlbum = updatedAlbum
                 Task { await loadTracks() }
             }
         }
@@ -70,7 +103,7 @@ struct AlbumDetailView: View {
         VStack(spacing: 20) {
             // Cover Art
             Group {
-                if let urlString = album.cover_art_url,
+                if let urlString = currentAlbum.cover_art_url,
                    let url = URL(string: urlString) {
                     AsyncImage(url: url) { phase in
                         switch phase {
@@ -96,13 +129,13 @@ struct AlbumDetailView: View {
             
             // Album Info
             VStack(spacing: 8) {
-                Text(album.title)
+                Text(currentAlbum.title)
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                 
-                if let artistName = album.artist_name, !artistName.isEmpty {
+                if let artistName = currentAlbum.artist_name, !artistName.isEmpty {
                     Text(artistName)
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
@@ -110,7 +143,7 @@ struct AlbumDetailView: View {
                         .padding(.horizontal, 24)
                 }
                 
-                if let status = album.release_status, !status.isEmpty {
+                if let status = currentAlbum.release_status, !status.isEmpty {
                     Text(status.capitalized)
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.6))
@@ -167,7 +200,7 @@ struct AlbumDetailView: View {
                 emptyTracksView
             } else {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                    TrackRow(track: track, trackNumber: index + 1, album: album)
+                    TrackRow(track: track, trackNumber: track.track_number ?? (index + 1), album: currentAlbum)
                 }
             }
         }
@@ -214,9 +247,11 @@ struct AlbumDetailView: View {
         defer { isLoading = false }
 
         do {
-            tracks = try await trackService.fetchTracks(for: album)
+            tracks = try await trackService.fetchTracks(for: currentAlbum)
+            print("✅ Loaded \(tracks.count) tracks for album \(currentAlbum.id.uuidString)")
         } catch {
             errorMessage = error.localizedDescription
+            print("❌ Error loading tracks: \(error.localizedDescription)")
         }
     }
 }

@@ -64,11 +64,13 @@ struct RecentlyDiscovered: Codable {
 struct DiscoverWeekly: Codable {
     let tracks: [SpotifyTrack]
     let updatedAt: Date
+    let playlistId: String?
 }
 
 struct ReleaseRadar: Codable {
     let tracks: [SpotifyTrack]
     let updatedAt: Date
+    let playlistId: String?
 }
 
 // MARK: - Mood & Context

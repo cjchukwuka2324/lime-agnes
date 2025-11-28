@@ -1,27 +1,26 @@
 import Foundation
 
-
 // MARK: - Data Models
 
 struct RealYouMix {
-    let title: String          // "The Real You"
-    let subtitle: String       // "Your core sound right now"
-    let description: String    // short vibe description
+    let title: String
+    let subtitle: String
+    let description: String
     let genres: [GenreStat]
     let tracks: [SpotifyTrack]
 }
 
 struct SoundprintForecast {
-    let headline: String           // "Your 2025 Soundprint Forecast"
-    let risingGenres: [GenreStat]  // genres likely to grow
+    let headline: String
+    let risingGenres: [GenreStat]
     let wildcardGenres: [GenreStat]
     let suggestedTracks: [SpotifyTrack]
 }
 
 struct DiscoveryBundle {
-    let newTracks: [SpotifyTrack]      // high-confidence recs
-    let newArtists: [SpotifyArtist]    // artists they don't already listen to
-    let newGenres: [String]            // genres they don't currently have
+    let newTracks: [SpotifyTrack]
+    let newArtists: [SpotifyArtist]
+    let newGenres: [String]
 }
 
 // MARK: - Discovery Engine
@@ -35,183 +34,190 @@ final class DiscoveryEngine {
     }
 
     // MARK: - 1. The Real You Mix
-
-    /// Builds the "The Real You" playlist based on core genres + top artists/tracks.
+    /// 70% user's real favorites, 30% strong related recommendations.
     func buildRealYouMix(
         genres: [GenreStat],
         topArtists: [SpotifyArtist],
         topTracks: [SpotifyTrack]
     ) async throws -> RealYouMix {
 
+        guard !topTracks.isEmpty else {
+            throw NSError(domain: "DiscoveryEngine", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "No top tracks available"])
+        }
+
         let sortedGenres = genres.sorted { $0.percent > $1.percent }
         let coreGenres = Array(sortedGenres.prefix(3))
 
-        let seedArtistIDs = Array(topArtists.prefix(3)).map { $0.id }
-        let seedTrackIDs  = Array(topTracks.prefix(2)).map { $0.id }
-        let seedGenres    = coreGenres.map { $0.genre.lowercased() }
+        // Tight, high-confidence seeds
+        let seedTrackIDs = Array(topTracks.prefix(3)).map { $0.id }
+        let seedArtistIDs = Array(topArtists.prefix(2)).map { $0.id }
+        let seedGenres = Array(coreGenres.prefix(2)).map { $0.genre.lowercased() }
 
-        var recs: [SpotifyTrack] = []
+        let knownTrackIDs = Set(topTracks.map { $0.id })
+
+        let recs: [SpotifyTrack]
         do {
-            recs = try await api.getRecommendations(
+            let result = try await api.getRecommendations(
                 seedArtists: seedArtistIDs,
                 seedGenres: seedGenres,
                 seedTracks: seedTrackIDs,
                 limit: 40
             )
+            recs = result.filter { !knownTrackIDs.contains($0.id) }
         } catch {
-            // Fallback: just use their own top tracks if recs fail
-            recs = Array(topTracks.prefix(30))
+            print("⚠️ RealYouMix fallback: using artists + tracks only")
+            let fallback = try await api.getRecommendations(
+                seedArtists: seedArtistIDs,
+                seedGenres: [],
+                seedTracks: seedTrackIDs,
+                limit: 40
+            )
+            recs = fallback.filter { !knownTrackIDs.contains($0.id) }
         }
 
-        // If Spotify returned nothing, still give them something to see
-        if recs.isEmpty {
-            recs = Array(topTracks.prefix(30))
-        }
+        // Playlist composition
+        let coreCount = 20
+        let recCount = 10
 
-        let main = coreGenres.first?.genre.capitalized ?? "your sound"
-        let desc = "Built from your heaviest-played sounds: \(main) and the lanes orbiting it."
+        let mainTracks = Array(topTracks.prefix(coreCount))
+        let recTracks = Array(recs.prefix(recCount))
+
+        let final = mainTracks + recTracks
+
+        let desc = "Built from your core: \(coreGenres.first?.genre.capitalized ?? "your sound")."
 
         return RealYouMix(
             title: "The Real You",
             subtitle: "Your core sound right now",
             description: desc,
             genres: coreGenres,
-            tracks: recs
+            tracks: final
         )
     }
 
     // MARK: - 2. Soundprint Forecast
-
-    /// Heuristic forecast: promotes mid-tier genres as "rising",
-    /// pulls recommendations seeded on those for a future-you feel.
+    /// Uses rising + wildcard genres and mid-tier artists. 100% fresh tracks.
     func buildForecast(
         genres: [GenreStat],
         topArtists: [SpotifyArtist],
         topTracks: [SpotifyTrack]
     ) async throws -> SoundprintForecast {
 
-        // Rising = not your #1, but between 3% and 12% share
-        let rising = genres
-            .sorted { $0.percent > $1.percent }
-            .filter { $0.percent >= 0.03 && $0.percent <= 0.12 }
+        let sorted = genres.sorted { $0.percent > $1.percent }
 
-        // Wildcards = small but present (< 4%)
-        let wildcards = genres
-            .filter { $0.percent > 0 && $0.percent < 0.04 }
-            .sorted { $0.percent > $1.percent }
+        // Wildcards = tiny emerging genres
+        let wildcards = sorted.filter { $0.percent > 0 && $0.percent < 0.035 }
 
-        let seedGenres = Array(rising.prefix(3)).map { $0.genre.lowercased() }
-        let seedArtists = Array(topArtists.prefix(2)).map { $0.id }
+        // Rising = mid-tier genre slices
+        let rising = sorted.filter { $0.percent >= 0.035 && $0.percent < 0.12 }
 
-        var forecastTracks: [SpotifyTrack] = []
+        let knownTrackIDs = Set(topTracks.map { $0.id })
+
+        // Choose seeds based on what's present
+        let seedGenres: [String]
+        if !wildcards.isEmpty {
+            seedGenres = Array(wildcards.prefix(3)).map { $0.genre.lowercased() }
+        } else if !rising.isEmpty {
+            seedGenres = Array(rising.prefix(3)).map { $0.genre.lowercased() }
+        } else {
+            seedGenres = Array(sorted.dropFirst(2).prefix(2)).map { $0.genre.lowercased() }
+        }
+
+        // Use mid-tier artists (skip their top 2)
+        let seedArtists = Array(topArtists.dropFirst(2).prefix(3)).map { $0.id }
+
+        let raw: [SpotifyTrack]
         do {
-            forecastTracks = try await api.getRecommendations(
+            raw = try await api.getRecommendations(
                 seedArtists: seedArtists,
                 seedGenres: seedGenres,
                 seedTracks: [],
-                limit: 30
+                limit: 70
             )
         } catch {
-            // Fallback: use a different seed set (e.g. just artists)
-            do {
-                forecastTracks = try await api.getRecommendations(
-                    seedArtists: seedArtists,
-                    seedGenres: [],
-                    seedTracks: [],
-                    limit: 30
-                )
-            } catch {
-                // Final fallback: reuse some of their own top tracks
-                forecastTracks = Array(topTracks.prefix(20))
-            }
+            print("⚠️ Forecast fallback: genres only")
+            raw = try await api.getRecommendations(
+                seedArtists: [],
+                seedGenres: seedGenres,
+                seedTracks: [],
+                limit: 70
+            )
         }
 
-        if forecastTracks.isEmpty {
-            forecastTracks = Array(topTracks.prefix(20))
-        }
+        let freshTracks = raw.filter { !knownTrackIDs.contains($0.id) }
+        let finalTracks = Array(freshTracks.prefix(30))
 
         let headline: String
-        if let first = rising.first {
-            headline = "You’re drifting deeper into \(first.genre.capitalized)."
-        } else if let first = genres.sorted(by: { $0.percent > $1.percent }).first {
-            headline = "Expect more of your \(first.genre.capitalized) era."
+        if let w = wildcards.first {
+            headline = "You're drifting into \(w.genre.capitalized)."
+        } else if let r = rising.first {
+            headline = "Your \(r.genre.capitalized) phase is rising."
+        } else if sorted.count > 2 {
+            headline = "Expect more of your \(sorted[2].genre.capitalized) era."
         } else {
-            headline = "Your 2025 Soundprint is still loading."
+            headline = "Your soundprint is shifting."
         }
 
         return SoundprintForecast(
             headline: headline,
             risingGenres: rising,
             wildcardGenres: wildcards,
-            suggestedTracks: forecastTracks
+            suggestedTracks: finalTracks
         )
     }
 
-    // MARK: - 3. Discovery Bundle (new music, artists, genres)
-
+    // MARK: - 3. Discovery Bundle
+    /// Wide exploration: new artists, new genres, new tracks.
     func buildDiscoveryBundle(
         genres: [GenreStat],
         topArtists: [SpotifyArtist],
         topTracks: [SpotifyTrack]
     ) async throws -> DiscoveryBundle {
 
-        let existingArtistIDs = Set(topArtists.map { $0.id })
-        let existingGenres = Set(genres.map { $0.genre.lowercased() })
-        let existingTrackIDs = Set(topTracks.map { $0.id })
+        let knownTrackIDs = Set(topTracks.map { $0.id })
+        let knownArtistIDs = Set(topArtists.map { $0.id })
+        let knownGenreSet = Set(genres.map { $0.genre.lowercased() })
 
-        let seedArtists = Array(topArtists.prefix(3)).map { $0.id }
-        let seedGenres  = Array(genres.prefix(3)).map { $0.genre.lowercased() }
+        // Wide exploration seeds: many genres, many artists
+        let seedGenres = Array(genres.prefix(6)).map { $0.genre.lowercased() }
+        let seedArtists = Array(topArtists.prefix(4)).map { $0.id }
 
-        var recs: [SpotifyTrack] = []
-        do {
-            recs = try await api.getRecommendations(
-                seedArtists: seedArtists,
-                seedGenres: seedGenres,
-                seedTracks: [],
-                limit: 60
-            )
-        } catch {
-            // Fallback: try artists only
-            do {
-                recs = try await api.getRecommendations(
-                    seedArtists: seedArtists,
-                    seedGenres: [],
-                    seedTracks: [],
-                    limit: 60
-                )
-            } catch {
-                recs = []
-            }
-        }
+        let raw = try await api.getRecommendations(
+            seedArtists: seedArtists,
+            seedGenres: seedGenres,
+            seedTracks: [],
+            limit: 80
+        )
 
-        // Filter out already-known tracks
-        let freshTracks = recs.filter { !existingTrackIDs.contains($0.id) }
+        // Strictly new tracks
+        let fresh = raw.filter { !knownTrackIDs.contains($0.id) }
 
-        // New artists pulled from those tracks
+        // Extract new artists
         var newArtistMap: [String: SpotifyArtist] = [:]
-        for track in freshTracks {
-            for artist in track.artists {
-                if !existingArtistIDs.contains(artist.id) {
-                    newArtistMap[artist.id] = artist
+        for t in fresh {
+            for a in t.artists {
+                if !knownArtistIDs.contains(a.id) {
+                    newArtistMap[a.id] = a
                 }
             }
         }
         let newArtists = Array(newArtistMap.values)
 
-        // New genres from new artists
+        // Extract brand-new genres
         var newGenreSet = Set<String>()
         for artist in newArtists {
             for g in artist.genres ?? [] {
-                let lc = g.lowercased()
-                if !existingGenres.contains(lc) {
+                if !knownGenreSet.contains(g.lowercased()) {
                     newGenreSet.insert(g)
                 }
             }
         }
+
         let newGenres = Array(newGenreSet).sorted()
 
         return DiscoveryBundle(
-            newTracks: freshTracks,
+            newTracks: Array(fresh.prefix(40)),
             newArtists: newArtists,
             newGenres: newGenres
         )

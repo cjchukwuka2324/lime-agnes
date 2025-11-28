@@ -261,3 +261,118 @@ extension SpotifyAPI {
         return try JSONDecoder().decode(RecResponse.self, from: data).tracks
     }
 }
+
+// MARK: - Playlists
+extension SpotifyAPI {
+    
+    struct SpotifyPlaylist: Codable, Identifiable {
+        let id: String
+        let name: String
+        let description: String?
+        let owner: SpotifyPlaylistOwner?
+        let tracks: SpotifyPlaylistTracks?
+        
+        struct SpotifyPlaylistOwner: Codable {
+            let id: String
+            let display_name: String?
+        }
+        
+        struct SpotifyPlaylistTracks: Codable {
+            let total: Int
+            let href: String
+        }
+    }
+    
+    struct SpotifyPlaylistsResponse: Codable {
+        let items: [SpotifyPlaylist]
+        let next: String?
+    }
+    
+    struct SpotifyPlaylistTracksResponse: Codable {
+        let items: [SpotifyPlaylistTrackItem]
+        let next: String?
+        
+        struct SpotifyPlaylistTrackItem: Codable {
+            let track: SpotifyTrack?
+        }
+    }
+    
+    /// Get user's playlists
+    func getUserPlaylists(limit: Int = 50, offset: Int = 0) async throws -> SpotifyPlaylistsResponse {
+        let data = try await authedRequest(
+            path: "/me/playlists",
+            queryItems: [
+                URLQueryItem(name: "limit", value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)")
+            ]
+        )
+        return try JSONDecoder().decode(SpotifyPlaylistsResponse.self, from: data)
+    }
+    
+    /// Get all user playlists (handles pagination)
+    func getAllUserPlaylists() async throws -> [SpotifyPlaylist] {
+        var allPlaylists: [SpotifyPlaylist] = []
+        var offset = 0
+        let limit = 50
+        
+        while true {
+            let response = try await getUserPlaylists(limit: limit, offset: offset)
+            allPlaylists.append(contentsOf: response.items)
+            
+            if response.next == nil {
+                break
+            }
+            offset += limit
+        }
+        
+        return allPlaylists
+    }
+    
+    /// Find Discover Weekly playlist
+    func findDiscoverWeekly() async throws -> SpotifyPlaylist? {
+        let playlists = try await getAllUserPlaylists()
+        return playlists.first { playlist in
+            playlist.name.lowercased().contains("discover weekly")
+        }
+    }
+    
+    /// Find Release Radar playlist
+    func findReleaseRadar() async throws -> SpotifyPlaylist? {
+        let playlists = try await getAllUserPlaylists()
+        return playlists.first { playlist in
+            playlist.name.lowercased().contains("release radar")
+        }
+    }
+    
+    /// Get tracks from a playlist
+    func getPlaylistTracks(playlistId: String, limit: Int = 100, offset: Int = 0) async throws -> SpotifyPlaylistTracksResponse {
+        let data = try await authedRequest(
+            path: "/playlists/\(playlistId)/tracks",
+            queryItems: [
+                URLQueryItem(name: "limit", value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)")
+            ]
+        )
+        return try JSONDecoder().decode(SpotifyPlaylistTracksResponse.self, from: data)
+    }
+    
+    /// Get all tracks from a playlist (handles pagination)
+    func getAllPlaylistTracks(playlistId: String) async throws -> [SpotifyTrack] {
+        var allTracks: [SpotifyTrack] = []
+        var offset = 0
+        let limit = 100
+        
+        while true {
+            let response = try await getPlaylistTracks(playlistId: playlistId, limit: limit, offset: offset)
+            let tracks = response.items.compactMap { $0.track }
+            allTracks.append(contentsOf: tracks)
+            
+            if response.next == nil {
+                break
+            }
+            offset += limit
+        }
+        
+        return allTracks
+    }
+}

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SoundPrintView: View {
     @EnvironmentObject var authService: SpotifyAuthService
@@ -25,6 +26,11 @@ struct SoundPrintView: View {
     @State private var seasonalTrends: [SeasonalTrend] = []
     @State private var diversity: MusicTasteDiversity?
     @State private var tasteCompatibility: [TasteCompatibility] = []
+    
+    // Custom curated playlists
+    @State private var realYouMix: RealYouMix?
+    @State private var soundprintForecast: SoundprintForecast?
+    @State private var discoveryBundle: DiscoveryBundle?
 
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -34,8 +40,8 @@ struct SoundPrintView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Animated gradient background
-                AnimatedGradientBackground()
+                // Solid black background
+                Color.black
                 .ignoresSafeArea()
 
                 if isLoading {
@@ -96,7 +102,11 @@ struct SoundPrintView: View {
                             discoverWeekly: discoverWeekly,
                             releaseRadar: releaseRadar,
                             recentlyDiscovered: recentlyDiscovered,
-                            onAddToSpotify: handleAddToSpotify
+                            realYouMix: realYouMix,
+                            soundprintForecast: soundprintForecast,
+                            discoveryBundle: discoveryBundle,
+                            onOpenInSpotify: handleOpenInSpotify,
+                            onOpenPlaylist: handleOpenInSpotify
                         )
                     case 7:
                         SocialSharingView(
@@ -549,11 +559,120 @@ struct SoundPrintView: View {
     }
     
     private func loadDiscovery() async throws {
-        // Placeholder - will be implemented when Spotify API methods are available
+        // Load Spotify's native playlists
+        do {
+            // Find Discover Weekly
+            if let discoverWeeklyPlaylist = try await api.findDiscoverWeekly() {
+                let tracks = try await api.getAllPlaylistTracks(playlistId: discoverWeeklyPlaylist.id)
+                await MainActor.run {
+                    self.discoverWeekly = DiscoverWeekly(tracks: tracks, updatedAt: Date(), playlistId: discoverWeeklyPlaylist.id)
+                }
+            } else {
+                await MainActor.run {
+                    self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
+                }
+            }
+            
+            // Find Release Radar
+            if let releaseRadarPlaylist = try await api.findReleaseRadar() {
+                let tracks = try await api.getAllPlaylistTracks(playlistId: releaseRadarPlaylist.id)
+                await MainActor.run {
+                    self.releaseRadar = ReleaseRadar(tracks: tracks, updatedAt: Date(), playlistId: releaseRadarPlaylist.id)
+                }
+            } else {
+                await MainActor.run {
+                    self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
+                }
+            }
+        } catch {
+            // If fetching fails, set empty playlists
+            await MainActor.run {
+                self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
+                self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
+            }
+            print("⚠️ Failed to load Spotify playlists: \(error.localizedDescription)")
+        }
+        
         await MainActor.run {
-            self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date())
-            self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date())
             self.recentlyDiscovered = [] // Would need to track discovery dates
+        }
+        
+        // Build custom curated playlists
+        let discoveryEngine = DiscoveryEngine(api: api)
+        
+        // Build Real You Mix
+        do {
+            let realYou = try await discoveryEngine.buildRealYouMix(
+                genres: genreStats,
+                topArtists: topArtists,
+                topTracks: topTracks
+            )
+            await MainActor.run {
+                self.realYouMix = realYou
+            }
+            print("✅ Real You Mix built: \(realYou.tracks.count) tracks")
+        } catch {
+            print("⚠️ Failed to build Real You Mix: \(error.localizedDescription)")
+            await MainActor.run {
+                self.realYouMix = nil
+            }
+        }
+        
+        // Build Soundprint Forecast - MUST succeed (has fallbacks built in)
+        do {
+            let forecast = try await discoveryEngine.buildForecast(
+                genres: genreStats,
+                topArtists: topArtists,
+                topTracks: topTracks
+            )
+            await MainActor.run {
+                self.soundprintForecast = forecast
+            }
+            print("✅ Soundprint Forecast built: \(forecast.suggestedTracks.count) tracks")
+            
+            // Validate it has tracks
+            if forecast.suggestedTracks.isEmpty {
+                print("❌ ERROR: Soundprint Forecast is empty after building!")
+            }
+        } catch {
+            print("❌ CRITICAL: Failed to build Soundprint Forecast: \(error.localizedDescription)")
+            // Even if it fails, try to create a minimal forecast with fallback tracks
+            if !topTracks.isEmpty {
+                let midPoint = max(10, topTracks.count / 3)
+                let fallbackTracks = Array(topTracks[midPoint..<min(midPoint + 30, topTracks.count)])
+                let fallbackForecast = SoundprintForecast(
+                    headline: "Your future sound is evolving.",
+                    risingGenres: [],
+                    wildcardGenres: [],
+                    suggestedTracks: fallbackTracks
+                )
+                await MainActor.run {
+                    self.soundprintForecast = fallbackForecast
+                }
+                print("✅ Created fallback Soundprint Forecast with \(fallbackTracks.count) tracks")
+            } else {
+                await MainActor.run {
+                    self.soundprintForecast = nil
+                }
+            }
+        }
+        
+        // Build Discovery Bundle
+        do {
+            let bundle = try await discoveryEngine.buildDiscoveryBundle(
+                genres: genreStats,
+                topArtists: topArtists,
+                topTracks: topTracks
+            )
+            await MainActor.run {
+                self.discoveryBundle = bundle
+            }
+            print("✅ Discovery Bundle built: \(bundle.newTracks.count) tracks")
+        } catch {
+            print("⚠️ Failed to build Discovery Bundle: \(error.localizedDescription)")
+            await MainActor.run {
+                self.discoveryBundle = nil
+            }
         }
     }
     
@@ -608,14 +727,14 @@ struct SoundPrintView: View {
         return genreScore + artistScore
     }
     
-    private func handleAddToSpotify(playlistName: String, tracks: [SpotifyTrack]) {
+    private func handleOpenInSpotify(playlistName: String, tracks: [SpotifyTrack]) {
         Task {
             await MainActor.run {
                 isAddingToSpotify = true
             }
             
             do {
-                // Construct URIs from track IDs
+                // Create the playlist first
                 let trackUris = tracks.map { track in
                     "spotify:track:\(track.id)"
                 }
@@ -627,15 +746,35 @@ struct SoundPrintView: View {
                     isPublic: false
                 )
                 
+                // Open in Spotify app
                 await MainActor.run {
                     isAddingToSpotify = false
-                    // Show success message
-                    print("✅ Successfully created playlist: \(playlistId)")
+                    if let spotifyURL = URL(string: "spotify:playlist:\(playlistId)") {
+                        if UIApplication.shared.canOpenURL(spotifyURL) {
+                            UIApplication.shared.open(spotifyURL)
+                        } else if let webURL = URL(string: "https://open.spotify.com/playlist/\(playlistId)") {
+                            UIApplication.shared.open(webURL)
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {
                     isAddingToSpotify = false
-                    errorMessage = "Failed to add to Spotify: \(error.localizedDescription)"
+                    errorMessage = "Failed to open in Spotify: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func handleOpenInSpotify(playlistId: String) {
+        Task {
+            await MainActor.run {
+                if let spotifyURL = URL(string: "spotify:playlist:\(playlistId)") {
+                    if UIApplication.shared.canOpenURL(spotifyURL) {
+                        UIApplication.shared.open(spotifyURL)
+                    } else if let webURL = URL(string: "https://open.spotify.com/playlist/\(playlistId)") {
+                        UIApplication.shared.open(webURL)
+                    }
                 }
             }
         }

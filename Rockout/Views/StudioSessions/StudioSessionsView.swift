@@ -14,13 +14,34 @@ struct StudioSessionsView: View {
     @State private var showAcceptShareSheet = false
     @State private var shareTokenToAccept: String?
     
+    var loadingMessage: String {
+        switch selectedTab {
+        case .myAlbums:
+            return "Loading your sessions..."
+        case .sharedWithYou:
+            return "Loading shared albums..."
+        case .collaborations:
+            return "Loading collaborations..."
+        }
+    }
+    
     enum AlbumTab: String, CaseIterable {
         case myAlbums = "My Albums"
         case sharedWithYou = "Shared with You"
+        case collaborations = "Collaborations"
     }
 
     var filteredAlbums: [StudioAlbumRecord] {
-        let albumsToFilter = selectedTab == .myAlbums ? viewModel.albums : viewModel.sharedAlbums
+        let albumsToFilter: [StudioAlbumRecord]
+        switch selectedTab {
+        case .myAlbums:
+            albumsToFilter = viewModel.albums
+        case .sharedWithYou:
+            albumsToFilter = viewModel.sharedAlbums
+        case .collaborations:
+            albumsToFilter = viewModel.collaborativeAlbums
+        }
+        
         if searchText.isEmpty {
             return albumsToFilter
         }
@@ -28,7 +49,14 @@ struct StudioSessionsView: View {
     }
     
     var isLoading: Bool {
-        selectedTab == .myAlbums ? viewModel.isLoadingAlbums : viewModel.isLoadingSharedAlbums
+        switch selectedTab {
+        case .myAlbums:
+            return viewModel.isLoadingAlbums
+        case .sharedWithYou:
+            return viewModel.isLoadingSharedAlbums
+        case .collaborations:
+            return viewModel.isLoadingCollaborativeAlbums
+        }
     }
 
     var body: some View {
@@ -49,9 +77,14 @@ struct StudioSessionsView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 16)
                     .onChange(of: selectedTab) { _, _ in
-                        if selectedTab == .sharedWithYou {
-                            Task {
+                        Task {
+                            switch selectedTab {
+                            case .sharedWithYou:
                                 await viewModel.loadSharedAlbums()
+                            case .collaborations:
+                                await viewModel.loadCollaborativeAlbums()
+                            case .myAlbums:
+                                break
                             }
                         }
                     }
@@ -61,7 +94,7 @@ struct StudioSessionsView: View {
                         VStack(spacing: 16) {
                             ProgressView()
                                 .tint(.white)
-                            Text(selectedTab == .myAlbums ? "Loading your sessions..." : "Loading shared albums...")
+                            Text(loadingMessage)
                                 .foregroundColor(.white.opacity(0.7))
                                 .font(.subheadline)
                         }
@@ -109,6 +142,19 @@ struct StudioSessionsView: View {
             }
             .navigationTitle("Studio Sessions")
             .navigationBarTitleDisplayMode(.large)
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .onAppear {
+                // Ensure navigation bar is always opaque
+                let appearance = UINavigationBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = .black
+                appearance.shadowColor = .clear
+                
+                UINavigationBar.appearance().standardAppearance = appearance
+                UINavigationBar.appearance().scrollEdgeAppearance = appearance
+                UINavigationBar.appearance().compactAppearance = appearance
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if selectedTab == .myAlbums {
@@ -128,10 +174,15 @@ struct StudioSessionsView: View {
             }
             .onAppear {
                 viewModel.loadAlbums()
-                // Load shared albums if on that tab
-                if selectedTab == .sharedWithYou {
-                    Task {
+                // Load appropriate albums based on selected tab
+                Task {
+                    switch selectedTab {
+                    case .sharedWithYou:
                         await viewModel.loadSharedAlbums()
+                    case .collaborations:
+                        await viewModel.loadCollaborativeAlbums()
+                    case .myAlbums:
+                        break
                     }
                 }
             }
@@ -159,18 +210,16 @@ struct StudioSessionsView: View {
     // MARK: - Empty State
     private var emptyStateView: some View {
         VStack(spacing: 24) {
-            Image(systemName: selectedTab == .myAlbums ? "music.note.list" : "person.2.fill")
+            Image(systemName: emptyStateIcon)
                 .font(.system(size: 60))
                 .foregroundColor(.white.opacity(0.3))
             
-            Text(selectedTab == .myAlbums ? "No Albums Yet" : "No Shared Albums")
+            Text(emptyStateTitle)
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundColor(.white)
             
-            Text(selectedTab == .myAlbums 
-                 ? "Create your first album to start organizing your music"
-                 : "Albums shared with you will appear here")
+            Text(emptyStateMessage)
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -195,6 +244,39 @@ struct StudioSessionsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    var emptyStateIcon: String {
+        switch selectedTab {
+        case .myAlbums:
+            return "music.note.list"
+        case .sharedWithYou:
+            return "person.2.fill"
+        case .collaborations:
+            return "person.3.fill"
+        }
+    }
+    
+    var emptyStateTitle: String {
+        switch selectedTab {
+        case .myAlbums:
+            return "No Albums Yet"
+        case .sharedWithYou:
+            return "No Shared Albums"
+        case .collaborations:
+            return "No Collaborations"
+        }
+    }
+    
+    var emptyStateMessage: String {
+        switch selectedTab {
+        case .myAlbums:
+            return "Create your first album to start organizing your music"
+        case .sharedWithYou:
+            return "Albums shared with you will appear here"
+        case .collaborations:
+            return "Albums you're collaborating on will appear here"
+        }
     }
     
     // MARK: - Create Album Sheet

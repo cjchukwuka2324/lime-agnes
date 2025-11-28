@@ -54,9 +54,24 @@ struct CreateAlbumView: View {
                 }
             }
             .navigationTitle("Create Album")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .onAppear {
+                // Ensure navigation bar is always opaque
+                let appearance = UINavigationBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = .black
+                appearance.shadowColor = .clear
+                
+                UINavigationBar.appearance().standardAppearance = appearance
+                UINavigationBar.appearance().scrollEdgeAppearance = appearance
+                UINavigationBar.appearance().compactAppearance = appearance
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .foregroundColor(.white)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -65,9 +80,11 @@ struct CreateAlbumView: View {
                     } label: {
                         if isSaving {
                             ProgressView()
+                                .tint(.white)
                         } else {
                             Text("Create")
                                 .bold()
+                                .foregroundColor(.white)
                         }
                     }
                     .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
