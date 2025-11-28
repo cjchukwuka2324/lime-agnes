@@ -37,59 +37,74 @@ struct FeedCardView: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             // Parent Post Reference (for replies in timeline)
             if let parentSummary = post.parentPostSummary, !isReply {
                 ParentPostReferenceView(parentPost: parentSummary) {
-                    // Navigate to parent post
                     if let parentPostId = post.parentPostId {
                         onNavigateToParent?(parentPostId)
                     }
                 }
-                .padding(.bottom, 12)
+                .padding(.bottom, 16)
             }
             
             // Author Info
             HStack(spacing: 12) {
-                    // Avatar
-                    Group {
-                        if let pictureURL = post.author.profilePictureURL {
-                            AsyncImage(url: pictureURL) { phase in
-                                switch phase {
-                                case .empty:
-                                    ProgressView()
-                                        .tint(.white)
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                case .failure:
-                                    avatarFallback
-                                @unknown default:
-                                    avatarFallback
-                                }
+                // Avatar
+                Group {
+                    if let pictureURL = post.author.profilePictureURL {
+                        AsyncImage(url: pictureURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .tint(.white)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            case .failure:
+                                avatarFallback
+                            @unknown default:
+                                avatarFallback
                             }
-                        } else {
-                            avatarFallback
                         }
+                    } else {
+                        avatarFallback
                     }
-                    .frame(width: isReply ? 36 : 44, height: isReply ? 36 : 44)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                    )
+                }
+                .frame(width: isReply ? 40 : 50, height: isReply ? 40 : 50)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.4),
+                                    Color.white.opacity(0.2)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 2
+                        )
+                )
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
                         Text(post.author.displayName)
-                            .font(isReply ? .subheadline.weight(.semibold) : .headline.weight(.semibold))
+                            .font(isReply ? .subheadline.weight(.bold) : .headline.weight(.bold))
                             .foregroundColor(.white)
                         
                         if post.parentPostId != nil && !isReply {
                             Text("replied")
                                 .font(.caption)
                                 .foregroundColor(.white.opacity(0.6))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.15))
+                                )
                         }
                     }
                     
@@ -101,26 +116,29 @@ struct FeedCardView: View {
                 Spacer()
                 
                 Text(post.createdAt, style: .relative)
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.6))
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.5))
             }
+            .padding(.bottom, 16)
             
             // Leaderboard Attachment
             if let leaderboardEntry = post.leaderboardEntry {
                 LeaderboardAttachmentView(entry: leaderboardEntry) {
-                    // Navigate to RockListView for this artist
                     if let onNavigateToRockList = onNavigateToRockList {
                         onNavigateToRockList(leaderboardEntry.artistId)
                     }
                 }
+                .padding(.bottom, 16)
             }
             
             // Post Content
             if !post.text.isEmpty {
                 Text(post.text)
                     .font(isReply ? .body : .body)
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineSpacing(4)
+                    .foregroundColor(.white.opacity(0.95))
+                    .lineSpacing(6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 16)
             }
             
             // Media Attachments
@@ -128,9 +146,9 @@ struct FeedCardView: View {
                 AsyncImage(url: imageURL) { phase in
                     switch phase {
                     case .empty:
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 16)
                             .fill(Color.white.opacity(0.1))
-                            .frame(height: 200)
+                            .frame(height: 250)
                             .overlay(
                                 ProgressView()
                                     .tint(.white)
@@ -139,15 +157,19 @@ struct FeedCardView: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(maxHeight: 400)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .frame(maxHeight: 450)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
                             .onTapGesture {
                                 showFullScreenImage = true
                             }
                     case .failure:
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: 16)
                             .fill(Color.white.opacity(0.1))
-                            .frame(height: 200)
+                            .frame(height: 250)
                             .overlay(
                                 Image(systemName: "photo")
                                     .foregroundColor(.white.opacity(0.5))
@@ -156,18 +178,25 @@ struct FeedCardView: View {
                         EmptyView()
                     }
                 }
+                .padding(.bottom, 16)
             }
             
             // Video Attachment
             if let videoURL = post.videoURL {
                 VideoPlayerView(videoURL: videoURL)
-                    .frame(maxHeight: 400)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .frame(maxHeight: 450)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.bottom, 16)
             }
             
             // Audio Attachment
             if let audioURL = post.audioURL {
                 FeedAudioPlayerView(audioURL: audioURL)
+                    .padding(.bottom, 16)
             }
             
             // Reshared Post (if resharedPostId is set, we could fetch and display it here)
@@ -175,27 +204,43 @@ struct FeedCardView: View {
             
             // Action Buttons (Like, Reply)
             if !isReply {
-                HStack(spacing: 24) {
+                HStack(spacing: 0) {
                     // Like Button
                     Button {
-                        onLike?(post.id)
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            onLike?(post.id)
+                        }
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: post.isLiked ? "heart.fill" : "heart")
+                                .font(.system(size: 18, weight: .medium))
                                 .foregroundColor(post.isLiked ? Color(hex: "#1ED760") : .white.opacity(0.7))
+                                .symbolEffect(.bounce, value: post.isLiked)
                             if post.likeCount > 0 {
                                 Text("\(post.likeCount)")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.7))
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(post.isLiked ? Color(hex: "#1ED760") : .white.opacity(0.7))
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(post.isLiked ? Color(hex: "#1ED760").opacity(0.2) : Color.white.opacity(0.1))
+                        )
                     }
                     .buttonStyle(.plain)
+                    
+                    Spacer()
+                        .frame(width: 12)
                     
                     // Reply Button
                     Button {
                         if showInlineReplies {
-                            isExpanded.toggle()
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                isExpanded.toggle()
+                            }
                             if isExpanded && replies.isEmpty {
                                 Task {
                                     await loadReplies()
@@ -205,50 +250,62 @@ struct FeedCardView: View {
                             onReply?(post)
                         }
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "bubble.left")
+                                .font(.system(size: 18, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                             if post.replyCount > 0 {
                                 Text("\(post.replyCount)")
-                                    .font(.caption)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
                                     .foregroundColor(.white.opacity(0.7))
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.white.opacity(0.1))
+                        )
                     }
                     .buttonStyle(.plain)
                     
                     Spacer()
                 }
-                .padding(.top, 4)
+                .padding(.top, 8)
             }
             
             // Inline Replies Section
             if showInlineReplies && isExpanded && !isReply {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     Divider()
-                        .background(Color.white.opacity(0.2))
+                        .background(Color.white.opacity(0.15))
+                        .padding(.vertical, 8)
                     
                     if isLoadingReplies {
-                        HStack {
+                        HStack(spacing: 12) {
                             ProgressView()
                                 .tint(.white)
+                                .scaleEffect(0.9)
                             Text("Loading replies...")
-                                .font(.caption)
+                                .font(.subheadline)
                                 .foregroundColor(.white.opacity(0.7))
                             Spacer()
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
                     } else if replies.isEmpty {
                         HStack {
                             Text("No replies yet")
-                                .font(.caption)
+                                .font(.subheadline)
                                 .foregroundColor(.white.opacity(0.6))
                             Spacer()
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
                     } else {
-                        ForEach(replies) { reply in
-                            FeedCardView(post: reply, isReply: true)
+                        VStack(spacing: 12) {
+                            ForEach(replies) { reply in
+                                FeedCardView(post: reply, isReply: true)
+                            }
                         }
                     }
                     
@@ -256,28 +313,48 @@ struct FeedCardView: View {
                     Button {
                         showReplyComposer = true
                     } label: {
-                        HStack {
+                        HStack(spacing: 10) {
                             Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 18))
                                 .foregroundColor(Color(hex: "#1ED760"))
                             Text("Add a reply...")
                                 .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.7))
+                                .fontWeight(.medium)
+                                .foregroundColor(.white.opacity(0.8))
                             Spacer()
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(Color.white.opacity(0.1))
+                            RoundedRectangle(cornerRadius: 24)
+                                .fill(Color.white.opacity(0.12))
                         )
                     }
                     .padding(.top, 4)
                 }
-                .padding(.top, 12)
+                .padding(.top, 16)
             }
         }
-        .padding(isReply ? 12 : 20)
-        .glassMorphism()
+        .padding(isReply ? 16 : 20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.2),
+                                    Color.white.opacity(0.05)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
         .sheet(isPresented: $showReplyComposer) {
             PostComposerView(
                 service: service ?? InMemoryFeedService.shared,

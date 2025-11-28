@@ -16,7 +16,6 @@ struct ProfileView: View {
     @State private var profilePictureURL: URL?
     @State private var showSettings = false
     @State private var showImagePicker = false
-    @State private var selectedPhoto: PhotosPickerItem?
     @State private var selectedImage: UIImage?
     @State private var isUploadingProfilePicture = false
     
@@ -74,11 +73,13 @@ struct ProfileView: View {
             .sheet(isPresented: $showSettings) {
                 AccountSettingsView()
             }
-            .photosPicker(isPresented: $showImagePicker, selection: $selectedPhoto, matching: .images)
-            .onChange(of: selectedPhoto) { _, newItem in
-                if let item = newItem {
+            .sheet(isPresented: $showImagePicker) {
+                ImagePicker(selectedImage: $selectedImage)
+            }
+            .onChange(of: selectedImage) { _, newImage in
+                if let image = newImage {
                     Task {
-                        await loadProfileImage(from: item)
+                        await uploadProfileImage(image)
                     }
                 }
             }
@@ -97,53 +98,62 @@ struct ProfileView: View {
     private var profileHeaderSection: some View {
         VStack(spacing: 20) {
             // Profile Picture
-            Button {
-                showImagePicker = true
-            } label: {
-                ZStack(alignment: .bottomTrailing) {
-                    if let imageURL = profilePictureURL {
-                        AsyncImage(url: imageURL) { phase in
-                            switch phase {
-                            case .empty:
-                                ProgressView()
-                                    .tint(.white)
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            case .failure:
-                                defaultProfileAvatar
-                            @unknown default:
-                                defaultProfileAvatar
+            ZStack(alignment: .bottomTrailing) {
+                Button {
+                    showImagePicker = true
+                } label: {
+                    ZStack {
+                        if let imageURL = profilePictureURL {
+                            AsyncImage(url: imageURL) { phase in
+                                switch phase {
+                                case .empty:
+                                    ProgressView()
+                                        .tint(.white)
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                case .failure:
+                                    defaultProfileAvatar
+                                @unknown default:
+                                    defaultProfileAvatar
+                                }
                             }
+                        } else if let selectedImage = selectedImage {
+                            Image(uiImage: selectedImage)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            defaultProfileAvatar
                         }
-                    } else if let selectedImage = selectedImage {
-                        Image(uiImage: selectedImage)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        defaultProfileAvatar
                     }
-                    
-                    // Edit Badge
+                    .frame(width: 100, height: 100)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.3), lineWidth: 3)
+                    )
+                    .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+                }
+                .disabled(isUploadingProfilePicture)
+                
+                // Camera Button - positioned outside the circle
+                Button {
+                    showImagePicker = true
+                } label: {
                     Circle()
                         .fill(Color(hex: "#1ED760"))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 36, height: 36)
                         .overlay(
                             Image(systemName: "camera.fill")
                                 .foregroundColor(.white)
-                                .font(.system(size: 14))
+                                .font(.system(size: 16, weight: .medium))
                         )
+                        .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
-                .frame(width: 100, height: 100)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.3), lineWidth: 3)
-                )
-                .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+                .offset(x: 4, y: 4)
+                .disabled(isUploadingProfilePicture)
             }
-            .disabled(isUploadingProfilePicture)
             
             if isUploadingProfilePicture {
                 ProgressView()
@@ -195,7 +205,9 @@ struct ProfileView: View {
     
     private var profileHandle: String? {
         guard let profile = userProfile else { return nil }
-        if let email = authVM.currentUserEmail {
+        if let username = profile.username {
+            return "@\(username)"
+        } else if let email = authVM.currentUserEmail {
             let emailPrefix = email.components(separatedBy: "@").first ?? "user"
             return "@\(emailPrefix)"
         } else if let firstName = profile.firstName {
@@ -325,45 +337,40 @@ struct ProfileView: View {
         }
     }
     
-    private func loadProfileImage(from item: PhotosPickerItem) async {
+    private func uploadProfileImage(_ image: UIImage) async {
+        // Upload profile picture
+        isUploadingProfilePicture = true
+        defer { isUploadingProfilePicture = false }
+        
+        // Upload to Supabase storage
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            message = "Failed to process image"
+            return
+        }
+        
+        guard let userId = SupabaseService.shared.client.auth.currentUser?.id else {
+            message = "Not authenticated"
+            return
+        }
+        
         do {
-            if let data = try await item.loadTransferable(type: Data.self),
-               let image = UIImage(data: data) {
-                selectedImage = image
-                
-                // Upload profile picture
-                isUploadingProfilePicture = true
-                defer { isUploadingProfilePicture = false }
-                
-                // Upload to Supabase storage
-                guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-                    message = "Failed to process image"
-                    return
-                }
-                
-                guard let userId = SupabaseService.shared.client.auth.currentUser?.id else {
-                    message = "Not authenticated"
-                    return
-                }
-                
-                let filename = "\(UUID().uuidString).jpg"
-                let path = "profile_pictures/\(userId.uuidString)/\(filename)"
-                
-                let supabase = SupabaseService.shared.client
-                try await supabase.storage
-                    .from("feed-images")
-                    .upload(path: path, file: imageData)
-                
-                let publicURL = try supabase.storage
-                    .from("feed-images")
-                    .getPublicURL(path: path)
-                
-                // Update profile with new picture URL
-                try await UserProfileService.shared.updateProfilePicture(publicURL.absoluteString)
-                
-                profilePictureURL = publicURL
-                await loadUserProfile() // Reload profile
-            }
+            let filename = "\(UUID().uuidString).jpg"
+            let path = "profile_pictures/\(userId.uuidString)/\(filename)"
+            
+            let supabase = SupabaseService.shared.client
+            try await supabase.storage
+                .from("feed-images")
+                .upload(path: path, file: imageData)
+            
+            let publicURL = try supabase.storage
+                .from("feed-images")
+                .getPublicURL(path: path)
+            
+            // Update profile with new picture URL
+            try await UserProfileService.shared.updateProfilePicture(publicURL.absoluteString)
+            
+            profilePictureURL = publicURL
+            await loadUserProfile() // Reload profile
         } catch {
             message = "Failed to upload profile picture: \(error.localizedDescription)"
         }

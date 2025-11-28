@@ -1,8 +1,9 @@
 import Foundation
 import Supabase
+import Combine
 
 @MainActor
-class UserProfileService {
+class UserProfileService: ObservableObject {
     static let shared = UserProfileService()
     
     private let supabase = SupabaseService.shared.client
@@ -12,6 +13,7 @@ class UserProfileService {
         let displayName: String?
         let firstName: String?
         let lastName: String?
+        let username: String?
         let instagramHandle: String?
         let profilePictureURL: String?
         
@@ -20,6 +22,7 @@ class UserProfileService {
             case displayName = "display_name"
             case firstName = "first_name"
             case lastName = "last_name"
+            case username
             case instagramHandle = "instagram_handle"
             case profilePictureURL = "profile_picture_url"
         }
@@ -55,22 +58,48 @@ class UserProfileService {
             .execute()
     }
     
-    func createOrUpdateProfile(firstName: String, lastName: String, displayName: String? = nil) async throws {
+    func checkUsernameAvailability(_ username: String) async throws -> Bool {
+        let response: [UserProfile] = try await supabase
+            .from("profiles")
+            .select("username")
+            .eq("username", value: username.lowercased())
+            .execute()
+            .value
+        
+        return response.isEmpty
+    }
+    
+    func createOrUpdateProfile(firstName: String, lastName: String, username: String? = nil, displayName: String? = nil) async throws {
         guard let userId = supabase.auth.currentUser?.id else {
             throw NSError(domain: "UserProfileService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
         
+        // Check username availability if provided
+        if let username = username {
+            let trimmedUsername = username.trimmingCharacters(in: .whitespaces).lowercased()
+            let isAvailable = try await checkUsernameAvailability(trimmedUsername)
+            if !isAvailable {
+                throw NSError(domain: "UserProfileService", code: 409, userInfo: [NSLocalizedDescriptionKey: "Username is already taken"])
+            }
+        }
+        
         let displayNameValue = displayName ?? "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+        
+        var profileData: [String: String] = [
+            "id": userId.uuidString,
+            "first_name": firstName,
+            "last_name": lastName,
+            "display_name": displayNameValue,
+            "updated_at": ISO8601DateFormatter().string(from: Date())
+        ]
+        
+        if let username = username {
+            profileData["username"] = username.trimmingCharacters(in: .whitespaces).lowercased()
+        }
         
         try await supabase
             .from("profiles")
-            .upsert([
-                "id": userId.uuidString,
-                "first_name": firstName,
-                "last_name": lastName,
-                "display_name": displayNameValue,
-                "updated_at": ISO8601DateFormatter().string(from: Date())
-            ])
+            .upsert(profileData)
             .execute()
     }
     
@@ -82,6 +111,48 @@ class UserProfileService {
         try await supabase
             .from("profiles")
             .update(["profile_picture_url": imageURL])
+            .eq("id", value: userId)
+            .execute()
+    }
+    
+    func updateName(firstName: String, lastName: String) async throws {
+        guard let userId = supabase.auth.currentUser?.id else {
+            throw NSError(domain: "UserProfileService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        let displayNameValue = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+        
+        try await supabase
+            .from("profiles")
+            .update([
+                "first_name": firstName,
+                "last_name": lastName,
+                "display_name": displayNameValue,
+                "updated_at": ISO8601DateFormatter().string(from: Date())
+            ])
+            .eq("id", value: userId)
+            .execute()
+    }
+    
+    func updateUsername(_ username: String) async throws {
+        guard let userId = supabase.auth.currentUser?.id else {
+            throw NSError(domain: "UserProfileService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        let trimmedUsername = username.trimmingCharacters(in: .whitespaces).lowercased()
+        
+        // Check username availability
+        let isAvailable = try await checkUsernameAvailability(trimmedUsername)
+        if !isAvailable {
+            throw NSError(domain: "UserProfileService", code: 409, userInfo: [NSLocalizedDescriptionKey: "Username is already taken"])
+        }
+        
+        try await supabase
+            .from("profiles")
+            .update([
+                "username": trimmedUsername,
+                "updated_at": ISO8601DateFormatter().string(from: Date())
+            ])
             .eq("id", value: userId)
             .execute()
     }

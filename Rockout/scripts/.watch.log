@@ -1,0 +1,7 @@
+[0;34m🔍 Xcode Auto-Add File Watcher[0m
+
+[1;33m⚠️  fswatch not found. Installing via Homebrew...[0m
+[0;31m❌ Homebrew not found. Please install fswatch manually:[0m
+   brew install fswatch
+
+   Or install Homebrew first: https://brew.sh

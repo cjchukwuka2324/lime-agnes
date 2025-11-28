@@ -23,7 +23,7 @@ struct MainTabView: View {
             StudioSessionsView()
                 .environmentObject(shareHandler)
                 .tabItem {
-                    Label("Studiosessions", systemImage: "music.note.list")
+                    Label("StudioSessions", systemImage: "mic.and.signal.meter.fill")
                 }
                 .tag(2)
 

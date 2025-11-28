@@ -26,21 +26,8 @@ struct RockListEntry: Decodable, Identifiable {
     }
 }
 
-// MARK: - Artist Summary
-
-struct ArtistSummary: Decodable {
-    let id: String
-    let name: String
-    let imageURL: String?
-    
-    enum CodingKeys: String, CodingKey {
-        case id = "artist_id"
-        case name = "artist_name"
-        case imageURL = "artist_image_url"
-    }
-}
-
 // MARK: - RockList Response
+// ArtistSummary is now defined in SharedFilters.swift
 
 struct RockListResponse {
     let artist: ArtistSummary

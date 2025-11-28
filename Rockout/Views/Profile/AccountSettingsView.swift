@@ -4,9 +4,12 @@ struct AccountSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var authVM: AuthViewModel
     @StateObject private var spotifyAuth = SpotifyAuthService.shared
+    private let profileService = UserProfileService.shared
     
     @State private var isLoading = false
     @State private var message: String?
+    @State private var userProfile: UserProfileService.UserProfile?
+    @State private var isLoadingProfile = false
     
     var body: some View {
         NavigationStack {
@@ -46,6 +49,15 @@ struct AccountSettingsView: View {
                     .foregroundColor(.white)
                 }
             }
+            .task {
+                await loadUserProfile()
+            }
+            .onAppear {
+                // Reload profile when view appears (e.g., after returning from EditNameView)
+                Task {
+                    await loadUserProfile()
+                }
+            }
         }
     }
     
@@ -68,6 +80,68 @@ struct AccountSettingsView: View {
                 }
                 .padding()
                 .background(Color.white.opacity(0.05))
+                
+                Divider()
+                    .background(Color.white.opacity(0.1))
+                
+                HStack {
+                    Text("Name")
+                        .foregroundColor(.white.opacity(0.8))
+                    Spacer()
+                    Text(displayName)
+                        .foregroundColor(.white)
+                }
+                .padding()
+                .background(Color.white.opacity(0.05))
+                
+                Divider()
+                    .background(Color.white.opacity(0.1))
+                
+                HStack {
+                    Text("Username")
+                        .foregroundColor(.white.opacity(0.8))
+                    Spacer()
+                    Text(displayUsername)
+                        .foregroundColor(.white)
+                }
+                .padding()
+                .background(Color.white.opacity(0.05))
+                
+                Divider()
+                    .background(Color.white.opacity(0.1))
+                
+                NavigationLink {
+                    EditNameView()
+                } label: {
+                    HStack {
+                        Text("Change Name")
+                            .foregroundColor(.white)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.white.opacity(0.6))
+                            .font(.caption)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.05))
+                }
+                
+                Divider()
+                    .background(Color.white.opacity(0.1))
+                
+                NavigationLink {
+                    EditUsernameView()
+                } label: {
+                    HStack {
+                        Text(userProfile?.username == nil ? "Set Username" : "Change Username")
+                            .foregroundColor(.white)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.white.opacity(0.6))
+                            .font(.caption)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.05))
+                }
                 
                 Divider()
                     .background(Color.white.opacity(0.1))
@@ -128,6 +202,48 @@ struct AccountSettingsView: View {
                         .padding(.horizontal)
                 }
             }
+        }
+    }
+    
+    // MARK: - Computed Properties
+    
+    private var displayName: String {
+        guard let profile = userProfile else {
+            return "Not set"
+        }
+        
+        if let firstName = profile.firstName, let lastName = profile.lastName,
+           !firstName.isEmpty, !lastName.isEmpty {
+            return "\(firstName) \(lastName)"
+        } else if let displayName = profile.displayName, !displayName.isEmpty {
+            return displayName
+        } else {
+            return "Not set"
+        }
+    }
+    
+    private var displayUsername: String {
+        guard let profile = userProfile else {
+            return "Not set"
+        }
+        
+        if let username = profile.username, !username.isEmpty {
+            return "@\(username)"
+        } else {
+            return "Not set"
+        }
+    }
+    
+    // MARK: - Functions
+    
+    private func loadUserProfile() async {
+        isLoadingProfile = true
+        defer { isLoadingProfile = false }
+        
+        do {
+            userProfile = try await profileService.getCurrentUserProfile()
+        } catch {
+            print("Failed to load user profile: \(error)")
         }
     }
     

@@ -1035,26 +1035,5 @@ struct GenreBar: View {
     }
 }
 
-// MARK: - Animated Gradient Background
-struct AnimatedGradientBackground: View {
-    @State private var animateGradient = false
-
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.05, green: 0.05, blue: 0.05),
-                Color(red: 0.08, green: 0.25, blue: 0.12),
-                Color(red: 0.12, green: 0.45, blue: 0.20),
-                Color(red: 0.05, green: 0.05, blue: 0.05)
-            ],
-            startPoint: animateGradient ? .topLeading : .bottomTrailing,
-            endPoint: animateGradient ? .bottomTrailing : .topLeading
-        )
-        .onAppear {
-            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
-                animateGradient.toggle()
-            }
-        }
-    }
-}
+// AnimatedGradientBackground is now defined in Views/Shared/AnimatedGradientBackground.swift
 

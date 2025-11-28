@@ -7,6 +7,7 @@ struct SignUpForm: View {
     @State private var password = ""
     @State private var firstName = ""
     @State private var lastName = ""
+    @State private var username = ""
     @State private var errorMessage: String?
 
     var body: some View {
@@ -20,6 +21,13 @@ struct SignUpForm: View {
             
             TextField("Last Name", text: $lastName)
                 .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+
+            TextField("Username", text: $username)
+                .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding()
                 .background(Color(.systemGray6))
@@ -45,9 +53,26 @@ struct SignUpForm: View {
             Button {
                 Task {
                     errorMessage = nil
-                    guard !firstName.trimmingCharacters(in: .whitespaces).isEmpty,
-                          !lastName.trimmingCharacters(in: .whitespaces).isEmpty else {
+                    let trimmedFirstName = firstName.trimmingCharacters(in: .whitespaces)
+                    let trimmedLastName = lastName.trimmingCharacters(in: .whitespaces)
+                    let trimmedUsername = username.trimmingCharacters(in: .whitespaces).lowercased()
+                    
+                    guard !trimmedFirstName.isEmpty,
+                          !trimmedLastName.isEmpty else {
                         errorMessage = "Please enter your first and last name"
+                        return
+                    }
+                    
+                    guard !trimmedUsername.isEmpty else {
+                        errorMessage = "Please enter a username"
+                        return
+                    }
+                    
+                    // Validate username format (alphanumeric and underscore only, 3-20 characters)
+                    let usernameRegex = "^[a-z0-9_]{3,20}$"
+                    let usernamePredicate = NSPredicate(format: "SELF MATCHES %@", usernameRegex)
+                    guard usernamePredicate.evaluate(with: trimmedUsername) else {
+                        errorMessage = "Username must be 3-20 characters and contain only letters, numbers, and underscores"
                         return
                     }
                     
@@ -55,10 +80,11 @@ struct SignUpForm: View {
                         try await authVM.signup(email: email, password: password)
                         try await authVM.login(email: email, password: password)
                         
-                        // Create user profile with first and last name
+                        // Create user profile with first name, last name, and username
                         try await UserProfileService.shared.createOrUpdateProfile(
-                            firstName: firstName.trimmingCharacters(in: .whitespaces),
-                            lastName: lastName.trimmingCharacters(in: .whitespaces)
+                            firstName: trimmedFirstName,
+                            lastName: trimmedLastName,
+                            username: trimmedUsername
                         )
                     } catch {
                         // Provide user-friendly error messages
@@ -74,7 +100,8 @@ struct SignUpForm: View {
                     .foregroundColor(.white)
             }
             .disabled(firstName.trimmingCharacters(in: .whitespaces).isEmpty || 
-                     lastName.trimmingCharacters(in: .whitespaces).isEmpty)
+                     lastName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                     username.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
     
@@ -84,6 +111,11 @@ struct SignUpForm: View {
         let nsError = error as NSError
         let message = nsError.userInfo[NSLocalizedDescriptionKey] as? String ?? error.localizedDescription
         let lowercased = message.lowercased()
+        
+        // Check for username already taken
+        if lowercased.contains("username is already taken") || lowercased.contains("username already") {
+            return "This username is already taken. Please choose another one."
+        }
         
         // Check for common Supabase/Supabase auth errors
         if lowercased.contains("email already") || lowercased.contains("user already exists") || lowercased.contains("already registered") {

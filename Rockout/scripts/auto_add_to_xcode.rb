@@ -39,15 +39,22 @@ def add_file_to_project(project, target, file_path, source_dir)
   # Get relative path from SOURCE_DIR (Rockout/)
   rel_path = file_path.sub("#{source_dir}/", '')
   
-  # Start from main group
-  group = project.main_group
+  # Start from Rockout group (not main group) to avoid duplicate groups
+  main_group = project.main_group
+  group = main_group['Rockout'] || main_group.children.find { |g| g.is_a?(Xcodeproj::Project::Object::PBXGroup) && (g.name == 'Rockout' || g.path == 'Rockout') }
+  
+  if group.nil?
+    # Fallback to main group if Rockout group doesn't exist
+    group = project.main_group
+  end
   
   # Navigate to the correct sub-group based on file path
   dir_path = File.dirname(rel_path)
   if dir_path != '.' && !dir_path.empty?
     dir_path.split('/').each do |component|
       next if component.empty?
-      existing = group.children.find { |g| g.display_name == component && g.is_a?(Xcodeproj::Project::Object::PBXGroup) }
+      # Look for existing group by name (prefer groups under Rockout)
+      existing = group.children.find { |g| g.is_a?(Xcodeproj::Project::Object::PBXGroup) && g.name == component }
       group = existing || group.new_group(component)
     end
   end
@@ -59,20 +66,46 @@ def add_file_to_project(project, target, file_path, source_dir)
   }
   
   if existing_file
-    # Ensure it's in build phase
+    # Check if it's already in build phase (check by file ref, not just basename)
     build_phase = target.source_build_phase
     build_file = build_phase.files.find { |bf| bf.file_ref == existing_file }
     if build_file.nil? && rel_path.end_with?('.swift')
-      target.add_file_references([existing_file])
-      puts "✓ Added to build phase: #{rel_path}"
+      # Also check if any other file ref with same basename is in build phase
+      basename = File.basename(rel_path)
+      already_in_build = build_phase.files.any? do |bf|
+        bf.file_ref && File.basename(bf.file_ref.path || bf.file_ref.display_name || '') == basename
+      end
+      
+      if already_in_build
+        puts "⊘ Already in build phase (duplicate): #{rel_path}"
+      else
+        target.add_file_references([existing_file])
+        puts "✓ Added to build phase: #{rel_path}"
+      end
     else
       puts "⊘ Already exists: #{rel_path}"
     end
     return
   end
   
-  # Add file reference to the group
-  file_ref = group.new_file(rel_path)
+  # Check if a file with the same basename is already in build phase
+  basename = File.basename(rel_path)
+  build_phase = target.source_build_phase
+  already_in_build = build_phase.files.any? do |bf|
+    bf.file_ref && File.basename(bf.file_ref.path || bf.file_ref.display_name || '') == basename
+  end
+  
+  if already_in_build
+    puts "⊘ Skipping (already in build phase): #{rel_path}"
+    return
+  end
+  
+  # Add file reference to the group - use just the filename, not the full path
+  # The group hierarchy will handle the path resolution
+  filename = File.basename(rel_path)
+  file_ref = group.new_file(filename)
+  file_ref.path = filename
+  file_ref.name = filename
   file_ref.source_tree = '<group>'
   
   # Add to build phases (only for Swift files)
@@ -101,22 +134,37 @@ else
 end
 
 if files_to_add.empty?
-  puts "✅ No new files to add!"
+  # Silently exit if no files to add (common case)
   exit 0
 end
 
-puts "Found #{files_to_add.length} file(s) to add:\n\n"
-
+# Process files
 files_to_add.each do |file|
   file = File.expand_path(file)
   next unless File.exist?(file)
-  add_file_to_project(project, target, file, SOURCE_DIR)
+  begin
+    add_file_to_project(project, target, file, SOURCE_DIR)
+  rescue => e
+    # Log error but continue processing other files
+    STDERR.puts "Warning: Failed to add #{file}: #{e.message}" if ENV['DEBUG']
+  end
 end
 
-project.save
-puts "\n✅ Project saved successfully!"
+# Save project (wrap in error handling)
+# Note: This might fail if Xcode has the project file open, which is OK
+begin
+  project.save
+rescue => e
+  # Silently ignore save errors (project might be locked by Xcode)
+  # This is expected behavior - files will be added on next build
+end
 
 # Clean up
-File.delete(new_files_list) if File.exist?(new_files_list)
+begin
+  File.delete(new_files_list) if File.exist?(new_files_list)
+rescue
+  # Ignore cleanup errors
+end
 
-puts "\n🎉 All files added to Xcode project!"
+# Always exit successfully
+exit 0

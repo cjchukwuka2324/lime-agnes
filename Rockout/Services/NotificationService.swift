@@ -26,7 +26,9 @@ class NotificationService {
             }
             
             let handle: String
-            if let email = SupabaseService.shared.client.auth.currentUser?.email {
+            if let username = profile.username {
+                handle = "@\(username)"
+            } else if let email = SupabaseService.shared.client.auth.currentUser?.email {
                 let emailPrefix = email.components(separatedBy: "@").first ?? "user"
                 handle = "@\(emailPrefix)"
             } else if let firstName = profile.firstName {

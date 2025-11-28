@@ -27,33 +27,46 @@ struct FeedView: View {
                     .ignoresSafeArea()
                 
                 if viewModel.isLoading {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 20) {
                         ProgressView()
                             .tint(.white)
+                            .scaleEffect(1.2)
                         Text("Loading feed…")
+                            .font(.subheadline)
                             .foregroundColor(.white.opacity(0.8))
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = viewModel.errorMessage {
-                    VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.largeTitle)
-                            .foregroundColor(.red)
-                        Text("Error")
-                            .font(.headline)
+                    VStack(spacing: 20) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.red.opacity(0.8))
+                        Text("Oops!")
+                            .font(.title2.bold())
                             .foregroundColor(.white)
                         Text(error)
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                            .padding(.horizontal, 40)
                         
-                        Button("Retry") {
+                        Button {
                             Task {
                                 await viewModel.load(feedType: selectedFeedType)
                             }
+                        } label: {
+                            Text("Try Again")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(hex: "#1ED760"))
+                                )
                         }
-                        .buttonStyle(.borderedProminent)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding()
                 } else {
                     ZStack(alignment: .bottomTrailing) {
@@ -63,24 +76,11 @@ struct FeedView: View {
                             
                             if viewModel.posts.isEmpty {
                                 Spacer()
-                                VStack(spacing: 16) {
-                                    Image(systemName: selectedFeedType == .following ? "person.2" : "sparkles")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.white.opacity(0.6))
-                                    Text(selectedFeedType == .following ? "No Posts from Followed Users" : "No Posts Yet")
-                                        .font(.headline)
-                                        .foregroundColor(.white)
-                                    Text(selectedFeedType == .following ? "Follow users to see their posts here." : "Be the first to post! Share your music discoveries or comment on leaderboards.")
-                                        .font(.subheadline)
-                                        .foregroundColor(.white.opacity(0.7))
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal)
-                                }
-                                .padding()
+                                emptyStateView
                                 Spacer()
                             } else {
                                 ScrollView {
-                                    VStack(spacing: 20) {
+                                    LazyVStack(spacing: 16) {
                                         ForEach(viewModel.posts) { post in
                                             FeedCardView(
                                                 post: post,
@@ -101,16 +101,18 @@ struct FeedView: View {
                                                 showInlineReplies: true,
                                                 service: viewModel.service
                                             )
-                                            .padding(.horizontal, 20)
+                                            .padding(.horizontal, 16)
                                             .contentShape(Rectangle())
                                             .onTapGesture {
-                                                // Navigate to post detail when tapping the card
                                                 selectedPostId = PostIdWrapper(id: post.id)
                                             }
                                         }
                                     }
-                                    .padding(.vertical, 20)
-                                    .padding(.bottom, 100) // Add padding to prevent overlap with FAB
+                                    .padding(.vertical, 16)
+                                    .padding(.bottom, 120)
+                                }
+                                .refreshable {
+                                    await viewModel.load(feedType: selectedFeedType)
                                 }
                             }
                         }
@@ -120,9 +122,9 @@ struct FeedView: View {
                             showComposer = true
                         } label: {
                             Image(systemName: "plus")
-                                .font(.title2.weight(.semibold))
+                                .font(.title2.weight(.bold))
                                 .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
+                                .frame(width: 60, height: 60)
                                 .background(
                                     Circle()
                                         .fill(
@@ -135,15 +137,17 @@ struct FeedView: View {
                                                 endPoint: .bottomTrailing
                                             )
                                         )
-                                        .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
+                                        .shadow(color: Color(hex: "#1ED760").opacity(0.4), radius: 12, x: 0, y: 6)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
                                 )
                         }
                         .padding(.trailing, 20)
-                        .padding(.bottom, 100) // Position above tab bar
+                        .padding(.bottom, 100)
                     }
                 }
             }
             .navigationTitle("Feed")
+            .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
@@ -238,43 +242,102 @@ struct FeedView: View {
         }
     }
     
+    // MARK: - Empty State
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: selectedFeedType == .following ? "person.2.fill" : "sparkles")
+                .font(.system(size: 64))
+                .foregroundColor(.white.opacity(0.5))
+            
+            Text(selectedFeedType == .following ? "No Posts from Followed Users" : "No Posts Yet")
+                .font(.title2.bold())
+                .foregroundColor(.white)
+            
+            Text(selectedFeedType == .following ? "Follow users to see their posts here." : "Be the first to post! Share your music discoveries or comment on leaderboards.")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            if selectedFeedType == .forYou {
+                Button {
+                    showComposer = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Create First Post")
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(hex: "#1ED760"),
+                                        Color(hex: "#1DB954")
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                    )
+                }
+                .padding(.top, 8)
+            }
+        }
+        .padding()
+    }
+    
     // MARK: - Feed Type Picker
     
     private var feedTypePicker: some View {
-        HStack(spacing: 0) {
-            Button {
-                selectedFeedType = .forYou
-            } label: {
-                Text("For You")
-                    .font(.headline)
-                    .foregroundColor(selectedFeedType == .forYou ? .white : .white.opacity(0.6))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 0)
-                            .fill(selectedFeedType == .forYou ? Color.white.opacity(0.2) : Color.clear)
-                    )
-            }
-            
-            Button {
-                selectedFeedType = .following
-            } label: {
-                Text("Following")
-                    .font(.headline)
-                    .foregroundColor(selectedFeedType == .following ? .white : .white.opacity(0.6))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 0)
-                            .fill(selectedFeedType == .following ? Color.white.opacity(0.2) : Color.clear)
-                    )
-            }
+        HStack(spacing: 8) {
+            feedTypeButton(title: "For You", type: .forYou)
+            feedTypeButton(title: "Following", type: .following)
         }
+        .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.1))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white.opacity(0.15))
         )
         .padding(.horizontal, 20)
-        .padding(.top, 10)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+    
+    private func feedTypeButton(title: String, type: FeedType) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                selectedFeedType = type
+            }
+        } label: {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(selectedFeedType == type ? .white : .white.opacity(0.7))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    Group {
+                        if selectedFeedType == type {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color(hex: "#1ED760"),
+                                            Color(hex: "#1DB954")
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .shadow(color: Color(hex: "#1ED760").opacity(0.3), radius: 8, x: 0, y: 2)
+                        }
+                    }
+                )
+        }
     }
 }
