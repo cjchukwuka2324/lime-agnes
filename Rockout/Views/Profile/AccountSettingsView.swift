@@ -14,8 +14,8 @@ struct AccountSettingsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Animated gradient background matching SoundPrint
-                AnimatedGradientBackground()
+                // Solid black background
+                Color.black
                     .ignoresSafeArea()
                 
                 ScrollView {
@@ -39,7 +39,7 @@ struct AccountSettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

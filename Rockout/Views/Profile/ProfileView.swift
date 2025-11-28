@@ -18,6 +18,8 @@ struct ProfileView: View {
     @State private var showImagePicker = false
     @State private var selectedImage: UIImage?
     @State private var isUploadingProfilePicture = false
+    @State private var showSocialMediaEditor = false
+    @State private var selectedSocialPlatform: SocialMediaPlatform?
     
     enum ProfileContentTab: String, CaseIterable {
         case posts = "Posts"
@@ -28,8 +30,8 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Animated gradient background matching SoundPrint
-                AnimatedGradientBackground()
+                // Solid black background
+                Color.black
                     .ignoresSafeArea()
                 
                 ScrollView {
@@ -38,6 +40,17 @@ struct ProfileView: View {
                         profileHeaderSection
                             .padding(.horizontal, 20)
                             .padding(.top, 20)
+                        
+                        // Social Media Buttons
+                        SocialMediaButtonsView(
+                            instagramHandle: userProfile?.instagramHandle,
+                            twitterHandle: userProfile?.twitterHandle,
+                            tiktokHandle: userProfile?.tiktokHandle,
+                            onEdit: { platform in
+                                selectedSocialPlatform = platform
+                            }
+                        )
+                        .padding(.top, 8)
                         
                         // Content Tabs (Posts, Replies, Likes)
                         if let userId = currentUserId {
@@ -51,7 +64,9 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -75,6 +90,15 @@ struct ProfileView: View {
             }
             .sheet(isPresented: $showImagePicker) {
                 ImagePicker(selectedImage: $selectedImage)
+            }
+            .sheet(item: $selectedSocialPlatform) { platform in
+                EditSocialMediaView(platform: platform)
+                    .onDisappear {
+                        // Reload profile when editor closes
+                        Task {
+                            await loadUserProfile()
+                        }
+                    }
             }
             .onChange(of: selectedImage) { _, newImage in
                 if let image = newImage {

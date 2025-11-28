@@ -44,6 +44,7 @@
 		4CCC17249014B0B622A82E38 /* RockListDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4304AE6C9EEE20E0171A16 /* RockListDataService.swift */; };
 		4FCFB843E5727BBF6D9F3DBA /* DiscoveryEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3EFADD8299F73F76D9D9B1 /* DiscoveryEngine.swift */; };
 		4FD40F6C9909161C323FD44C /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C6F93D0086EE42A43A4CD6 /* AuthService.swift */; };
+		500EF373C5A51D2BF5858E2D /* SocialMediaPlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7668E98F885F857A87BC82D /* SocialMediaPlatform.swift */; };
 		514A3E94AFB98529B079D7FB /* SpotifyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D9C7AF2E975D5D1581D058C /* SpotifyError.swift */; };
 		568EA02F8BC623CAA00B5AD4 /* SpotifyPlaylistService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A82B0AAC3BC5FD1E730F2C5 /* SpotifyPlaylistService.swift */; };
 		5872CC3BF6DCCEC8E7DCDF96 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD90B7A85B7DFB547EA8495 /* NotificationsView.swift */; };
@@ -56,6 +57,7 @@
 		6455B7A409FF9881DFB739FC /* ArtistCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686E337CC4CDBD20A6399458 /* ArtistCarousel.swift */; };
 		646D4DAC011A29F0426E72A6 /* RockListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4A3C7A9B06C71E21863616 /* RockListViewModel.swift */; };
 		65F98151B40ACBAB03FDFFE7 /* RockListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F292FEE09D10E2F826297CE /* RockListView.swift */; };
+		661ACEBEA611D51A8208A864 /* SocialMediaButtonsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C967B46E9DDA7054C533079 /* SocialMediaButtonsView.swift */; };
 		68EBB3808BEE39D02DBC89A5 /* PostDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33616CFF9ED4DB3E0F8932EE /* PostDetailViewModel.swift */; };
 		69960189F1F8F048FDDF817A /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C487BB8B4E4266ADF1B9E72E /* WelcomeView.swift */; };
 		6DB71966FDB618CF46345AAE /*  SoundPrintExportCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDE4C1708D28A7CE7CD418F /*  SoundPrintExportCard.swift */; };
@@ -143,7 +145,9 @@
 		F97936DDB488C6F94817BD3B /* AnimatedGenreBarChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE6B63DB7772DB25C2D6249 /* AnimatedGenreBarChart.swift */; };
 		F9ED2DB70584A68F2F305762 /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3696ED431A4414480BCC7C3E /* ImagePicker.swift */; };
 		F9EDE0323576F967A0AEF284 /* MyRockListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872E867748F971A25153E307 /* MyRockListView.swift */; };
+		FC77326E50214F6A2B7CA251 /* EditSocialMediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C99C7AD3D54B3EC2F26A7D5 /* EditSocialMediaView.swift */; };
 		FE1FB23F042D68262F35831A /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9DE6241292C1BD76D243758 /* AuthViewModel.swift */; };
+		FEC6EE1AC0D061B5DDDA6780 /* SocialMediaPlatformSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B060C7E8506703F64021CDED /* SocialMediaPlatformSelectorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -213,9 +217,11 @@
 		686E337CC4CDBD20A6399458 /* ArtistCarousel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ArtistCarousel.swift; sourceTree = "<group>"; };
 		6B776BBB2F46542E3E211014 /* StudioSessionsViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StudioSessionsViewModel.swift; sourceTree = "<group>"; };
 		6BA1D508E84FB60F8B831AF0 /* FlowLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
+		6C99C7AD3D54B3EC2F26A7D5 /* EditSocialMediaView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EditSocialMediaView.swift; path = EditSocialMediaView.swift; sourceTree = "<group>"; };
 		70F985E0CE9BE6C3BC449826 /* GoogleLoginButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoogleLoginButton.swift; sourceTree = "<group>"; };
 		73655C3D43EA4DFA50F14910 /* StudioSessionsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StudioSessionsView.swift; sourceTree = "<group>"; };
 		7930F8AB2366AC0F4C57318A /* SoundPrintView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SoundPrintView.swift; sourceTree = "<group>"; };
+		7C967B46E9DDA7054C533079 /* SocialMediaButtonsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialMediaButtonsView.swift; path = SocialMediaButtonsView.swift; sourceTree = "<group>"; };
 		7CD90B7A85B7DFB547EA8495 /* NotificationsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		7D7CF8D94367C51C8312E43C /* BackgroundView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundView.swift; sourceTree = "<group>"; };
 		7E573796463E9B3292953690 /* RockListService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockListService.swift; sourceTree = "<group>"; };
@@ -238,6 +244,7 @@
 		A24F054431644D485E907CA8 /* VersionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VersionService.swift; sourceTree = "<group>"; };
 		A2E69F80A15DCB95740B1D33 /* CreateAlbumView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CreateAlbumView.swift; sourceTree = "<group>"; };
 		A653D413BAFEDB403E96EAA0 /* ForgotPasswordView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ForgotPasswordView.swift; sourceTree = "<group>"; };
+		A7668E98F885F857A87BC82D /* SocialMediaPlatform.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialMediaPlatform.swift; path = SocialMediaPlatform.swift; sourceTree = "<group>"; };
 		A7E3E5174E64E51074144596 /* SpotifyModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyModels.swift; sourceTree = "<group>"; };
 		A957701A4B9946A221818CA6 /* ListeningStatsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ListeningStatsView.swift; sourceTree = "<group>"; };
 		A961EF1741986382897D0856 /* LoginForm.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LoginForm.swift; sourceTree = "<group>"; };
@@ -245,6 +252,7 @@
 		AD02D91BDE20C88D0B8BCDE7 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AD506BCE15D7644DBF632BE4 /* Dictionary+PercentEncoding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Dictionary+PercentEncoding.swift"; sourceTree = "<group>"; };
 		AD6D653674B5003EF8E06248 /* ShareExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareExporter.swift; sourceTree = "<group>"; };
+		B060C7E8506703F64021CDED /* SocialMediaPlatformSelectorView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialMediaPlatformSelectorView.swift; path = SocialMediaPlatformSelectorView.swift; sourceTree = "<group>"; };
 		B125E8F614A70D03A5E4C138 /* RockOutApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockOutApp.swift; sourceTree = "<group>"; };
 		B331817D075C475683972AAE /* ResetPasswordView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ResetPasswordView.swift; sourceTree = "<group>"; };
 		B5DD0088939070446E1544DC /* TimeAnalysisView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeAnalysisView.swift; sourceTree = "<group>"; };
@@ -646,6 +654,7 @@
 				42F15CCC694A409C27D242FE /* Feed */,
 				BC28375E2D48B21E8AE779B4 /* SpotifyConnection.swift */,
 				E4E9F02931FB753F61CDEA9A /* SharedFilters.swift */,
+				A7668E98F885F857A87BC82D /* SocialMediaPlatform.swift */,
 			);
 			name = Models;
 			path = Models;
@@ -891,6 +900,9 @@
 				8E45F93290D21F096ED8C42C /* SpotifyPresentationContextProvider.swift */,
 				44107A4396A2B67C4CD74A8D /* EditNameView.swift */,
 				077605BEAC267A283A6ACB3D /* EditUsernameView.swift */,
+				6C99C7AD3D54B3EC2F26A7D5 /* EditSocialMediaView.swift */,
+				7C967B46E9DDA7054C533079 /* SocialMediaButtonsView.swift */,
+				B060C7E8506703F64021CDED /* SocialMediaPlatformSelectorView.swift */,
 			);
 			name = Profile;
 			path = Profile;
@@ -1626,6 +1638,10 @@
 				B0B25ECB1ACABB990AC8066D /* SharedFilters.swift in Sources */,
 				907224C18D7B0A1E5FFF5954 /* VideoPicker.swift in Sources */,
 				17846A7A2A8433E281DF28E9 /* EditUsernameView.swift in Sources */,
+				500EF373C5A51D2BF5858E2D /* SocialMediaPlatform.swift in Sources */,
+				FC77326E50214F6A2B7CA251 /* EditSocialMediaView.swift in Sources */,
+				661ACEBEA611D51A8208A864 /* SocialMediaButtonsView.swift in Sources */,
+				FEC6EE1AC0D061B5DDDA6780 /* SocialMediaPlatformSelectorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

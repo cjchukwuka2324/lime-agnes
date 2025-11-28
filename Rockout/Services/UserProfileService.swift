@@ -15,6 +15,8 @@ class UserProfileService: ObservableObject {
         let lastName: String?
         let username: String?
         let instagramHandle: String?
+        let twitterHandle: String?
+        let tiktokHandle: String?
         let profilePictureURL: String?
         
         enum CodingKeys: String, CodingKey {
@@ -23,7 +25,9 @@ class UserProfileService: ObservableObject {
             case firstName = "first_name"
             case lastName = "last_name"
             case username
-            case instagramHandle = "instagram_handle"
+            case instagramHandle = "instagram"
+            case twitterHandle = "twitter"
+            case tiktokHandle = "tiktok"
             case profilePictureURL = "profile_picture_url"
         }
     }
@@ -53,7 +57,7 @@ class UserProfileService: ObservableObject {
         
         try await supabase
             .from("profiles")
-            .update(["instagram_handle": cleanHandle])
+            .update(["instagram": cleanHandle])
             .eq("id", value: userId)
             .execute()
     }
@@ -153,6 +157,31 @@ class UserProfileService: ObservableObject {
                 "username": trimmedUsername,
                 "updated_at": ISO8601DateFormatter().string(from: Date())
             ])
+            .eq("id", value: userId)
+            .execute()
+    }
+    
+    func updateSocialMediaHandle(platform: SocialMediaPlatform, handle: String) async throws {
+        guard let userId = supabase.auth.currentUser?.id else {
+            throw NSError(domain: "UserProfileService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        // Remove @ if present
+        let cleanHandle = handle.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "@", with: "")
+        
+        let columnName: String
+        switch platform {
+        case .instagram:
+            columnName = "instagram"
+        case .twitter:
+            columnName = "twitter"
+        case .tiktok:
+            columnName = "tiktok"
+        }
+        
+        try await supabase
+            .from("profiles")
+            .update([columnName: cleanHandle])
             .eq("id", value: userId)
             .execute()
     }
