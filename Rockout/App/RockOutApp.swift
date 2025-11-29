@@ -6,19 +6,36 @@ struct RockoutApp: App {
     @StateObject private var authVM = AuthViewModel()
 
     init() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor.black
+        // Configure Navigation Bar Appearance
+        let navAppearance = UINavigationBarAppearance()
+        navAppearance.configureWithOpaqueBackground()
+        navAppearance.backgroundColor = UIColor.black
 
-        appearance.titleTextAttributes = [
+        navAppearance.titleTextAttributes = [
             .foregroundColor: UIColor.white,
             .font: UIFont.systemFont(ofSize: 20, weight: .bold)
         ]
 
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
         UINavigationBar.appearance().tintColor = .white
+        
+        // Configure Tab Bar Appearance
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithOpaqueBackground()
+        tabBarAppearance.backgroundColor = UIColor.black
+        
+        tabBarAppearance.stackedLayoutAppearance.normal.iconColor = UIColor.white.withAlphaComponent(0.6)
+        tabBarAppearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.white.withAlphaComponent(0.6)]
+        
+        tabBarAppearance.stackedLayoutAppearance.selected.iconColor = UIColor.white
+        tabBarAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
+        
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        if #available(iOS 15.0, *) {
+            UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+        }
     }
 
     var body: some Scene {
@@ -35,8 +52,11 @@ struct RockoutApp: App {
                         return
                     }
                     
-                    // Handle share links: rockout://share/{token}
-                    if url.host == "share" {
+                    // Handle share links:
+                    //   rockout://share/{token}       (legacy)
+                    //   rockout://view/{token}        (view-only)
+                    //   rockout://collaborate/{token} (collaboration)
+                    if let host = url.host, ["share", "view", "collaborate"].contains(host) {
                         // Extract token from path, handling spaces that might be inserted by messaging apps
                         var path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                         // Remove all whitespace from the token (iMessage sometimes adds spaces)
@@ -52,7 +72,7 @@ struct RockoutApp: App {
                         let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
                         
                         if !cleanToken.isEmpty {
-                            print("📎 Share link detected in App, token: \(cleanToken)")
+                            print("📎 Share link detected in App (\(host)), token: \(cleanToken)")
                             // Use MainActor to ensure UI updates happen on main thread
                             Task { @MainActor in
                                 SharedAlbumHandler.shared.handleShareToken(cleanToken)

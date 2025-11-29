@@ -24,6 +24,11 @@ struct AlbumDetailView: View {
         return deleteContext == .collaborations
     }
     
+    // Check if this is a view-only share (shared with you)
+    private var isViewOnly: Bool {
+        return deleteContext == .sharedWithYou
+    }
+    
     init(album: StudioAlbumRecord, deleteContext: AlbumService.AlbumDeleteContext? = nil) {
         self.album = album
         self.deleteContext = deleteContext
@@ -82,24 +87,28 @@ struct AlbumDetailView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button {
-                    showEditAlbum = true
-                } label: {
-                    Image(systemName: "pencil")
-                        .foregroundColor(.white)
+                // Only show edit and add track buttons if not view-only
+                if !isViewOnly {
+                    Button {
+                        showEditAlbum = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .foregroundColor(.white)
+                    }
+                    
+                    Button {
+                        showAddTrack = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundColor(.white)
+                    }
                 }
                 
+                // Share button is always available (but view-only albums can only share as view-only)
                 Button {
                     showShare = true
                 } label: {
                     Image(systemName: "square.and.arrow.up")
-                        .foregroundColor(.white)
-                }
-                
-                Button {
-                    showAddTrack = true
-                } label: {
-                    Image(systemName: "plus")
                         .foregroundColor(.white)
                 }
                 
@@ -153,7 +162,11 @@ struct AlbumDetailView: View {
             Text(message)
         }
         .sheet(isPresented: $showShare) {
-            ShareSheetView(resourceType: "album", resourceId: album.id)
+            ShareSheetView(
+                resourceType: "album",
+                resourceId: album.id,
+                allowCollaboration: !isViewOnly
+            )
         }
         .sheet(isPresented: $showAddTrack) {
             AddTrackView(album: currentAlbum) {
@@ -168,6 +181,8 @@ struct AlbumDetailView: View {
         }
         .task {
             await loadTracks()
+            // Refresh album data to get latest changes (important for collaborations)
+            await refreshAlbum()
         }
     }
     
@@ -304,21 +319,23 @@ struct AlbumDetailView: View {
                 .foregroundColor(.white.opacity(0.5))
                 .multilineTextAlignment(.center)
             
-            Button {
-                showAddTrack = true
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Add Track")
-                        .fontWeight(.semibold)
+            if !isViewOnly {
+                Button {
+                    showAddTrack = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add Track")
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.white)
+                    .cornerRadius(25)
                 }
-                .foregroundColor(.black)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Color.white)
-                .cornerRadius(25)
+                .padding(.top, 8)
             }
-            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 60)
@@ -334,6 +351,21 @@ struct AlbumDetailView: View {
         } catch {
             errorMessage = error.localizedDescription
             print("❌ Error loading tracks: \(error.localizedDescription)")
+        }
+    }
+    
+    private func refreshAlbum() async {
+        do {
+            // Fetch the latest album data from the database
+            let updatedAlbum = try await albumService.fetchAlbum(albumId: currentAlbum.id)
+            
+            await MainActor.run {
+                currentAlbum = updatedAlbum
+            }
+            print("✅ Refreshed album data for \(currentAlbum.id.uuidString)")
+        } catch {
+            print("⚠️ Failed to refresh album: \(error.localizedDescription)")
+            // Don't show error to user - just log it, as the initial album data is still valid
         }
     }
     

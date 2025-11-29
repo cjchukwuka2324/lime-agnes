@@ -45,24 +45,38 @@ struct RootAppView: View {
     private func handleDeepLink(url: URL) {
         guard url.scheme == "rockout" else { return }
         
-        // Handle: rockout://share/{token}
-        if url.host == "share" {
-            // Extract share token from path, handling spaces that might be inserted by messaging apps
+        // Handle share links:
+        //   rockout://share/{token}       (legacy)
+        //   rockout://view/{token}        (view-only)
+        //   rockout://collaborate/{token} (collaboration)
+        if let host = url.host, ["share", "view", "collaborate"].contains(host) {
+            // Extract token from path, handling spaces that might be inserted by messaging apps
             var path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             // Remove all whitespace from the token (iMessage sometimes adds spaces)
             path = path.replacingOccurrences(of: " ", with: "")
             path = path.replacingOccurrences(of: "\n", with: "")
             path = path.replacingOccurrences(of: "\t", with: "")
             
+            // Also check if token is in the host or path components
+            let components = path.components(separatedBy: "/").filter { !$0.isEmpty }
+            let token = components.first ?? path
+            
             // Final cleanup: trim any remaining whitespace
-            let cleanToken = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             
             if !cleanToken.isEmpty {
-                print("📎 Share link detected in RootAppView, token: \(cleanToken)")
+                print("📎 Share link detected in RootAppView (\(host)), token: \(cleanToken)")
                 shareHandler.handleShareToken(cleanToken)
             } else {
                 print("⚠️ Share link missing token. Original path: '\(url.path)'")
             }
+            return
+        }
+        
+        // Handle Spotify OAuth callback: rockout://auth
+        if url.host == "auth" {
+            // Spotify OAuth is handled in RockOutApp
+            return
         }
     }
     

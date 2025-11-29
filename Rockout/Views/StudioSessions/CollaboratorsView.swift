@@ -7,6 +7,13 @@ struct CollaboratorsView: View {
     @State private var collaborators: [CollaboratorService.Collaborator] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var selectedFilter: FilterType = .all
+    
+    enum FilterType {
+        case all
+        case collaborators
+        case viewOnly
+    }
     
     var body: some View {
         NavigationStack {
@@ -64,14 +71,106 @@ struct CollaboratorsView: View {
                             .padding(.horizontal, 24)
                     }
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(collaborators) { collaborator in
-                                CollaboratorRow(collaborator: collaborator)
-                            }
+                    // Summary + list
+                    let collaboratorCount = collaborators.filter { $0.is_collaboration }.count
+                    let viewOnlyCount = collaborators.filter { !$0.is_collaboration }.count
+                    
+                    // Filter collaborators based on selected filter
+                    let filteredCollaborators: [CollaboratorService.Collaborator] = {
+                        switch selectedFilter {
+                        case .all:
+                            return collaborators
+                        case .collaborators:
+                            return collaborators.filter { $0.is_collaboration }
+                        case .viewOnly:
+                            return collaborators.filter { !$0.is_collaboration }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
+                    }()
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        if collaboratorCount > 0 || viewOnlyCount > 0 {
+                            HStack(spacing: 8) {
+                                if collaboratorCount > 0 {
+                                    Button {
+                                        withAnimation {
+                                            selectedFilter = selectedFilter == .collaborators ? .all : .collaborators
+                                        }
+                                    } label: {
+                                        Label {
+                                            Text("\(collaboratorCount) collaborator\(collaboratorCount == 1 ? "" : "s")")
+                                        } icon: {
+                                            Image(systemName: "person.2.fill")
+                                        }
+                                        .font(.caption)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(selectedFilter == .collaborators 
+                                                   ? Color.blue.opacity(0.4) 
+                                                   : Color.white.opacity(0.08))
+                                        .foregroundColor(selectedFilter == .collaborators 
+                                                        ? .blue 
+                                                        : .white.opacity(0.8))
+                                        .cornerRadius(999)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                                
+                                if viewOnlyCount > 0 {
+                                    Button {
+                                        withAnimation {
+                                            selectedFilter = selectedFilter == .viewOnly ? .all : .viewOnly
+                                        }
+                                    } label: {
+                                        Label {
+                                            Text("\(viewOnlyCount) view-only")
+                                        } icon: {
+                                            Image(systemName: "eye.fill")
+                                        }
+                                        .font(.caption)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(selectedFilter == .viewOnly 
+                                                   ? Color.blue.opacity(0.4) 
+                                                   : Color.white.opacity(0.08))
+                                        .foregroundColor(selectedFilter == .viewOnly 
+                                                        ? .blue 
+                                                        : .white.opacity(0.8))
+                                        .cornerRadius(999)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                                
+                                Spacer()
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 16)
+                        }
+                        
+                        ScrollView {
+                            LazyVStack(spacing: 12) {
+                                if filteredCollaborators.isEmpty {
+                                    VStack(spacing: 12) {
+                                        Image(systemName: selectedFilter == .collaborators ? "person.2.slash" : "eye.slash")
+                                            .font(.system(size: 40))
+                                            .foregroundColor(.white.opacity(0.5))
+                                        
+                                        Text(selectedFilter == .collaborators 
+                                             ? "No Collaborators" 
+                                             : "No View-Only Users")
+                                            .font(.headline)
+                                            .foregroundColor(.white.opacity(0.7))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 40)
+                                } else {
+                                    ForEach(filteredCollaborators) { collaborator in
+                                        CollaboratorRow(collaborator: collaborator)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                        }
                     }
                 }
             }
@@ -158,11 +257,19 @@ struct CollaboratorRow: View {
                     if collaborator.is_collaboration {
                         Label("Collaborator", systemImage: "person.2.fill")
                             .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.2))
                             .foregroundColor(.blue)
+                            .cornerRadius(999)
                     } else {
                         Label("View Only", systemImage: "eye.fill")
                             .font(.caption)
-                            .foregroundColor(.white.opacity(0.6))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.2))
+                            .foregroundColor(.blue)
+                            .cornerRadius(999)
                     }
                 }
             }

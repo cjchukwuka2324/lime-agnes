@@ -50,12 +50,13 @@ final class CollaboratorService {
                     let id: UUID
                     let username: String?
                     let display_name: String?
-                    let email: String?
+                    let first_name: String?
+                    let last_name: String?
                 }
                 
                 let profileResponse = try await supabase
                     .from("profiles")
-                    .select("id, username, display_name, email")
+                    .select("id, username, display_name, first_name, last_name")
                     .eq("id", value: record.shared_with.uuidString)
                     .single()
                     .execute()
@@ -63,21 +64,36 @@ final class CollaboratorService {
                 let profile = try JSONDecoder().decode(ProfileResponse.self, from: profileResponse.data)
                 
                 // Clean up empty strings to nil
-                let username = profile.username?.isEmpty == false ? profile.username : nil
-                let displayName = profile.display_name?.isEmpty == false ? profile.display_name : nil
-                let email = profile.email?.isEmpty == false ? profile.email : nil
+                let username = profile.username?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanUsername = username?.isEmpty == false ? username : nil
+                
+                let rawDisplay = profile.display_name?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let first = profile.first_name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let last = profile.last_name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let combinedName = "\(first) \(last)".trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                let cleanDisplayName: String?
+                if let raw = rawDisplay, !raw.isEmpty {
+                    cleanDisplayName = raw
+                } else if !combinedName.isEmpty {
+                    cleanDisplayName = combinedName
+                } else {
+                    cleanDisplayName = nil
+                }
+                
+                // We don't have email on profiles in this schema
+                let cleanEmail: String? = nil
                 
                 print("✅ Fetched profile for collaborator \(record.shared_with):")
-                print("   - username: \(username ?? "nil")")
-                print("   - display_name: \(displayName ?? "nil")")
-                print("   - email: \(email ?? "nil")")
+                print("   - username: \(cleanUsername ?? "nil")")
+                print("   - display_name: \(cleanDisplayName ?? "nil")")
                 
                 let collaborator = Collaborator(
                     id: record.shared_with,
                     user_id: record.shared_with,
-                    username: username,
-                    display_name: displayName,
-                    email: email,
+                    username: cleanUsername,
+                    display_name: cleanDisplayName,
+                    email: cleanEmail,
                     is_collaboration: record.is_collaboration,
                     accepted_at: record.accepted_at
                 )

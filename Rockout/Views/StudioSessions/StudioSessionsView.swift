@@ -486,7 +486,7 @@ struct AlbumCard: View {
                         albumPlaceholder
                     }
                 }
-                .frame(width: .infinity)
+                .frame(maxWidth: .infinity)
                 .aspectRatio(1, contentMode: .fit)
                 .cornerRadius(12)
                 .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -502,8 +502,10 @@ struct AlbumCard: View {
                         
                         Spacer()
                         
-                        // Collaborator indicator
-                        if let count = album.collaborator_count, count > 0 {
+                        // Collaborator/Viewer indicator
+                        if let collabCount = album.collaborator_count, collabCount > 0,
+                           let viewerCount = album.viewer_count, viewerCount > 0 {
+                            // Both collaborators and viewers exist - show both icons
                             Button {
                                 showCollaborators = true
                             } label: {
@@ -511,7 +513,52 @@ struct AlbumCard: View {
                                     Image(systemName: "person.2.fill")
                                         .font(.caption2)
                                         .foregroundColor(.blue)
-                                    Text("\(count)")
+                                    Text("\(collabCount)")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                    
+                                    Image(systemName: "eye.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                    Text("\(viewerCount)")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.blue.opacity(0.2))
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        } else if let collabCount = album.collaborator_count, collabCount > 0 {
+                            // Only collaborators exist
+                            Button {
+                                showCollaborators = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.2.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                    Text("\(collabCount)")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.blue.opacity(0.2))
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        } else if let viewerCount = album.viewer_count, viewerCount > 0 {
+                            // Only viewers exist
+                            Button {
+                                showCollaborators = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "eye.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                    Text("\(viewerCount)")
                                         .font(.caption2)
                                         .foregroundColor(.blue)
                                 }

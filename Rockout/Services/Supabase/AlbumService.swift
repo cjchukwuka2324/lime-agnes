@@ -12,6 +12,7 @@ final class AlbumService {
         let artist_id: String
         let release_status: String
         let cover_art_url: String?
+        let artist_name: String?
     }
 
     // MARK: - CREATE ALBUM (WITH COVER ART)
@@ -50,11 +51,35 @@ final class AlbumService {
             }
         }
 
+        // Get artist name for this album (use custom name if provided, otherwise fetch from studio_artists)
+        var albumArtistName: String? = nil
+        if let customName = artistName, !customName.trimmingCharacters(in: .whitespaces).isEmpty {
+            albumArtistName = customName.trimmingCharacters(in: .whitespaces)
+        } else {
+            // Fetch from studio_artists as fallback
+            do {
+                struct ArtistResponse: Codable {
+                    let name: String
+                }
+                let artistResponse: ArtistResponse = try await supabase
+                    .from("studio_artists")
+                    .select("name")
+                    .eq("id", value: artistId)
+                    .single()
+                    .execute()
+                    .value
+                albumArtistName = artistResponse.name
+            } catch {
+                print("⚠️ Could not fetch artist name: \(error.localizedDescription)")
+            }
+        }
+        
         let dto = CreateAlbumDTO(
             title: title,
             artist_id: artistId,
             release_status: "draft",
-            cover_art_url: coverArtUrl
+            cover_art_url: coverArtUrl,
+            artist_name: albumArtistName
         )
 
         print("📝 Creating album with title: \(title), artist_id: \(artistId), cover_art_url: \(coverArtUrl != nil ? "set" : "nil")")
@@ -213,8 +238,9 @@ final class AlbumService {
 
         var albums = try JSONDecoder().decode([StudioAlbumRecord].self, from: response.data)
         
-        // Fetch artist names for all unique artist_ids
-        let uniqueArtistIds = Set(albums.map { $0.artist_id })
+        // Fetch artist names from studio_artists only for albums that don't have artist_name set
+        let albumsNeedingArtistName = albums.filter { $0.artist_name == nil || $0.artist_name?.isEmpty == true }
+        let uniqueArtistIds = Set(albumsNeedingArtistName.map { $0.artist_id })
         var artistNames: [UUID: String] = [:]
         
         for artistId in uniqueArtistIds {
@@ -237,34 +263,48 @@ final class AlbumService {
             }
         }
         
-        // Fetch collaborator counts for all albums
+        // Fetch collaborator and viewer counts for all albums
         var collaboratorCounts: [UUID: Int] = [:]
+        var viewerCounts: [UUID: Int] = [:]
         for album in albums {
             do {
-                // Fetch all shared_albums records for this album and count them
+                // Fetch shared_albums records with is_collaboration flag
+                struct ShareRecord: Codable {
+                    let id: UUID
+                    let is_collaboration: Bool
+                }
+                
                 let sharedResponse = try await supabase
                     .from("shared_albums")
-                    .select("id")
+                    .select("id, is_collaboration")
                     .eq("album_id", value: album.id.uuidString)
                     .execute()
                 
-                // Parse the response to count records
-                struct ShareRecord: Codable {
-                    let id: UUID
-                }
                 let shareRecords = try JSONDecoder().decode([ShareRecord].self, from: sharedResponse.data)
-                collaboratorCounts[album.id] = shareRecords.count
+                
+                // Count collaborators and viewers separately
+                let collaborators = shareRecords.filter { $0.is_collaboration == true }
+                let viewers = shareRecords.filter { $0.is_collaboration == false }
+                
+                collaboratorCounts[album.id] = collaborators.count
+                viewerCounts[album.id] = viewers.count
             } catch {
-                print("⚠️ Failed to fetch collaborator count for \(album.id): \(error.localizedDescription)")
+                print("⚠️ Failed to fetch share counts for \(album.id): \(error.localizedDescription)")
                 collaboratorCounts[album.id] = 0
+                viewerCounts[album.id] = 0
             }
         }
         
-        // Update albums with artist names and collaborator counts
+        // Update albums with artist names (use album's artist_name if available, otherwise fall back to studio_artists)
+        // and collaborator/viewer counts
         return albums.map { album in
             var updatedAlbum = album
-            updatedAlbum.artist_name = artistNames[album.artist_id]
+            // Only set artist_name from studio_artists if album doesn't already have one
+            if updatedAlbum.artist_name == nil || updatedAlbum.artist_name?.isEmpty == true {
+                updatedAlbum.artist_name = artistNames[album.artist_id]
+            }
             updatedAlbum.collaborator_count = collaboratorCounts[album.id] ?? 0
+            updatedAlbum.viewer_count = viewerCounts[album.id] ?? 0
             return updatedAlbum
         }
     }
@@ -317,25 +357,27 @@ final class AlbumService {
                 
                 var album = albumData
                 
-                // Fetch artist name
-                do {
-                    struct ArtistResponse: Codable {
-                        let name: String
+                // Fetch artist name from studio_artists only if album doesn't have one
+                if album.artist_name == nil || album.artist_name?.isEmpty == true {
+                    do {
+                        struct ArtistResponse: Codable {
+                            let name: String
+                        }
+                        
+                        let artistResponse = try await supabase
+                            .from("studio_artists")
+                            .select("name")
+                            .eq("id", value: album.artist_id.uuidString)
+                            .limit(1)
+                            .execute()
+                        
+                        let artistArray = try JSONDecoder().decode([ArtistResponse].self, from: artistResponse.data)
+                        if let artist = artistArray.first {
+                            album.artist_name = artist.name
+                        }
+                    } catch {
+                        print("⚠️ Failed to fetch artist name for album \(sharedAlbum.album_id): \(error.localizedDescription)")
                     }
-                    
-                    let artistResponse = try await supabase
-                        .from("studio_artists")
-                        .select("name")
-                        .eq("id", value: album.artist_id.uuidString)
-                        .limit(1)
-                        .execute()
-                    
-                    let artistArray = try JSONDecoder().decode([ArtistResponse].self, from: artistResponse.data)
-                    if let artist = artistArray.first {
-                        album.artist_name = artist.name
-                    }
-                } catch {
-                    print("⚠️ Failed to fetch artist name for album \(sharedAlbum.album_id): \(error.localizedDescription)")
                 }
                 
                 albums.append(album)
@@ -395,25 +437,27 @@ final class AlbumService {
                 
                 var album = albumData
                 
-                // Fetch artist name
-                do {
-                    struct ArtistResponse: Codable {
-                        let name: String
+                // Fetch artist name from studio_artists only if album doesn't have one
+                if album.artist_name == nil || album.artist_name?.isEmpty == true {
+                    do {
+                        struct ArtistResponse: Codable {
+                            let name: String
+                        }
+                        
+                        let artistResponse = try await supabase
+                            .from("studio_artists")
+                            .select("name")
+                            .eq("id", value: album.artist_id.uuidString)
+                            .limit(1)
+                            .execute()
+                        
+                        let artistArray = try JSONDecoder().decode([ArtistResponse].self, from: artistResponse.data)
+                        if let artist = artistArray.first {
+                            album.artist_name = artist.name
+                        }
+                    } catch {
+                        print("⚠️ Failed to fetch artist name for album \(sharedAlbum.album_id): \(error.localizedDescription)")
                     }
-                    
-                    let artistResponse = try await supabase
-                        .from("studio_artists")
-                        .select("name")
-                        .eq("id", value: album.artist_id.uuidString)
-                        .limit(1)
-                        .execute()
-                    
-                    let artistArray = try JSONDecoder().decode([ArtistResponse].self, from: artistResponse.data)
-                    if let artist = artistArray.first {
-                        album.artist_name = artist.name
-                    }
-                } catch {
-                    print("⚠️ Failed to fetch artist name for album \(sharedAlbum.album_id): \(error.localizedDescription)")
                 }
                 
                 albums.append(album)
@@ -425,6 +469,43 @@ final class AlbumService {
         return albums
     }
 
+    // MARK: - FETCH SINGLE ALBUM
+    func fetchAlbum(albumId: UUID) async throws -> StudioAlbumRecord {
+        let response = try await supabase
+            .from("albums")
+            .select()
+            .eq("id", value: albumId.uuidString)
+            .single()
+            .execute()
+        
+        var album = try JSONDecoder().decode(StudioAlbumRecord.self, from: response.data)
+        
+        // Fetch artist name if not set
+        if album.artist_name == nil || album.artist_name?.isEmpty == true {
+            do {
+                struct ArtistResponse: Codable {
+                    let name: String
+                }
+                
+                let artistResponse = try await supabase
+                    .from("studio_artists")
+                    .select("name")
+                    .eq("id", value: album.artist_id.uuidString)
+                    .limit(1)
+                    .execute()
+                
+                let artistArray = try JSONDecoder().decode([ArtistResponse].self, from: artistResponse.data)
+                if let artist = artistArray.first {
+                    album.artist_name = artist.name
+                }
+            } catch {
+                print("⚠️ Failed to fetch artist name: \(error.localizedDescription)")
+            }
+        }
+        
+        return album
+    }
+
     // MARK: - UPDATE ALBUM
     func updateAlbum(
         _ album: StudioAlbumRecord,
@@ -432,32 +513,8 @@ final class AlbumService {
         artistName: String?,
         coverArtData: Data?
     ) async throws -> StudioAlbumRecord {
-        let session = try await supabase.auth.session
-        let userId = session.user.id.uuidString
-        
-        // Verify album ownership before updating
-        struct AlbumCheck: Codable {
-            let id: UUID
-            let artist_id: UUID
-        }
-        
-        let checkResponse = try await supabase
-            .from("albums")
-            .select("id, artist_id")
-            .eq("id", value: album.id.uuidString)
-            .single()
-            .execute()
-        
-        let albumCheck = try JSONDecoder().decode(AlbumCheck.self, from: checkResponse.data)
-        
-        // Verify ownership
-        guard albumCheck.artist_id.uuidString == userId else {
-            throw NSError(
-                domain: "AlbumService",
-                code: 403,
-                userInfo: [NSLocalizedDescriptionKey: "You don't have permission to update this album"]
-            )
-        }
+        // Note: Permission check is handled by RLS policies
+        // RLS allows both owners and collaborators (is_collaboration = true) to update albums
         
         // Upload cover art if provided
         var coverArtUrl: String? = nil
@@ -477,18 +534,23 @@ final class AlbumService {
         
         // Update album in database if there are changes
         // Only update fields that are provided (non-nil)
-        if title != nil || coverArtUrl != nil {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespaces).isEmpty == false ? title?.trimmingCharacters(in: .whitespaces) : nil
+        let trimmedArtistName = artistName?.trimmingCharacters(in: .whitespaces).isEmpty == false ? artistName?.trimmingCharacters(in: .whitespaces) : nil
+        
+        if trimmedTitle != nil || coverArtUrl != nil || trimmedArtistName != nil {
             struct UpdateDTO: Encodable {
                 let title: String?
                 let cover_art_url: String?
+                let artist_name: String?
             }
             
             let updateDTO = UpdateDTO(
-                title: title?.trimmingCharacters(in: .whitespaces).isEmpty == false ? title?.trimmingCharacters(in: .whitespaces) : nil,
-                cover_art_url: coverArtUrl
+                title: trimmedTitle,
+                cover_art_url: coverArtUrl,
+                artist_name: trimmedArtistName
             )
             
-            print("🔄 Updating album \(album.id.uuidString) with title: \(title ?? "nil"), coverArtUrl: \(coverArtUrl != nil ? "set" : "nil")")
+            print("🔄 Updating album \(album.id.uuidString) with title: \(trimmedTitle ?? "nil"), artistName: \(trimmedArtistName ?? "nil"), coverArtUrl: \(coverArtUrl != nil ? "set" : "nil")")
             
             try await supabase
                 .from("albums")
@@ -499,22 +561,8 @@ final class AlbumService {
             print("✅ Album updated successfully")
         }
         
-        // Update artist name if provided
-        if let artistName = artistName, !artistName.trimmingCharacters(in: .whitespaces).isEmpty {
-            let session = try await supabase.auth.session
-            let userId = session.user.id.uuidString
-            
-            // Ensure artist record exists first
-            do {
-                try await ensureArtistExists(userId: userId, customName: artistName.trimmingCharacters(in: .whitespaces))
-                print("✅ Updated studio artist name: \(artistName)")
-            } catch {
-                print("⚠️ Error updating studio artist name: \(error.localizedDescription)")
-                // Don't throw - allow album update to succeed even if artist name update fails
-            }
-        }
-        
         // Fetch and return updated album
+        // artist_name is now stored directly on the album, so no need to fetch from studio_artists
         let response = try await supabase
             .from("albums")
             .select()
@@ -522,25 +570,7 @@ final class AlbumService {
             .single()
             .execute()
         
-        var updatedAlbum = try JSONDecoder().decode(StudioAlbumRecord.self, from: response.data)
-        
-        // Fetch artist name
-        do {
-            struct ArtistResponse: Codable {
-                let name: String
-            }
-            
-            let artistResponse = try await supabase
-                .from("studio_artists")
-                .select("name")
-                .eq("id", value: updatedAlbum.artist_id.uuidString)
-                .single()
-                .execute()
-            
-            updatedAlbum.artist_name = try JSONDecoder().decode(ArtistResponse.self, from: artistResponse.data).name
-        } catch {
-            print("⚠️ Failed to fetch artist name: \(error.localizedDescription)")
-        }
+        let updatedAlbum = try JSONDecoder().decode(StudioAlbumRecord.self, from: response.data)
         
         return updatedAlbum
     }

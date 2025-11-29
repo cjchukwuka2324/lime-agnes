@@ -170,11 +170,31 @@ final class ShareService {
             let existingArray = try JSONDecoder().decode([ExistingShare].self, from: existingResponse.data)
             
             if let existing = existingArray.first {
-                // Already shared, just fetch the album
+                // Already shared; if this new link is collaboration, ensure the existing record is upgraded
+                var isCollaboration = existing.is_collaboration ?? false
+                
+                if !isCollaboration, (shareLink.is_collaboration ?? false) {
+                    struct UpgradeDTO: Encodable {
+                        let is_collaboration: Bool
+                    }
+                    let upgrade = UpgradeDTO(is_collaboration: true)
+                    
+                    do {
+                        try await supabase
+                            .from("shared_albums")
+                            .update(upgrade)
+                            .eq("id", value: existing.id.uuidString)
+                            .execute()
+                        isCollaboration = true
+                        print("✅ Upgraded existing share to collaboration for user \(userId)")
+                    } catch {
+                        print("⚠️ Failed to upgrade existing share to collaboration: \(error.localizedDescription)")
+                    }
+                }
+                
+                // Fetch the album after ensuring correct collaboration status
                 print("✅ Album already shared, fetching existing record")
                 let album = try await fetchSharedAlbum(albumId: shareLink.resource_id)
-                // Get collaboration status from existing share record (more accurate than share link)
-                let isCollaboration = existing.is_collaboration ?? false
                 return (album, isCollaboration)
             }
         } catch {
@@ -298,8 +318,42 @@ final class ShareService {
     }
     
     // MARK: - Get Share URL
-    func getShareURL(for shareToken: String) -> String {
-        return "rockout://share/\(shareToken)"
+    /// Returns a deep link URL for a given share token.
+    /// - Parameters:
+    ///   - shareToken: The opaque token that identifies this share link.
+    ///   - isCollaboration: Whether the link is for collaboration or view-only.
+    ///   - Note: We keep the token opaque for security; the path prefix indicates intent.
+    func getShareURL(for shareToken: String, isCollaboration: Bool) -> String {
+        let pathPrefix = isCollaboration ? "collaborate" : "view"
+        return "rockout://\(pathPrefix)/\(shareToken)"
+    }
+
+    // MARK: - Share Metadata
+    /// Returns whether a given share token represents a collaboration invite.
+    /// Returns nil if the token is invalid or not found.
+    func isCollaborationInvite(shareToken: String) async throws -> Bool? {
+        struct ShareLinkMeta: Codable {
+            let is_collaboration: Bool?
+        }
+        
+        do {
+            let response = try await supabase
+                .from("shareable_links")
+                .select("is_collaboration")
+                .eq("share_token", value: shareToken)
+                .eq("is_active", value: true)
+                .limit(1)
+                .execute()
+            
+            let array = try JSONDecoder().decode([ShareLinkMeta].self, from: response.data)
+            guard let meta = array.first else {
+                return nil
+            }
+            return meta.is_collaboration ?? false
+        } catch {
+            print("⚠️ Failed to fetch share metadata: \(error.localizedDescription)")
+            return nil
+        }
     }
 }
 

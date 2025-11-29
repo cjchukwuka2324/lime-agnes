@@ -9,6 +9,7 @@ struct AcceptSharedAlbumView: View {
     @State private var isAccepting = false
     @State private var errorMessage: String?
     @State private var isOwner = false
+    @State private var isCollaborationInvite: Bool? = nil
     
     var body: some View {
         NavigationStack {
@@ -94,7 +95,9 @@ struct AcceptSharedAlbumView: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                             
-                            Text("You've been invited to view a shared album")
+                            Text(isCollaborationInvite == true
+                                 ? "You've been invited to collaborate on an album"
+                                 : "You've been invited to view a shared album")
                                 .font(.subheadline)
                                 .foregroundColor(.white.opacity(0.7))
                                 .multilineTextAlignment(.center)
@@ -132,8 +135,21 @@ struct AcceptSharedAlbumView: View {
             }
         }
         .task {
-            // Check if user is owner when view appears
+            // Preload share link metadata and check ownership when view appears
+            await loadShareMetadata()
             await checkIfOwner()
+        }
+    }
+    
+    private func loadShareMetadata() async {
+        do {
+            if let isCollab = try await ShareService.shared.isCollaborationInvite(shareToken: shareToken) {
+                await MainActor.run {
+                    self.isCollaborationInvite = isCollab
+                }
+            }
+        } catch {
+            print("⚠️ Failed to load share metadata: \(error.localizedDescription)")
         }
     }
     

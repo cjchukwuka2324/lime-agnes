@@ -3,6 +3,7 @@ import SwiftUI
 struct ShareSheetView: View {
     let resourceType: String // "album" or "track"
     let resourceId: UUID
+    let allowCollaboration: Bool // Whether collaboration mode is allowed (false for view-only shares)
     
     @Environment(\.dismiss) private var dismiss
     
@@ -13,6 +14,12 @@ struct ShareSheetView: View {
     @State private var isCollaboration: Bool = false
     @State private var showShareSheet = false
     @State private var copiedToClipboard = false
+    
+    init(resourceType: String, resourceId: UUID, allowCollaboration: Bool = true) {
+        self.resourceType = resourceType
+        self.resourceId = resourceId
+        self.allowCollaboration = allowCollaboration
+    }
     
     var body: some View {
         ZStack {
@@ -95,49 +102,85 @@ struct ShareSheetView: View {
                 .fontWeight(.bold)
                 .foregroundColor(.white)
             
-            Text("Share this album with others. Choose whether they can view or collaborate.")
+            Text(allowCollaboration 
+                 ? "Share this album with others. Choose whether they can view or collaborate."
+                 : "Share this album with others. Recipients will have view-only access.")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
             
-            // Collaboration Toggle
-            VStack(spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            Image(systemName: isCollaboration ? "person.2.fill" : "eye.fill")
-                                .font(.title3)
-                                .foregroundColor(isCollaboration ? .blue : .white.opacity(0.7))
-                                .frame(width: 24)
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(isCollaboration ? "Collaboration" : "View Only")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
+            // Collaboration Toggle (only shown if collaboration is allowed)
+            if allowCollaboration {
+                VStack(spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                Image(systemName: isCollaboration ? "person.2.fill" : "eye.fill")
+                                    .font(.title3)
+                                    .foregroundColor(isCollaboration ? .blue : .white.opacity(0.7))
+                                    .frame(width: 24)
                                 
-                                Text(isCollaboration 
-                                     ? "Recipients can edit this album" 
-                                     : "Recipients can only view this album")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.6))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(isCollaboration ? "Collaboration" : "View Only")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    
+                                    Text(isCollaboration 
+                                         ? "Recipients can edit this album" 
+                                         : "Recipients can only view this album")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
                             }
                         }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $isCollaboration)
+                            .tint(.blue)
+                            .labelsHidden()
                     }
-                    
-                    Spacer()
-                    
-                    Toggle("", isOn: $isCollaboration)
-                        .tint(.blue)
-                        .labelsHidden()
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.white.opacity(0.1))
+                    )
                 }
-                .padding(20)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.white.opacity(0.1))
-                )
+                .padding(.horizontal, 20)
+            } else {
+                // View-only mode indicator (no toggle)
+                VStack(spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "eye.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .frame(width: 24)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("View Only")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    
+                                    Text("Recipients can only view this album")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.white.opacity(0.1))
+                    )
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
             
             // Create Button
             Button {
@@ -363,9 +406,18 @@ struct ShareSheetView: View {
                 return
             }
             
-            let token = try await ShareService.shared.createShareLink(for: resourceId, isCollaboration: isCollaboration)
+            // Force view-only if collaboration is not allowed
+            let collaborationMode = allowCollaboration ? isCollaboration : false
+            
+            let token = try await ShareService.shared.createShareLink(for: resourceId, isCollaboration: collaborationMode)
             shareToken = token
-            shareURL = ShareService.shared.getShareURL(for: token)
+            // Deep link format:
+            //   - View-only:   rockout://view/{token}
+            //   - Collaborate: rockout://collaborate/{token}
+            shareURL = ShareService.shared.getShareURL(for: token, isCollaboration: collaborationMode)
+            
+            // Update isCollaboration state to match what was actually created
+            isCollaboration = collaborationMode
         } catch {
             errorMessage = error.localizedDescription
         }

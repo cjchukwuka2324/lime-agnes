@@ -29,11 +29,6 @@
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
-		<key>UISceneDelegate</key>
-		<dict>
-			<key>UIWindowSceneDelegate</key>
-			<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
-		</dict>
 	</dict>
 	<key>UILaunchScreen</key>
 	<dict>

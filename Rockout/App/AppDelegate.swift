@@ -16,21 +16,30 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             return false
         }
         
-        // Handle share links: rockout://share/{token}
-        if url.host == "share" {
+        // Handle share links:
+        //   rockout://share/{token}       (legacy)
+        //   rockout://view/{token}        (view-only)
+        //   rockout://collaborate/{token} (collaboration)
+        if let host = url.host, ["share", "view", "collaborate"].contains(host) {
             var path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             path = path.replacingOccurrences(of: " ", with: "")
             path = path.replacingOccurrences(of: "\n", with: "")
             path = path.replacingOccurrences(of: "\t", with: "")
             
-            let cleanToken = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Also check if token is in the host or path components
+            let components = path.components(separatedBy: "/").filter { !$0.isEmpty }
+            let token = components.first ?? path
+            
+            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             
             if !cleanToken.isEmpty {
-                print("📎 AppDelegate handling share token: \(cleanToken)")
+                print("📎 AppDelegate handling share link (\(host)), token: \(cleanToken)")
                 Task { @MainActor in
                     SharedAlbumHandler.shared.handleShareToken(cleanToken)
                 }
                 return true
+            } else {
+                print("⚠️ AppDelegate: Share link missing token. Host: '\(host)', Path: '\(url.path)'")
             }
         }
         
