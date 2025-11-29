@@ -37,9 +37,23 @@ class UserProfileService: ObservableObject {
             return nil
         }
         
+        return try await getUserProfile(userId: userId)
+    }
+    
+    func getUserProfile(userId: UUID) async throws -> UserProfile? {
         let response: [UserProfile] = try await supabase
             .from("profiles")
-            .select("*")
+            .select("""
+                id,
+                display_name,
+                first_name,
+                last_name,
+                username,
+                instagram,
+                twitter,
+                tiktok,
+                profile_picture_url
+            """)
             .eq("id", value: userId)
             .execute()
             .value

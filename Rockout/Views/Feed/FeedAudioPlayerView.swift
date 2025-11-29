@@ -5,6 +5,7 @@ struct FeedAudioPlayerView: View {
     let audioURL: URL
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
+    @State private var isMuted = false
     @State private var duration: TimeInterval = 0
     @State private var currentTime: TimeInterval = 0
     @State private var timer: Timer?
@@ -19,6 +20,16 @@ struct FeedAudioPlayerView: View {
                     Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.title)
                         .foregroundColor(Color(hex: "#1ED760"))
+                }
+                
+                // Mute/Unmute Button
+                Button {
+                    isMuted.toggle()
+                    player?.volume = isMuted ? 0.0 : 1.0
+                } label: {
+                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.title3)
+                        .foregroundColor(.white.opacity(0.7))
                 }
                 
                 // Waveform Icon
@@ -96,9 +107,10 @@ struct FeedAudioPlayerView: View {
             try audioSession.setCategory(.playback, mode: .default, options: [])
             try audioSession.setActive(true)
             
-            // Load audio player from local file
+                        // Load audio player from local file
             player = try AVAudioPlayer(contentsOf: audioURL)
             player?.prepareToPlay()
+            player?.volume = isMuted ? 0.0 : 1.0
             let playerDuration = player?.duration ?? 0
             // Validate duration is finite and not NaN
             duration = (playerDuration.isFinite && !playerDuration.isNaN) ? max(0, playerDuration) : 0
@@ -132,6 +144,7 @@ struct FeedAudioPlayerView: View {
                         // Load audio player from temporary file
                         player = try AVAudioPlayer(contentsOf: tempURL)
                         player?.prepareToPlay()
+                        player?.volume = isMuted ? 0.0 : 1.0
                         let playerDuration = player?.duration ?? 0
                         // Validate duration is finite and not NaN
                         duration = (playerDuration.isFinite && !playerDuration.isNaN) ? max(0, playerDuration) : 0
@@ -205,4 +218,3 @@ struct FeedAudioPlayerView: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
-

@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import Supabase
 
 struct RootAppView: View {
     @EnvironmentObject var authVM: AuthViewModel
@@ -19,6 +20,10 @@ struct RootAppView: View {
             case .authenticated:
                 MainTabView()
                     .environmentObject(shareHandler)
+                    .task {
+                        // Load feed on app startup when authenticated
+                        await loadFeedOnStartup()
+                    }
                     
             case .passwordReset:
                 ResetPasswordView()
@@ -77,6 +82,17 @@ struct RootAppView: View {
         if url.host == "auth" {
             // Spotify OAuth is handled in RockOutApp
             return
+        }
+    }
+    
+    private func loadFeedOnStartup() async {
+        // Load feed on app startup to ensure old posts are available
+        let feedService = SupabaseFeedService.shared
+        do {
+            _ = try await feedService.fetchHomeFeed(feedType: .forYou, region: nil)
+            print("✅ Feed loaded on app startup")
+        } catch {
+            print("⚠️ Failed to load feed on startup: \(error.localizedDescription)")
         }
     }
     

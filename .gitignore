@@ -113,3 +113,6 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Apple Push Notification Authentication Key
+AuthKey_*.p8
+

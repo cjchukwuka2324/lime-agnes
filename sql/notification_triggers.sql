@@ -1,0 +1,288 @@
+-- Notification Triggers for RockOut
+-- Automatically create notifications when specific events occur
+
+-- ============================================================================
+-- TRIGGER 1: New Follower Notification
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_new_follower_notification ON user_follows;
+
+CREATE OR REPLACE FUNCTION notify_new_follower()
+RETURNS TRIGGER AS $$
+DECLARE
+    actor_name TEXT;
+BEGIN
+    -- Get the follower's display name
+    SELECT COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email)
+    INTO actor_name
+    FROM profiles p
+    LEFT JOIN auth.users u ON u.id = p.id
+    WHERE p.id = NEW.follower_id;
+    
+    -- Create notification for the user being followed
+    INSERT INTO notifications (user_id, actor_id, type, message)
+    VALUES (
+        NEW.following_id,
+        NEW.follower_id,
+        'new_follower',
+        actor_name || ' started following you'
+    );
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_new_follower_notification
+    AFTER INSERT ON user_follows
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_new_follower();
+
+-- ============================================================================
+-- TRIGGER 2: Post Like Notification
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_post_like_notification ON post_likes;
+
+CREATE OR REPLACE FUNCTION notify_post_like()
+RETURNS TRIGGER AS $$
+DECLARE
+    post_author_id UUID;
+    actor_name TEXT;
+BEGIN
+    -- Get the post author's ID
+    SELECT user_id INTO post_author_id
+    FROM posts
+    WHERE id = NEW.post_id;
+    
+    -- Don't notify if user likes their own post
+    IF post_author_id = NEW.user_id THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the liker's display name
+    SELECT COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email)
+    INTO actor_name
+    FROM profiles p
+    LEFT JOIN auth.users u ON u.id = p.id
+    WHERE p.id = NEW.user_id;
+    
+    -- Create notification for post author
+    INSERT INTO notifications (user_id, actor_id, type, post_id, message)
+    VALUES (
+        post_author_id,
+        NEW.user_id,
+        'post_like',
+        NEW.post_id,
+        actor_name || ' liked your post'
+    );
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_post_like_notification
+    AFTER INSERT ON post_likes
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_post_like();
+
+-- ============================================================================
+-- TRIGGER 3: Post Reply Notification
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_post_reply_notification ON posts;
+
+CREATE OR REPLACE FUNCTION notify_post_reply()
+RETURNS TRIGGER AS $$
+DECLARE
+    parent_author_id UUID;
+    actor_name TEXT;
+    post_preview TEXT;
+BEGIN
+    -- Only process if this is a reply (has parent_post_id)
+    IF NEW.parent_post_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the parent post author's ID
+    SELECT user_id INTO parent_author_id
+    FROM posts
+    WHERE id = NEW.parent_post_id;
+    
+    -- Don't notify if user replies to their own post
+    IF parent_author_id = NEW.user_id THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the replier's display name
+    SELECT COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email)
+    INTO actor_name
+    FROM profiles p
+    LEFT JOIN auth.users u ON u.id = p.id
+    WHERE p.id = NEW.user_id;
+    
+    -- Create post preview (first 50 chars)
+    post_preview := SUBSTRING(NEW.text FROM 1 FOR 50);
+    IF LENGTH(NEW.text) > 50 THEN
+        post_preview := post_preview || '...';
+    END IF;
+    
+    -- Create notification for parent post author
+    INSERT INTO notifications (user_id, actor_id, type, post_id, message)
+    VALUES (
+        parent_author_id,
+        NEW.user_id,
+        'post_reply',
+        NEW.parent_post_id,
+        actor_name || ' replied to your post'
+    );
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_post_reply_notification
+    AFTER INSERT ON posts
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_post_reply();
+
+-- ============================================================================
+-- TRIGGER 4: RockList Rank Improvement Notification
+-- ============================================================================
+
+-- Drop existing trigger if it exists (commented out until rocklist_stats table exists)
+-- DROP TRIGGER IF EXISTS trg_rocklist_rank_notification ON rocklist_stats;
+
+CREATE OR REPLACE FUNCTION notify_rocklist_rank_improvement()
+RETURNS TRIGGER AS $$
+DECLARE
+    artist_name TEXT;
+BEGIN
+    -- Only notify if rank improved (lower number = better rank)
+    IF NEW.rank IS NULL OR OLD.rank IS NULL OR NEW.rank >= OLD.rank THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get artist name (assuming artist_id is stored and there's an artists table or we use the ID)
+    artist_name := NEW.artist_id;
+    
+    -- Create notification for user
+    INSERT INTO notifications (user_id, type, rocklist_id, old_rank, new_rank, message)
+    VALUES (
+        NEW.user_id,
+        'rocklist_rank',
+        NEW.artist_id,
+        OLD.rank,
+        NEW.rank,
+        'You moved up to rank ' || NEW.rank || ' for ' || artist_name
+    );
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Note: This trigger assumes a rocklist_stats table exists
+-- Uncomment when ready to use:
+-- DROP TRIGGER IF EXISTS trg_rocklist_rank_notification ON rocklist_stats;
+-- CREATE TRIGGER trg_rocklist_rank_notification
+--     AFTER UPDATE ON rocklist_stats
+--     FOR EACH ROW
+--     EXECUTE FUNCTION notify_rocklist_rank_improvement();
+
+-- ============================================================================
+-- TRIGGER 5: New Post from Followed User (with notifications enabled)
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_new_post_notification ON posts;
+
+CREATE OR REPLACE FUNCTION notify_new_post_from_followed()
+RETURNS TRIGGER AS $$
+DECLARE
+    follower_record RECORD;
+    actor_name TEXT;
+    post_preview TEXT;
+BEGIN
+    -- Only process top-level posts (not replies)
+    IF NEW.parent_post_id IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the poster's display name
+    SELECT COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email)
+    INTO actor_name
+    FROM profiles p
+    LEFT JOIN auth.users u ON u.id = p.id
+    WHERE p.id = NEW.user_id;
+    
+    -- Create post preview (first 50 chars)
+    post_preview := SUBSTRING(NEW.text FROM 1 FOR 50);
+    IF LENGTH(NEW.text) > 50 THEN
+        post_preview := post_preview || '...';
+    END IF;
+    
+    -- Create notifications for all followers who have post notifications enabled
+    FOR follower_record IN
+        SELECT follower_id
+        FROM user_follows
+        WHERE following_id = NEW.user_id
+          AND notify_on_posts = true
+    LOOP
+        INSERT INTO notifications (user_id, actor_id, type, post_id, message)
+        VALUES (
+            follower_record.follower_id,
+            NEW.user_id,
+            'new_post',
+            NEW.id,
+            actor_name || ' posted: ' || post_preview
+        );
+    END LOOP;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_new_post_notification
+    AFTER INSERT ON posts
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_new_post_from_followed();
+
+-- ============================================================================
+-- Utility Functions
+-- ============================================================================
+
+-- Function to mark all notifications as read for a user
+CREATE OR REPLACE FUNCTION mark_all_notifications_read(target_user_id UUID)
+RETURNS void AS $$
+BEGIN
+    UPDATE notifications
+    SET read_at = NOW()
+    WHERE user_id = target_user_id
+      AND read_at IS NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get unread notification count
+CREATE OR REPLACE FUNCTION get_unread_notification_count(target_user_id UUID)
+RETURNS INTEGER AS $$
+DECLARE
+    count INTEGER;
+BEGIN
+    SELECT COUNT(*)
+    INTO count
+    FROM notifications
+    WHERE user_id = target_user_id
+      AND read_at IS NULL;
+    
+    RETURN count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION notify_new_follower() IS 'Creates notification when a user gains a new follower';
+COMMENT ON FUNCTION notify_post_like() IS 'Creates notification when a post is liked';
+COMMENT ON FUNCTION notify_post_reply() IS 'Creates notification when someone replies to a post';
+COMMENT ON FUNCTION notify_rocklist_rank_improvement() IS 'Creates notification when user rank improves';
+COMMENT ON FUNCTION notify_new_post_from_followed() IS 'Creates notification when followed user posts (if enabled)';
+

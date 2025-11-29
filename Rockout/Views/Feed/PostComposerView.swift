@@ -14,7 +14,7 @@ struct PostComposerView: View {
     @State private var text: String
     @State private var isPosting = false
     @State private var errorMessage: String?
-    @State private var selectedImage: UIImage?
+    @State private var selectedImages: [UIImage] = [] // Up to 5 images
     @State private var selectedVideo: URL?
     @State private var audioRecordingURL: URL?
     @State private var isRecording = false
@@ -23,13 +23,21 @@ struct PostComposerView: View {
     @State private var audioRecorder: AVAudioRecorder?
     @State private var isUploadingMedia = false
     @State private var showImagePicker = false
+    @State private var showImageCrop = false
+    @State private var imageToCrop: UIImage?
     @State private var showVideoPicker = false
+    @State private var spotifyLink: SpotifyLink?
+    @State private var poll: Poll?
+    @State private var backgroundMusic: BackgroundMusic?
+    @State private var showSpotifyLinkAdd = false
+    @State private var showPollCreation = false
+    @State private var showBackgroundMusicSelector = false
     
     private let imageService = FeedImageService.shared
     private let mediaService = FeedMediaService.shared
     
     init(
-        service: FeedService = InMemoryFeedService.shared,
+        service: FeedService = SupabaseFeedService.shared as FeedService,
         leaderboardEntry: LeaderboardEntrySummary? = nil,
         parentPost: Post? = nil,
         prefilledText: String? = nil,
@@ -80,10 +88,38 @@ struct PostComposerView: View {
                 }
             }
             .sheet(isPresented: $showImagePicker) {
-                ImagePicker(selectedImage: $selectedImage)
+                MultiImagePicker(selectedImages: $selectedImages)
+            }
+            .sheet(isPresented: $showImageCrop) {
+                if let image = imageToCrop {
+                    ImageCropView(image: Binding(
+                        get: { image },
+                        set: { newImage in
+                            if let newImage = newImage, let index = selectedImages.firstIndex(where: { $0 === image }) {
+                                selectedImages[index] = newImage
+                            }
+                        }
+                    ))
+                }
             }
             .sheet(isPresented: $showVideoPicker) {
                 VideoPicker(selectedVideoURL: $selectedVideo)
+            }
+            .sheet(isPresented: $showSpotifyLinkAdd) {
+                SpotifyLinkAddView(selectedSpotifyLink: $spotifyLink)
+            }
+            .sheet(isPresented: $showPollCreation) {
+                PollCreationView(poll: $poll)
+            }
+            .sheet(isPresented: $showBackgroundMusicSelector) {
+                BackgroundMusicSelectorView(selectedBackgroundMusic: $backgroundMusic)
+            }
+            .onChange(of: backgroundMusic) { oldValue, newValue in
+                if let newValue = newValue {
+                    print("🎵 PostComposerView: backgroundMusic changed to: \(newValue.name) by \(newValue.artist)")
+                } else {
+                    print("🎵 PostComposerView: backgroundMusic cleared")
+                }
             }
             .onChange(of: selectedVideo) { _, newVideoURL in
                 if let videoURL = newVideoURL {
@@ -118,8 +154,8 @@ struct PostComposerView: View {
                 leaderboardPreview(entry: entry)
             }
             
-            if let selectedImage = selectedImage {
-                imagePreview(image: selectedImage)
+            if !selectedImages.isEmpty {
+                imagesPreview(images: selectedImages)
             }
             
             if let selectedVideo = selectedVideo {
@@ -128,6 +164,18 @@ struct PostComposerView: View {
             
             if let audioRecordingURL = audioRecordingURL {
                 audioPreview(audioURL: audioRecordingURL)
+            }
+            
+            if let spotifyLink = spotifyLink {
+                spotifyLinkPreview(link: spotifyLink)
+            }
+            
+            if let poll = poll {
+                pollPreview(poll: poll)
+            }
+            
+            if let backgroundMusic = backgroundMusic {
+                backgroundMusicPreview(music: backgroundMusic)
             }
             
             textEditorView
@@ -149,26 +197,47 @@ struct PostComposerView: View {
         .padding(.top, 20)
     }
     
-    private func imagePreview(image: UIImage) -> some View {
+    private func imagesPreview(images: [UIImage]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Photo")
+                Text("Photos (\(images.count)/5)")
                     .font(.caption.weight(.medium))
                     .foregroundColor(.white.opacity(0.7))
                 Spacer()
-                Button {
-                    self.selectedImage = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.white.opacity(0.7))
+                if images.count < 5 {
+                    Button {
+                        showImagePicker = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(Color(hex: "#1ED760"))
+                    }
                 }
             }
             
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(maxHeight: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(Array(images.enumerated()), id: \.offset) { index, image in
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 120, height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            
+                            Button {
+                                selectedImages.remove(at: index)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.white)
+                                    .background(Color.black.opacity(0.5))
+                                    .clipShape(Circle())
+                            }
+                            .padding(4)
+                        }
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
         }
     }
     
@@ -268,6 +337,11 @@ struct PostComposerView: View {
             photoButton
             videoButton
             voiceButton
+            musicButton
+            pollButton
+            if !selectedImages.isEmpty {
+                backgroundMusicButton
+            }
         }
         .padding(.vertical, 8)
     }
@@ -336,7 +410,219 @@ struct PostComposerView: View {
                     .fill(isRecording ? Color.red.opacity(0.2) : Color.white.opacity(0.15))
             )
         }
-        .disabled(isPosting || isUploadingMedia || selectedImage != nil || selectedVideo != nil)
+        .disabled(isPosting || isUploadingMedia || !selectedImages.isEmpty || selectedVideo != nil)
+    }
+    
+    private var musicButton: some View {
+        Button {
+            showSpotifyLinkAdd = true
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "music.note")
+                    .font(.title3)
+                Text("Music")
+                    .font(.caption2)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.15))
+            )
+        }
+        .disabled(isPosting || isUploadingMedia || isRecording)
+    }
+    
+    private var pollButton: some View {
+        Button {
+            showPollCreation = true
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "chart.bar")
+                    .font(.title3)
+                Text("Poll")
+                    .font(.caption2)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.15))
+            )
+        }
+        .disabled(isPosting || isUploadingMedia || isRecording)
+    }
+    
+    private var backgroundMusicButton: some View {
+        Button {
+            showBackgroundMusicSelector = true
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "music.mic")
+                    .font(.title3)
+                Text("BG Music")
+                    .font(.caption2)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.15))
+            )
+        }
+        .disabled(isPosting || isUploadingMedia || isRecording)
+    }
+    
+    // MARK: - Preview Sections
+    
+    private func spotifyLinkPreview(link: SpotifyLink) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Spotify Link")
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Button {
+                    spotifyLink = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+            
+            SpotifyLinkCardView(spotifyLink: link)
+        }
+    }
+    
+    private func pollPreview(poll: Poll) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            pollPreviewHeader
+            pollPreviewContent(poll: poll)
+        }
+    }
+    
+    private var pollPreviewHeader: some View {
+        HStack {
+            Text("Poll")
+                .font(.caption.weight(.medium))
+                .foregroundColor(.white.opacity(0.7))
+            Spacer()
+            Button {
+                self.poll = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.white.opacity(0.7))
+            }
+        }
+    }
+    
+    private func pollPreviewContent(poll: Poll) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(poll.question)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.white)
+            
+            ForEach(Array(poll.options.enumerated()), id: \.element.id) { index, option in
+                pollOptionRow(option: option, pollType: poll.type)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.1))
+        )
+    }
+    
+    private func pollOptionRow(option: PollOption, pollType: String) -> some View {
+        HStack {
+            Image(systemName: pollType == "single" ? "circle" : "square")
+            Text(option.text)
+        }
+        .font(.caption)
+        .foregroundColor(.white.opacity(0.8))
+    }
+    
+    private func backgroundMusicPreview(music: BackgroundMusic) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Background Music")
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Button {
+                    backgroundMusic = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+            
+            HStack(spacing: 12) {
+                if let imageURL = music.imageURL {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .tint(.white)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            defaultMusicArtwork
+                        @unknown default:
+                            defaultMusicArtwork
+                        }
+                    }
+                    .frame(width: 50, height: 50)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    defaultMusicArtwork
+                        .frame(width: 50, height: 50)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(music.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    
+                    Text(music.artist)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.1))
+            )
+        }
+    }
+    
+    private var defaultMusicArtwork: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(hex: "#1ED760").opacity(0.3),
+                        Color(hex: "#1DB954").opacity(0.2)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                Image(systemName: "music.note")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.6))
+            )
     }
     
     @ViewBuilder
@@ -351,9 +637,12 @@ struct PostComposerView: View {
     
     private var canPost: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
-        selectedImage != nil || 
+        !selectedImages.isEmpty || 
         selectedVideo != nil || 
-        audioRecordingURL != nil
+        audioRecordingURL != nil ||
+        spotifyLink != nil ||
+        poll != nil ||
+        leaderboardEntry != nil
     }
     
     
@@ -447,13 +736,18 @@ struct PostComposerView: View {
         
         do {
             // Upload media if selected
-            var imageURL: URL? = nil
+            var imageURLs: [URL] = []
             var videoURL: URL? = nil
             var audioURL: URL? = nil
             
-            if let image = selectedImage {
+            // Upload all selected images (up to 5)
+            if !selectedImages.isEmpty {
                 isUploadingMedia = true
-                imageURL = try await imageService.uploadPostImage(image)
+                for image in selectedImages {
+                    if let url = try? await imageService.uploadPostImage(image) {
+                        imageURLs.append(url)
+                    }
+                }
                 isUploadingMedia = false
             }
             
@@ -471,23 +765,49 @@ struct PostComposerView: View {
             
             let postText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             
+            // Debug: Check backgroundMusic state right before posting
+            print("🎵 PostComposerView.post(): backgroundMusic state = \(backgroundMusic != nil ? "exists" : "nil")")
+            if let bgMusic = backgroundMusic {
+                print("🎵 PostComposerView.post(): backgroundMusic details: name=\(bgMusic.name), artist=\(bgMusic.artist), spotifyId=\(bgMusic.spotifyId)")
+            }
+            
             if let parentPost = parentPost {
                 _ = try await service.reply(
                     to: parentPost,
                     text: postText,
-                    imageURL: imageURL,
-                    videoURL: videoURL,
-                    audioURL: audioURL
-                )
-            } else {
-                _ = try await service.createPost(
-                    text: postText,
-                    imageURL: imageURL,
+                    imageURLs: imageURLs,
                     videoURL: videoURL,
                     audioURL: audioURL,
-                    leaderboardEntry: leaderboardEntry
+                    spotifyLink: spotifyLink,
+                    poll: poll,
+                    backgroundMusic: backgroundMusic
+                )
+            } else {
+                print("📝 Creating post with spotifyLink: \(spotifyLink?.name ?? "nil")")
+                print("📝 spotifyLink details: id=\(spotifyLink?.id ?? "nil"), url=\(spotifyLink?.url ?? "nil"), type=\(spotifyLink?.type ?? "nil")")
+                print("🎵 Creating post with backgroundMusic: \(backgroundMusic?.name ?? "nil")")
+                print("🎵 backgroundMusic details: spotifyId=\(backgroundMusic?.spotifyId ?? "nil"), name=\(backgroundMusic?.name ?? "nil"), artist=\(backgroundMusic?.artist ?? "nil"), previewURL=\(backgroundMusic?.previewURL?.absoluteString ?? "nil")")
+                _ = try await service.createPost(
+                    text: postText,
+                    imageURLs: imageURLs,
+                    videoURL: videoURL,
+                    audioURL: audioURL,
+                    leaderboardEntry: leaderboardEntry,
+                    spotifyLink: spotifyLink,
+                    poll: poll,
+                    backgroundMusic: backgroundMusic
                 )
             }
+            // Reset form state
+            text = ""
+            selectedImages = []
+            selectedVideo = nil
+            audioRecordingURL = nil
+            spotifyLink = nil
+            poll = nil
+            backgroundMusic = nil
+            // Note: leaderboardEntry is a let constant, so it can't be reset
+            
             onPostCreated?()
             
             // Post notification to refresh feed

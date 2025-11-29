@@ -55,9 +55,15 @@ struct SpotifyTrack: Codable, Identifiable {
     let artists: [SpotifyArtist]
     let popularity: Int?
     let duration_ms: Int?
+    let preview_url: String?
     
     var durationMs: Int {
         duration_ms ?? 0
+    }
+    
+    var previewURL: URL? {
+        guard let url = preview_url else { return nil }
+        return URL(string: url)
     }
 }
 
@@ -104,8 +110,113 @@ struct SpotifyCursorBasedPage<T: Codable>: Codable {
     }
 }
 
+// MARK: - Playlist
+
+struct SpotifyPlaylist: Codable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let images: [SpotifyImage]?
+    let owner: SpotifyPlaylistOwner?
+    let tracks: SpotifyPlaylistTracks?
+    
+    var imageURL: URL? {
+        guard let url = images?.first?.url else { return nil }
+        return URL(string: url)
+    }
+    
+    struct SpotifyPlaylistOwner: Codable {
+        let display_name: String?
+        let id: String
+    }
+    
+    struct SpotifyPlaylistTracks: Codable {
+        let total: Int
+    }
+}
+
+// MARK: - Playlist Responses
+
+struct SpotifyPlaylistsResponse: Codable {
+    let items: [SpotifyPlaylist]
+    let next: String?
+}
+
+struct SpotifyPlaylistTracksResponse: Codable {
+    let items: [SpotifyPlaylistTrackItem]
+    let next: String?
+    
+    struct SpotifyPlaylistTrackItem: Codable {
+        let track: SpotifyTrack?
+    }
+}
+
+// MARK: - Search Results
+
+struct SpotifySearchResponse: Codable {
+    let tracks: SpotifySearchTracks?
+    let playlists: SpotifySearchPlaylists?
+    
+    struct SpotifySearchTracks: Codable {
+        let items: [SpotifyTrack]
+        
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Handle case where items array might contain null values
+            // Spotify API can return null items in arrays, so we need to filter them out
+            var itemsContainer = try container.nestedUnkeyedContainer(forKey: .items)
+            var decodedItems: [SpotifyTrack] = []
+            
+            while !itemsContainer.isAtEnd {
+                // Try to decode each item, skipping null values
+                if let track = try? itemsContainer.decode(SpotifyTrack.self) {
+                    decodedItems.append(track)
+                } else {
+                    // If decoding fails, try to skip the null value
+                    _ = try? itemsContainer.decodeNil()
+                }
+            }
+            
+            items = decodedItems
+        }
+        
+        enum CodingKeys: String, CodingKey {
+            case items
+        }
+    }
+    
+    struct SpotifySearchPlaylists: Codable {
+        let items: [SpotifyPlaylist]
+        
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Handle case where items array might contain null values
+            // Spotify API can return null items in arrays, so we need to filter them out
+            var itemsContainer = try container.nestedUnkeyedContainer(forKey: .items)
+            var decodedItems: [SpotifyPlaylist] = []
+            
+            while !itemsContainer.isAtEnd {
+                // Try to decode each item, skipping null values
+                if let playlist = try? itemsContainer.decode(SpotifyPlaylist.self) {
+                    decodedItems.append(playlist)
+                } else {
+                    // If decoding fails, try to skip the null value
+                    _ = try? itemsContainer.decodeNil()
+                }
+            }
+            
+            items = decodedItems
+        }
+        
+        enum CodingKeys: String, CodingKey {
+            case items
+        }
+    }
+}
+
 // MARK: - Recommendations
 
 struct SpotifyRecommendationsResponse: Codable {
     let tracks: [SpotifyTrack]
 }
+

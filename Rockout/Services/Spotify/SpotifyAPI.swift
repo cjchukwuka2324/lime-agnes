@@ -265,38 +265,6 @@ extension SpotifyAPI {
 // MARK: - Playlists
 extension SpotifyAPI {
     
-    struct SpotifyPlaylist: Codable, Identifiable {
-        let id: String
-        let name: String
-        let description: String?
-        let owner: SpotifyPlaylistOwner?
-        let tracks: SpotifyPlaylistTracks?
-        
-        struct SpotifyPlaylistOwner: Codable {
-            let id: String
-            let display_name: String?
-        }
-        
-        struct SpotifyPlaylistTracks: Codable {
-            let total: Int
-            let href: String
-        }
-    }
-    
-    struct SpotifyPlaylistsResponse: Codable {
-        let items: [SpotifyPlaylist]
-        let next: String?
-    }
-    
-    struct SpotifyPlaylistTracksResponse: Codable {
-        let items: [SpotifyPlaylistTrackItem]
-        let next: String?
-        
-        struct SpotifyPlaylistTrackItem: Codable {
-            let track: SpotifyTrack?
-        }
-    }
-    
     /// Get user's playlists
     func getUserPlaylists(limit: Int = 50, offset: Int = 0) async throws -> SpotifyPlaylistsResponse {
         let data = try await authedRequest(
@@ -374,5 +342,225 @@ extension SpotifyAPI {
         }
         
         return allTracks
+    }
+}
+
+// MARK: - Search and Track/Playlist Methods
+extension SpotifyAPI {
+    
+    // MARK: - Search Tracks
+    func searchTracks(query: String, limit: Int = 20) async throws -> [SpotifyTrack] {
+        // Validate query
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw NSError(domain: "SpotifyAPI", code: -1,
+                         userInfo: [NSLocalizedDescriptionKey: "Search query cannot be empty"])
+        }
+        
+        let data = try await authedRequest(
+            path: "/search",
+            queryItems: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "type", value: "track"),
+                URLQueryItem(name: "limit", value: "\(limit)")
+            ]
+        )
+        
+        // Check if response is empty
+        guard !data.isEmpty else {
+            throw NSError(domain: "SpotifyAPI", code: -2,
+                         userInfo: [NSLocalizedDescriptionKey: "Empty response from Spotify API"])
+        }
+        
+        // Debug: Print raw response
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("🔍 Spotify search response: \(responseString.prefix(500))")
+        }
+        
+        do {
+            let response = try JSONDecoder().decode(SpotifySearchResponse.self, from: data)
+            let tracks = response.tracks?.items ?? []
+            
+            // Log preview URL availability for debugging
+            for track in tracks {
+                if let previewURL = track.previewURL {
+                    print("✅ Track '\(track.name)' has preview URL: \(previewURL.absoluteString)")
+                } else {
+                    print("⚠️ Track '\(track.name)' has NO preview URL available")
+                }
+            }
+            
+            return tracks
+        } catch let decodingError {
+            print("❌ Failed to decode search response: \(decodingError)")
+            
+            // Try to decode as a simpler structure in case Spotify API changed
+            // Manually decode to ensure preview_url is captured
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let tracksDict = json["tracks"] as? [String: Any],
+                   let items = tracksDict["items"] as? [Any] {
+                    var tracks: [SpotifyTrack] = []
+                    for item in items {
+                        // Skip null items
+                        if item is NSNull {
+                            continue
+                        }
+                        
+                        guard let itemDict = item as? [String: Any] else {
+                            continue
+                        }
+                        
+                        // Extract preview_url explicitly to ensure it's captured
+                        let previewUrlString = itemDict["preview_url"] as? String
+                        
+                        // Try to decode the full track
+                        if let itemData = try? JSONSerialization.data(withJSONObject: itemDict),
+                           var track = try? JSONDecoder().decode(SpotifyTrack.self, from: itemData) {
+                            // Ensure preview_url is set (in case decoding missed it)
+                            // Note: Since SpotifyTrack is a struct, we can't modify it directly
+                            // But the decoder should handle it correctly
+                            if let previewUrl = previewUrlString {
+                                print("🎵 Found preview URL for track '\(track.name)': \(previewUrl)")
+                            } else {
+                                print("⚠️ No preview URL for track '\(track.name)'")
+                            }
+                            tracks.append(track)
+                        }
+                    }
+                    return tracks
+                } else {
+                    // Response structure is different than expected
+                    print("⚠️ Unexpected response structure: \(json.keys.joined(separator: ", "))")
+                    throw NSError(domain: "SpotifyAPI", code: -3,
+                                 userInfo: [NSLocalizedDescriptionKey: "Unexpected response format from Spotify API"])
+                }
+            } else {
+                // Can't parse as JSON at all
+                throw NSError(domain: "SpotifyAPI", code: -4,
+                             userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response from Spotify API: \(decodingError.localizedDescription)"])
+            }
+        }
+    }
+    
+    // MARK: - Search Playlists
+    func searchPlaylists(query: String, limit: Int = 20) async throws -> [SpotifyPlaylist] {
+        // Validate query
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw NSError(domain: "SpotifyAPI", code: -1,
+                         userInfo: [NSLocalizedDescriptionKey: "Search query cannot be empty"])
+        }
+        
+        let data = try await authedRequest(
+            path: "/search",
+            queryItems: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "type", value: "playlist"),
+                URLQueryItem(name: "limit", value: "\(limit)")
+            ]
+        )
+        
+        // Check if response is empty
+        guard !data.isEmpty else {
+            throw NSError(domain: "SpotifyAPI", code: -2,
+                         userInfo: [NSLocalizedDescriptionKey: "Empty response from Spotify API"])
+        }
+        
+        // Debug: Print raw response
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("🔍 Spotify playlist search response: \(responseString.prefix(500))")
+        }
+        
+        do {
+            let response = try JSONDecoder().decode(SpotifySearchResponse.self, from: data)
+            return response.playlists?.items ?? []
+        } catch let decodingError {
+            print("❌ Failed to decode playlist search response: \(decodingError)")
+            
+            // Try to decode as a simpler structure in case Spotify API changed
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let playlistsDict = json["playlists"] as? [String: Any],
+                   let items = playlistsDict["items"] as? [[String: Any]] {
+                    let decoder = JSONDecoder()
+                    var playlists: [SpotifyPlaylist] = []
+                    for item in items {
+                        if let itemData = try? JSONSerialization.data(withJSONObject: item),
+                           let playlist = try? decoder.decode(SpotifyPlaylist.self, from: itemData) {
+                            playlists.append(playlist)
+                        }
+                    }
+                    return playlists
+                } else {
+                    // Response structure is different than expected
+                    print("⚠️ Unexpected response structure: \(json.keys.joined(separator: ", "))")
+                    throw NSError(domain: "SpotifyAPI", code: -3,
+                                 userInfo: [NSLocalizedDescriptionKey: "Unexpected response format from Spotify API"])
+                }
+            } else {
+                // Can't parse as JSON at all
+                throw NSError(domain: "SpotifyAPI", code: -4,
+                             userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response from Spotify API: \(decodingError.localizedDescription)"])
+            }
+        }
+    }
+    
+    // MARK: - Get Track
+    func getTrack(spotifyId: String) async throws -> SpotifyTrack {
+        let data = try await authedRequest(path: "/tracks/\(spotifyId)")
+        let track = try JSONDecoder().decode(SpotifyTrack.self, from: data)
+        
+        // Log preview URL availability
+        if let previewURL = track.previewURL {
+            print("✅ Track '\(track.name)' fetched with preview URL: \(previewURL.absoluteString)")
+        } else {
+            print("⚠️ Track '\(track.name)' fetched but has NO preview URL available")
+        }
+        
+        return track
+    }
+    
+    // MARK: - Get Playlist
+    func getPlaylist(spotifyId: String) async throws -> SpotifyPlaylist {
+        let data = try await authedRequest(path: "/playlists/\(spotifyId)")
+        return try JSONDecoder().decode(SpotifyPlaylist.self, from: data)
+    }
+    
+    // MARK: - Parse Spotify URL
+    func parseSpotifyURL(_ urlString: String) -> (type: String, id: String)? {
+        // Spotify URL formats:
+        // https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh
+        // https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
+        // spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+        // spotify:playlist:37i9dQZF1DXcBWIGoYBM5M
+        
+        let urlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Handle spotify: URI scheme
+        if urlString.hasPrefix("spotify:") {
+            let components = urlString.split(separator: ":")
+            if components.count >= 3 {
+                let type = String(components[1]) // track or playlist
+                let id = String(components[2])
+                if type == "track" || type == "playlist" {
+                    return (type: type, id: id)
+                }
+            }
+        }
+        
+        // Handle https://open.spotify.com URLs
+        if let url = URL(string: urlString),
+           url.host?.contains("spotify.com") == true || url.host?.contains("spotify.link") == true {
+            let pathComponents = url.pathComponents.filter { $0 != "/" }
+            
+            if pathComponents.count >= 2 {
+                let type = pathComponents[0] // track or playlist
+                let id = pathComponents[1]
+                if type == "track" || type == "playlist" {
+                    return (type: type, id: id)
+                }
+            }
+        }
+        
+        // Handle shortened spotify.link URLs - these redirect, so we'd need to follow redirects
+        // For now, return nil and let the caller handle it
+        return nil
     }
 }
