@@ -36,16 +36,29 @@ struct AccountSettingsView: View {
                             .padding(.bottom, 40)
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .background(Color.black)
             .onAppear {
                 // Ensure navigation bar is always opaque
                 let appearance = UINavigationBarAppearance()
                 appearance.configureWithOpaqueBackground()
                 appearance.backgroundColor = .black
+                appearance.shadowColor = .clear
+                
+                UINavigationBar.appearance().standardAppearance = appearance
+                UINavigationBar.appearance().scrollEdgeAppearance = appearance
+                UINavigationBar.appearance().compactAppearance = appearance
+            }
+            .onDisappear {
+                // Reset to global appearance when leaving
+                let appearance = UINavigationBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = UIColor.black
                 appearance.shadowColor = .clear
                 
                 UINavigationBar.appearance().standardAppearance = appearance

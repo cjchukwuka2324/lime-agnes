@@ -237,10 +237,34 @@ final class AlbumService {
             }
         }
         
-        // Update albums with artist names
+        // Fetch collaborator counts for all albums
+        var collaboratorCounts: [UUID: Int] = [:]
+        for album in albums {
+            do {
+                // Fetch all shared_albums records for this album and count them
+                let sharedResponse = try await supabase
+                    .from("shared_albums")
+                    .select("id")
+                    .eq("album_id", value: album.id.uuidString)
+                    .execute()
+                
+                // Parse the response to count records
+                struct ShareRecord: Codable {
+                    let id: UUID
+                }
+                let shareRecords = try JSONDecoder().decode([ShareRecord].self, from: sharedResponse.data)
+                collaboratorCounts[album.id] = shareRecords.count
+            } catch {
+                print("⚠️ Failed to fetch collaborator count for \(album.id): \(error.localizedDescription)")
+                collaboratorCounts[album.id] = 0
+            }
+        }
+        
+        // Update albums with artist names and collaborator counts
         return albums.map { album in
             var updatedAlbum = album
             updatedAlbum.artist_name = artistNames[album.artist_id]
+            updatedAlbum.collaborator_count = collaboratorCounts[album.id] ?? 0
             return updatedAlbum
         }
     }
@@ -523,11 +547,116 @@ final class AlbumService {
 
     // MARK: - DELETE ALBUM
     func deleteAlbum(_ album: StudioAlbumRecord) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id.uuidString
+        
+        // Check if user is the owner
+        let isOwner = album.artist_id.uuidString == userId
+        
+        if isOwner {
+            // User owns the album - delete completely
+            try await supabase
+                .from("albums")
+                .delete()
+                .eq("id", value: album.id.uuidString)
+                .execute()
+            print("✅ Deleted album \(album.id.uuidString) completely (user is owner)")
+        } else {
+            // User is not the owner - remove from shared_albums only
+            try await removeSharedAlbum(albumId: album.id, userId: userId)
+            print("✅ Removed album \(album.id.uuidString) from user's library (user is not owner)")
+        }
+    }
+    
+    // MARK: - REMOVE SHARED ALBUM
+    // Removes a shared album from user's library without deleting the original
+    func removeSharedAlbum(albumId: UUID, userId: String) async throws {
         try await supabase
-            .from("albums")
+            .from("shared_albums")
             .delete()
-            .eq("id", value: album.id.uuidString)
+            .eq("album_id", value: albumId.uuidString)
+            .eq("shared_with", value: userId)
             .execute()
+    }
+    
+    // MARK: - DELETE ALBUM (WITH CONTEXT)
+    // Allows explicit control over delete behavior based on context
+    func deleteAlbum(_ album: StudioAlbumRecord, context: AlbumDeleteContext) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id.uuidString
+        
+        switch context {
+        case .myAlbums:
+            // Always delete completely from "My Albums"
+            try await supabase
+                .from("albums")
+                .delete()
+                .eq("id", value: album.id.uuidString)
+                .execute()
+            print("✅ Deleted album \(album.id.uuidString) completely (from My Albums)")
+            
+        case .sharedWithYou:
+            // Remove from shared_albums only (view-only share)
+            try await removeSharedAlbum(albumId: album.id, userId: userId)
+            print("✅ Removed album \(album.id.uuidString) from user's library (from Shared with You)")
+            
+        case .collaborations:
+            // For collaborations, we need to check if user wants to leave or delete
+            // This method is for complete deletion - use deleteAlbumCompletely instead
+            // But keeping this for backward compatibility
+            try await deleteAlbumCompletely(album, context: context)
+        }
+    }
+    
+    // MARK: - DELETE ALBUM COMPLETELY
+    // Explicitly deletes the album completely (for collaborations, this removes it for everyone)
+    func deleteAlbumCompletely(_ album: StudioAlbumRecord, context: AlbumDeleteContext) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id.uuidString
+        
+        switch context {
+        case .myAlbums:
+            // Delete completely
+            try await supabase
+                .from("albums")
+                .delete()
+                .eq("id", value: album.id.uuidString)
+                .execute()
+            print("✅ Deleted album \(album.id.uuidString) completely (from My Albums)")
+            
+        case .sharedWithYou:
+            // For shared albums, complete deletion means removing from library
+            // (can't delete someone else's album)
+            try await removeSharedAlbum(albumId: album.id, userId: userId)
+            print("✅ Removed album \(album.id.uuidString) from user's library (from Shared with You)")
+            
+        case .collaborations:
+            // Delete completely - removes for all collaborators
+            try await supabase
+                .from("albums")
+                .delete()
+                .eq("id", value: album.id.uuidString)
+                .execute()
+            print("✅ Deleted album \(album.id.uuidString) completely (from Collaborations)")
+        }
+    }
+    
+    // MARK: - LEAVE COLLABORATION
+    // Removes user from collaboration without deleting the album
+    func leaveCollaboration(album: StudioAlbumRecord) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id.uuidString
+        
+        // Remove from shared_albums (leaves collaboration)
+        try await removeSharedAlbum(albumId: album.id, userId: userId)
+        print("✅ User \(userId) left collaboration for album \(album.id.uuidString)")
+    }
+    
+    // MARK: - DELETE CONTEXT
+    enum AlbumDeleteContext {
+        case myAlbums      // User owns the album
+        case sharedWithYou // View-only share
+        case collaborations // Collaborative album
     }
 }
 

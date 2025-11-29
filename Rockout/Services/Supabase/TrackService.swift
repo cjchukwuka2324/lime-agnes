@@ -164,10 +164,45 @@ final class TrackService {
 
     // MARK: - DELETE TRACK
     func deleteTrack(_ track: StudioTrackRecord) async throws {
+        // Delete the track
         try await supabase
             .from("tracks")
             .delete()
             .eq("id", value: track.id.uuidString)
             .execute()
+        
+        // Renumber remaining tracks to maintain sequential order
+        try await renumberTracksAfterDeletion(albumId: track.album_id)
+    }
+    
+    // MARK: - RENUMBER TRACKS AFTER DELETION
+    private func renumberTracksAfterDeletion(albumId: UUID) async throws {
+        // Fetch all remaining tracks for this album
+        let tracks = try await fetchTracks(for: albumId)
+        
+        // Sort by current track number
+        let sortedTracks = tracks.sorted { track1, track2 in
+            let num1 = track1.track_number ?? Int.max
+            let num2 = track2.track_number ?? Int.max
+            return num1 < num2
+        }
+        
+        // Renumber sequentially starting from 1
+        for (index, track) in sortedTracks.enumerated() {
+            let newNumber = index + 1
+            if track.track_number != newNumber {
+                struct UpdateDTO: Encodable {
+                    let track_number: Int
+                }
+                
+                let updateDTO = UpdateDTO(track_number: newNumber)
+                
+                try await supabase
+                    .from("tracks")
+                    .update(updateDTO)
+                    .eq("id", value: track.id.uuidString)
+                    .execute()
+            }
+        }
     }
 }

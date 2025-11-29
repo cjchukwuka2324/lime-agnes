@@ -29,6 +29,17 @@ struct StudioSessionsView: View {
         case myAlbums = "My Albums"
         case sharedWithYou = "Shared with You"
         case collaborations = "Collaborations"
+        
+        var deleteContext: AlbumService.AlbumDeleteContext {
+            switch self {
+            case .myAlbums:
+                return .myAlbums
+            case .sharedWithYou:
+                return .sharedWithYou
+            case .collaborations:
+                return .collaborations
+            }
+        }
     }
 
     var filteredAlbums: [StudioAlbumRecord] {
@@ -108,10 +119,16 @@ struct StudioSessionsView: View {
                                 GridItem(.flexible(), spacing: 16)
                             ], spacing: 20) {
                                 ForEach(filteredAlbums) { album in
-                                    AlbumCard(album: album)
-                                        .onTapGesture {
-                                            // Navigation handled by NavigationLink in card
+                                    AlbumCard(
+                                        album: album,
+                                        deleteContext: selectedTab.deleteContext,
+                                        onDelete: {
+                                            viewModel.deleteAlbum(album, context: selectedTab.deleteContext)
                                         }
+                                    )
+                                    .onTapGesture {
+                                        // Navigation handled by NavigationLink in card
+                                    }
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -195,13 +212,37 @@ struct StudioSessionsView: View {
             }
             .sheet(isPresented: $showAcceptShareSheet) {
                 if let token = shareTokenToAccept {
-                    AcceptSharedAlbumView(shareToken: token) {
-                        // Reload shared albums after accepting
-                        Task {
-                            await viewModel.loadSharedAlbums()
-                            selectedTab = .sharedWithYou
+                    AcceptSharedAlbumView(
+                        shareToken: token,
+                        onAccept: { isCollaboration in
+                            // Reload albums and navigate to correct tab
+                            Task {
+                                // Wait a moment for sheet to dismiss
+                                try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                                
+                                if isCollaboration {
+                                    await viewModel.loadCollaborativeAlbums()
+                                    await MainActor.run {
+                                        selectedTab = .collaborations
+                                    }
+                                } else {
+                                    await viewModel.loadSharedAlbums()
+                                    await MainActor.run {
+                                        selectedTab = .sharedWithYou
+                                    }
+                                }
+                            }
+                        },
+                        onOwnerDetected: {
+                            // Owner clicked their own link - navigate to My Albums
+                            Task {
+                                await viewModel.loadAlbums()
+                                await MainActor.run {
+                                    selectedTab = .myAlbums
+                                }
+                            }
                         }
-                    }
+                    )
                 }
             }
         }
@@ -412,10 +453,15 @@ struct StudioSessionsView: View {
 // MARK: - Album Card
 struct AlbumCard: View {
     let album: StudioAlbumRecord
+    let deleteContext: AlbumService.AlbumDeleteContext
+    let onDelete: () -> Void
+    
+    @State private var showDeleteConfirmation = false
+    @State private var showCollaborators = false
     
     var body: some View {
         NavigationLink {
-            AlbumDetailView(album: album)
+            AlbumDetailView(album: album, deleteContext: deleteContext)
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 // Cover Art
@@ -447,11 +493,36 @@ struct AlbumCard: View {
                 
                 // Album Info
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(album.title)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                    HStack(alignment: .top) {
+                        Text(album.title)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        
+                        Spacer()
+                        
+                        // Collaborator indicator
+                        if let count = album.collaborator_count, count > 0 {
+                            Button {
+                                showCollaborators = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.2.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                    Text("\(count)")
+                                        .font(.caption2)
+                                        .foregroundColor(.blue)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.blue.opacity(0.2))
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
                     
                     if let artistName = album.artist_name, !artistName.isEmpty {
                         Text(artistName)
@@ -469,6 +540,24 @@ struct AlbumCard: View {
             }
         }
         .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Album", systemImage: "trash")
+            }
+        }
+        .alert("Delete Album", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                onDelete()
+            }
+        } message: {
+            Text("Are you sure you want to delete \"\(album.title)\"? This action cannot be undone.")
+        }
+        .sheet(isPresented: $showCollaborators) {
+            CollaboratorsView(albumId: album.id)
+        }
     }
     
     private var albumPlaceholder: some View {

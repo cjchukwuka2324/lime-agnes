@@ -103,10 +103,28 @@ def add_file_to_project(project, target, file_path, source_dir)
   # Add file reference to the group - use just the filename, not the full path
   # The group hierarchy will handle the path resolution
   filename = File.basename(rel_path)
-  file_ref = group.new_file(filename)
-  file_ref.path = filename
-  file_ref.name = filename
-  file_ref.source_tree = '<group>'
+  full_file_path = File.join(source_dir, rel_path)
+  
+  # CRITICAL: Ensure file exists first, then create file reference (not group)
+  unless File.exist?(full_file_path)
+    puts "⚠️  File does not exist: #{full_file_path}"
+    return
+  end
+  
+  # Create file reference - xcodeproj will create PBXFileReference for existing files
+  file_ref = group.new_file(full_file_path)
+  
+  # Double-check it's a file reference, not a group (should never happen for existing files)
+  if file_ref.isa == 'PBXGroup'
+    puts "⚠️  ERROR: Created group instead of file reference for #{rel_path}"
+    file_ref.remove_from_project
+    # Force create as file reference
+    file_ref = group.new_reference(full_file_path)
+  end
+  
+  # Set path to just filename (group hierarchy handles the rest)
+  file_ref.path = filename if file_ref.path != filename
+  file_ref.source_tree = '<group>' if file_ref.source_tree != '<group>'
   
   # Add to build phases (only for Swift files)
   if rel_path.end_with?('.swift')

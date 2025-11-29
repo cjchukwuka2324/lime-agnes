@@ -37,6 +37,7 @@ struct RootAppView: View {
             }
         }
         .onOpenURL { url in
+            print("📱 onOpenURL in RootAppView: \(url.absoluteString)")
             handleDeepLink(url: url)
         }
     }
@@ -46,10 +47,21 @@ struct RootAppView: View {
         
         // Handle: rockout://share/{token}
         if url.host == "share" {
-            // Extract share token from path
-            let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if !path.isEmpty {
-                shareHandler.handleShareToken(path)
+            // Extract share token from path, handling spaces that might be inserted by messaging apps
+            var path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            // Remove all whitespace from the token (iMessage sometimes adds spaces)
+            path = path.replacingOccurrences(of: " ", with: "")
+            path = path.replacingOccurrences(of: "\n", with: "")
+            path = path.replacingOccurrences(of: "\t", with: "")
+            
+            // Final cleanup: trim any remaining whitespace
+            let cleanToken = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if !cleanToken.isEmpty {
+                print("📎 Share link detected in RootAppView, token: \(cleanToken)")
+                shareHandler.handleShareToken(cleanToken)
+            } else {
+                print("⚠️ Share link missing token. Original path: '\(url.path)'")
             }
         }
     }

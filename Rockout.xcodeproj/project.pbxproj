@@ -40,6 +40,7 @@
 		425E2D7E2BF9A81A338E02F1 /* TrackDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C443A0CB2F31CB14D2D23E2 /* TrackDetailView.swift */; };
 		44E2F70478BCE8B91354EA05 /* ArtistLeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F197C0482428CDB625C89A5C /* ArtistLeaderboardView.swift */; };
 		44EB0A2AB999C1E553A5E431 /* BackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7CF8D94367C51C8312E43C /* BackgroundView.swift */; };
+		4636BD1C0AD4571B912E4DE1 /* CollaboratorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B89900EA022E2D8F4BBEB58 /* CollaboratorService.swift */; };
 		47975B21EC8D3D107080D5A9 /* SupabaseAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A8795988D81647074EA89B /* SupabaseAuthService.swift */; };
 		4B04BD63BD89F954C7EE20FF /* LoginForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = A961EF1741986382897D0856 /* LoginForm.swift */; };
 		4CCC17249014B0B622A82E38 /* RockListDataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4304AE6C9EEE20E0171A16 /* RockListDataService.swift */; };
@@ -103,6 +104,7 @@
 		B2CE802D6D79678D1BE38E01 /* MyArtistRanksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CEEE4988D696A20729A1B6F /* MyArtistRanksView.swift */; };
 		B35E68F9A69610FAAB178480 /* AuthFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F76F7FE480E8E0139A9DE67 /* AuthFlowView.swift */; };
 		B7992F8E5A025C70EDA31905 /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0F80A40C5C42C4B402EEC9 /* Item.swift */; };
+		B92C143101EBE6DA8CCE2345 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF4B7D5FC8164E97F951450 /* AppDelegate.swift */; };
 		B961E4122ECBD7F0000D8614 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B961E4112ECBD7F0000D8614 /* Preview Assets.xcassets */; };
 		B961E4382ECBDCAA000D8614 /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = B961E4372ECBDCAA000D8614 /* Auth */; };
 		B961E43A2ECBDCAA000D8614 /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = B961E4392ECBDCAA000D8614 /* Functions */; };
@@ -138,6 +140,7 @@
 		EE5FC3AE5013604978976B4A /* MyArtistRanksViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DFF1F5A5925674DD87CC1B /* MyArtistRanksViewModel.swift */; };
 		EF02EBA6352383EB20CADEBA /* AnimatedGradientBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619933915E51716F728FE722 /* AnimatedGradientBackground.swift */; };
 		F1C2FACD5094F22B3779146A /* LeaderboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65BE2C64E24E7D5C3B0EC22D /* LeaderboardService.swift */; };
+		F23FA30038B6A9F8B8D81A69 /* CollaboratorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA965FB1B8BDE57B9ECF5052 /* CollaboratorsView.swift */; };
 		F2558B979FEFD717137A4D53 /* SpotifyTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399EC87587BA0131AAAB3B60 /* SpotifyTokens.swift */; };
 		F5705ED1EB05027CC939569F /* SpotifyConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99B00668941C570BD099761 /* SpotifyConnectionView.swift */; };
 		F5ABA848DD216ADC5D3D0730 /* ForgotPasswordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A653D413BAFEDB403E96EAA0 /* ForgotPasswordView.swift */; };
@@ -233,6 +236,7 @@
 		872E867748F971A25153E307 /* MyRockListView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MyRockListView.swift; sourceTree = "<group>"; };
 		8A1C49EDEBA2F073805E4D20 /* UserSearchView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UserSearchView.swift; sourceTree = "<group>"; };
 		8B5A8860FD5EF069F61BAA66 /* NotificationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		8B89900EA022E2D8F4BBEB58 /* CollaboratorService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CollaboratorService.swift; path = CollaboratorService.swift; sourceTree = "<group>"; };
 		8BB0ABE51CB149CAB2050628 /* FeedCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCardView.swift; sourceTree = "<group>"; };
 		8BEE846B7562C34BD76965D8 /* AvatarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		8D0F96A9AF221553F7FDD9BC /* AudioPlayerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPlayerView.swift; sourceTree = "<group>"; };
@@ -273,9 +277,11 @@
 		B9C25EBB2ED0A38A003AA60B /* Rockout.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Rockout.entitlements; sourceTree = "<group>"; };
 		B9CA3396230E6A6B6B88F472 /* RockListFilters.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockListFilters.swift; sourceTree = "<group>"; };
 		B9E0E7F52ECBE6D6006C7549 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BA965FB1B8BDE57B9ECF5052 /* CollaboratorsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CollaboratorsView.swift; path = CollaboratorsView.swift; sourceTree = "<group>"; };
 		BAA5FFA6EFBD5F4A8BF93170 /* AcceptSharedAlbumView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AcceptSharedAlbumView.swift; sourceTree = "<group>"; };
 		BB52D459D494CC9248A05823 /* ParentPostReferenceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ParentPostReferenceView.swift; sourceTree = "<group>"; };
 		BC28375E2D48B21E8AE779B4 /* SpotifyConnection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyConnection.swift; sourceTree = "<group>"; };
+		BDF4B7D5FC8164E97F951450 /* AppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		BFEE62A0381B5C0241CE4E25 /* VersionHistoryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VersionHistoryView.swift; sourceTree = "<group>"; };
 		C04AFC9857C4A37EF63170AB /* RockListModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RockListModels.swift; sourceTree = "<group>"; };
 		C108F98B5FF9BDAC51448587 /* TracksCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TracksCard.swift; sourceTree = "<group>"; };
@@ -360,6 +366,14 @@
 			path = Services;
 			sourceTree = "<group>";
 		};
+		08EDE32249F7BBF9C94D4E6E /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				FA1FACC75488255DE9427233 /* Supabase */,
+			);
+			name = Services;
+			sourceTree = "<group>";
+		};
 		0AA56719135159872AE5BB94 /* Supabase */ = {
 			isa = PBXGroup;
 			children = (
@@ -409,6 +423,8 @@
 			isa = PBXGroup;
 			children = (
 				B125E8F614A70D03A5E4C138 /* RockOutApp.swift */,
+				4E4A4564585B29C9C99E0870 /* SceneDelegate.swift */,
+				BDF4B7D5FC8164E97F951450 /* AppDelegate.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -456,6 +472,7 @@
 				8D0F96A9AF221553F7FDD9BC /* AudioPlayerView.swift */,
 				BAA5FFA6EFBD5F4A8BF93170 /* AcceptSharedAlbumView.swift */,
 				37A952A7F2468FFC65F90670 /* EditAlbumView.swift */,
+				BA965FB1B8BDE57B9ECF5052 /* CollaboratorsView.swift */,
 			);
 			path = StudioSessions;
 			sourceTree = "<group>";
@@ -509,6 +526,14 @@
 				C44D09F333644D7A3A2F6673 /* FeedView.swift */,
 			);
 			path = Feed;
+			sourceTree = "<group>";
+		};
+		2441560E40811CA7A66D0A59 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				7E7278669862AA3D89F4804C /* StudioSessions */,
+			);
+			name = Views;
 			sourceTree = "<group>";
 		};
 		26CBA4D6F3870DE2FF37CDC6 /* Spotify */ = {
@@ -662,6 +687,7 @@
 				E6D76C0A31F02B3E75338D9D /* TrackService.swift */,
 				A24F054431644D485E907CA8 /* VersionService.swift */,
 				0A8461C6442E8F15926F33B1 /* SupabaseService.swift */,
+				8B89900EA022E2D8F4BBEB58 /* CollaboratorService.swift */,
 			);
 			path = Supabase;
 			sourceTree = "<group>";
@@ -679,6 +705,13 @@
 			children = (
 			);
 			name = Components;
+			sourceTree = "<group>";
+		};
+		4E4A4564585B29C9C99E0870 /* SceneDelegate.swift */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = SceneDelegate.swift;
 			sourceTree = "<group>";
 		};
 		59465D50FA8345125E3EBA1B /* Shared */ = {
@@ -768,6 +801,13 @@
 			children = (
 			);
 			path = StudioSessions;
+			sourceTree = "<group>";
+		};
+		7E7278669862AA3D89F4804C /* StudioSessions */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = StudioSessions;
 			sourceTree = "<group>";
 		};
 		817456879515EECC19495EB3 /* Feed */ = {
@@ -1070,6 +1110,8 @@
 				B886538E06EBDDCB960EAF8D /* Secrets.swift */,
 				3EE5DAA3C285E2168DEEA6D0 /* Views */,
 				0D672119CBBFEBC4C2EB935B /* Services */,
+				08EDE32249F7BBF9C94D4E6E /* Services */,
+				2441560E40811CA7A66D0A59 /* Views */,
 			);
 			path = Rockout;
 			sourceTree = "<group>";
@@ -1298,6 +1340,13 @@
 			children = (
 			);
 			name = Leaderboard;
+			sourceTree = "<group>";
+		};
+		FA1FACC75488255DE9427233 /* Supabase */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Supabase;
 			sourceTree = "<group>";
 		};
 		FDA97EA6A9E4F2274A4F783E /* Components */ = {
@@ -1611,6 +1660,9 @@
 				661ACEBEA611D51A8208A864 /* SocialMediaButtonsView.swift in Sources */,
 				FEC6EE1AC0D061B5DDDA6780 /* SocialMediaPlatformSelectorView.swift in Sources */,
 				12FE1BA641450AAEF1BA9D38 /* EditAlbumView.swift in Sources */,
+				B92C143101EBE6DA8CCE2345 /* AppDelegate.swift in Sources */,
+				4636BD1C0AD4571B912E4DE1 /* CollaboratorService.swift in Sources */,
+				F23FA30038B6A9F8B8D81A69 /* CollaboratorsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1773,14 +1825,22 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Rockout/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Rockout;
+				INFOPLIST_KEY_NSCameraUsageDescription = "RockOut needs camera access to capture photos and videos for your posts";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "RockOut needs microphone access to record voice messages for your posts";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "RockOut needs photo library access to share photos and videos in your posts";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
@@ -1813,14 +1873,22 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Rockout/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Rockout;
+				INFOPLIST_KEY_NSCameraUsageDescription = "RockOut needs camera access to capture photos and videos for your posts";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "RockOut needs microphone access to record voice messages for your posts";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "RockOut needs photo library access to share photos and videos in your posts";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;

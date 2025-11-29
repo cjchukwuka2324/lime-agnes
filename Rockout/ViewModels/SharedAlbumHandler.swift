@@ -13,8 +13,20 @@ class SharedAlbumHandler: ObservableObject {
     private init() {}
     
     func handleShareToken(_ token: String) {
+        // Clean the token one more time to ensure no whitespace
+        let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\t", with: "")
+        
+        guard !cleanToken.isEmpty else {
+            print("⚠️ Empty token after cleaning. Original: '\(token)'")
+            return
+        }
+        
+        print("📎 Handling share token: \(cleanToken)")
+        pendingShareToken = cleanToken
         shouldShowAcceptSheet = true
-        pendingShareToken = token
     }
 }
 

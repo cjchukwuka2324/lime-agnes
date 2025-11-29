@@ -63,13 +63,51 @@ final class StudioSessionsViewModel: ObservableObject {
 
     // MARK: - Delete Album
 
-    func deleteAlbum(_ album: StudioAlbumRecord) {
+    func deleteAlbum(_ album: StudioAlbumRecord, context: AlbumService.AlbumDeleteContext) {
         Task {
             do {
-                try await albumService.deleteAlbum(album)
-                albums.removeAll { $0.id == album.id }
+                try await albumService.deleteAlbum(album, context: context)
+                
+                // Remove from appropriate list based on context
+                switch context {
+                case .myAlbums:
+                    albums.removeAll { $0.id == album.id }
+                case .sharedWithYou:
+                    sharedAlbums.removeAll { $0.id == album.id }
+                case .collaborations:
+                    collaborativeAlbums.removeAll { $0.id == album.id }
+                    // If owner deleted, also remove from myAlbums
+                    // (This is handled by the service, but we clean up local state)
+                    albums.removeAll { $0.id == album.id }
+                }
             } catch {
                 errorMessage = error.localizedDescription
+            }
+        }
+    }
+    
+    // MARK: - Delete Album (Legacy - auto-detects context)
+    // Kept for backward compatibility, but prefers explicit context
+    func deleteAlbum(_ album: StudioAlbumRecord) {
+        // Try to determine context from which list it's in
+        if albums.contains(where: { $0.id == album.id }) {
+            deleteAlbum(album, context: .myAlbums)
+        } else if sharedAlbums.contains(where: { $0.id == album.id }) {
+            deleteAlbum(album, context: .sharedWithYou)
+        } else if collaborativeAlbums.contains(where: { $0.id == album.id }) {
+            deleteAlbum(album, context: .collaborations)
+        } else {
+            // Fallback: try to determine from ownership
+            Task {
+                do {
+                    try await albumService.deleteAlbum(album)
+                    // Remove from all lists
+                    albums.removeAll { $0.id == album.id }
+                    sharedAlbums.removeAll { $0.id == album.id }
+                    collaborativeAlbums.removeAll { $0.id == album.id }
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -100,9 +138,14 @@ final class StudioSessionsViewModel: ObservableObject {
         Task {
             do {
                 try await trackService.deleteTrack(track)
-                tracks.removeAll { $0.id == track.id }
+                // Reload tracks to get updated track numbers after renumbering
+                // Use the UUID version of fetchTracks
+                let updatedTracks = try await trackService.fetchTracks(for: track.album_id)
+                tracks = updatedTracks
             } catch {
                 errorMessage = error.localizedDescription
+                // Fallback: just remove the deleted track if reload fails
+                tracks.removeAll { $0.id == track.id }
             }
         }
     }
@@ -133,8 +176,13 @@ final class StudioSessionsViewModel: ObservableObject {
             defer { isLoadingSharedAlbums = false }
             
             do {
-                let album = try await shareService.acceptSharedAlbum(shareToken: shareToken)
-                sharedAlbums.insert(album, at: 0)
+                let (album, isCollaboration) = try await shareService.acceptSharedAlbum(shareToken: shareToken)
+                // Add to appropriate list based on collaboration status
+                if isCollaboration {
+                    collaborativeAlbums.insert(album, at: 0)
+                } else {
+                    sharedAlbums.insert(album, at: 0)
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }

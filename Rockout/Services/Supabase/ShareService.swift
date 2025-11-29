@@ -87,7 +87,7 @@ final class ShareService {
     }
     
     // MARK: - Accept Shared Album
-    func acceptSharedAlbum(shareToken: String) async throws -> StudioAlbumRecord {
+    func acceptSharedAlbum(shareToken: String) async throws -> (album: StudioAlbumRecord, isCollaboration: Bool) {
         let session = try await supabase.auth.session
         let userId = session.user.id.uuidString
         
@@ -120,34 +120,48 @@ final class ShareService {
         
         print("🔗 Found share link for album: \(shareLink.resource_id.uuidString)")
         
-        // Verify the album exists before proceeding
-        do {
-            let albumCheck = try await supabase
-                .from("albums")
-                .select("id, title")
-                .eq("id", value: shareLink.resource_id.uuidString)
-                .limit(1)
-                .execute()
-            
-            let albumCheckArray = try JSONDecoder().decode([AlbumCheck].self, from: albumCheck.data)
-            if albumCheckArray.isEmpty {
-                throw NSError(domain: "ShareService", code: 404, userInfo: [NSLocalizedDescriptionKey: "The shared album no longer exists. It may have been deleted."])
+        // Check if user is the owner of the album
+        if shareLink.created_by.uuidString == userId {
+            // User is the owner - check album ownership to confirm
+            struct AlbumOwner: Codable {
+                let artist_id: UUID
             }
-            print("✅ Verified album exists: \(albumCheckArray.first?.title ?? "Unknown")")
-        } catch {
-            print("❌ Error verifying album exists: \(error)")
-            throw error
+            
+            do {
+                let ownerResponse = try await supabase
+                    .from("albums")
+                    .select("artist_id")
+                    .eq("id", value: shareLink.resource_id.uuidString)
+                    .limit(1)
+                    .execute()
+                
+                let ownerArray = try JSONDecoder().decode([AlbumOwner].self, from: ownerResponse.data)
+                if let albumOwner = ownerArray.first, albumOwner.artist_id.uuidString == userId {
+                    throw NSError(domain: "ShareService", code: 403, userInfo: [NSLocalizedDescriptionKey: "OWNER_DETECTED"])
+                }
+            } catch let error as NSError {
+                if error.domain == "ShareService" && error.code == 403 {
+                    throw error // Re-throw owner error
+                }
+                // If we can't verify ownership, continue (might be RLS issue)
+                print("⚠️ Could not verify album ownership: \(error.localizedDescription)")
+            }
         }
+        
+        // Note: We don't check if the album exists here because RLS requires a shared_albums record
+        // to exist before we can view the album. If the share link exists and is active, the album must exist.
+        // We'll verify the album exists after creating the share record.
         
         // Check if already shared
         struct ExistingShare: Codable {
             let id: UUID
+            let is_collaboration: Bool?
         }
         
         do {
             let existingResponse = try await supabase
                 .from("shared_albums")
-                .select("id")
+                .select("id, is_collaboration")
                 .eq("album_id", value: shareLink.resource_id.uuidString)
                 .eq("shared_with", value: userId)
                 .limit(1)
@@ -158,7 +172,10 @@ final class ShareService {
             if let existing = existingArray.first {
                 // Already shared, just fetch the album
                 print("✅ Album already shared, fetching existing record")
-                return try await fetchSharedAlbum(albumId: shareLink.resource_id)
+                let album = try await fetchSharedAlbum(albumId: shareLink.resource_id)
+                // Get collaboration status from existing share record (more accurate than share link)
+                let isCollaboration = existing.is_collaboration ?? false
+                return (album, isCollaboration)
             }
         } catch {
             // If check fails, continue to try inserting (might be a new share)
@@ -192,7 +209,9 @@ final class ShareService {
                 .execute()
             
             print("✅ Successfully created shared album record")
-            return try await fetchSharedAlbum(albumId: shareLink.resource_id)
+            let album = try await fetchSharedAlbum(albumId: shareLink.resource_id)
+            let isCollaboration = shareLink.is_collaboration ?? false
+            return (album, isCollaboration)
         } catch {
             // If insert fails due to unique constraint, it means the record was created
             // between our check and insert (race condition). Just fetch the album.
@@ -201,7 +220,9 @@ final class ShareService {
                errorString.contains("duplicate key") || 
                errorString.contains("unique constraint") {
                 print("⚠️ Duplicate key detected (race condition), fetching existing record")
-                return try await fetchSharedAlbum(albumId: shareLink.resource_id)
+                let album = try await fetchSharedAlbum(albumId: shareLink.resource_id)
+                let isCollaboration = shareLink.is_collaboration ?? false
+                return (album, isCollaboration)
             }
             // Re-throw other errors
             print("❌ Error inserting shared album: \(error)")
