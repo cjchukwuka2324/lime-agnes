@@ -9,6 +9,7 @@ final class TrendingFeedViewModel: ObservableObject {
     @Published var trendingHashtags: [TrendingHashtag] = []
     @Published var selectedHashtag: TrendingHashtag?
     @Published var hashtagPosts: [Post] = []
+    @Published var allTrendingPosts: [Post] = []
     @Published var isLoadingTrending = false
     @Published var isLoadingPosts = false
     @Published var isLoadingMore = false
@@ -48,6 +49,29 @@ final class TrendingFeedViewModel: ObservableObject {
         } catch {
             errorMessage = "Failed to load trending: \(error.localizedDescription)"
             print("❌ Error loading trending: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Load All Trending Posts
+    
+    func loadAllTrendingPosts(timeWindowHours: Int = 72, limit: Int = 100) async {
+        print("🔥 Fetching all trending posts, cursor: nil")
+        isLoadingPosts = true
+        errorMessage = nil
+        defer { isLoadingPosts = false }
+        
+        do {
+            let result = try await hashtagService.getAllTrendingPosts(
+                timeWindowHours: timeWindowHours,
+                cursor: nil,
+                limit: limit
+                
+            )
+            allTrendingPosts = result.posts
+            print("✅ Loaded \(allTrendingPosts.count) trending posts, hasMore: \(result.hasMore)")
+        } catch {
+            errorMessage = "Failed to load trending posts: \(error.localizedDescription)"
+            print("❌ Error loading trending posts: \(error.localizedDescription)")
         }
     }
     
@@ -127,11 +151,15 @@ final class TrendingFeedViewModel: ObservableObject {
     // MARK: - Toggle Like
     
     func toggleLike(postId: String) async {
-        // Find the post index
-        guard let index = hashtagPosts.firstIndex(where: { $0.id == postId }) else {
-            return
+        // Check which array contains the post
+        if let index = hashtagPosts.firstIndex(where: { $0.id == postId }) {
+            await toggleLikeInHashtagPosts(postId: postId, index: index)
+        } else if let index = allTrendingPosts.firstIndex(where: { $0.id == postId }) {
+            await toggleLikeInAllTrendingPosts(postId: postId, index: index)
         }
-        
+    }
+    
+    private func toggleLikeInHashtagPosts(postId: String, index: Int) async {
         // Store original state
         let originalPost = hashtagPosts[index]
         let wasLiked = originalPost.isLiked
@@ -192,12 +220,75 @@ final class TrendingFeedViewModel: ObservableObject {
         }
     }
     
+    private func toggleLikeInAllTrendingPosts(postId: String, index: Int) async {
+        // Store original state
+        let originalPost = allTrendingPosts[index]
+        let wasLiked = originalPost.isLiked
+        
+        // Optimistically update UI
+        var updatedPost = Post(
+            id: originalPost.id,
+            text: originalPost.text,
+            createdAt: originalPost.createdAt,
+            author: originalPost.author,
+            imageURLs: originalPost.imageURLs,
+            videoURL: originalPost.videoURL,
+            audioURL: originalPost.audioURL,
+            likeCount: wasLiked ? max(0, originalPost.likeCount - 1) : originalPost.likeCount + 1,
+            replyCount: originalPost.replyCount,
+            isLiked: !wasLiked,
+            parentPostId: originalPost.parentPostId,
+            parentPost: originalPost.parentPost,
+            leaderboardEntry: originalPost.leaderboardEntry,
+            resharedPostId: originalPost.resharedPostId,
+            spotifyLink: originalPost.spotifyLink,
+            poll: originalPost.poll,
+            backgroundMusic: originalPost.backgroundMusic
+        )
+        allTrendingPosts[index] = updatedPost
+        
+        do {
+            let newLikeState = try await feedService.toggleLike(postId: postId)
+            // Verify state matches expectation
+            if newLikeState != !wasLiked {
+                // Correct if API returned different state
+                updatedPost = Post(
+                    id: originalPost.id,
+                    text: originalPost.text,
+                    createdAt: originalPost.createdAt,
+                    author: originalPost.author,
+                    imageURLs: originalPost.imageURLs,
+                    videoURL: originalPost.videoURL,
+                    audioURL: originalPost.audioURL,
+                    likeCount: newLikeState ? originalPost.likeCount + 1 : max(0, originalPost.likeCount - 1),
+                    replyCount: originalPost.replyCount,
+                    isLiked: newLikeState,
+                    parentPostId: originalPost.parentPostId,
+                    parentPost: originalPost.parentPost,
+                    leaderboardEntry: originalPost.leaderboardEntry,
+                    resharedPostId: originalPost.resharedPostId,
+                    spotifyLink: originalPost.spotifyLink,
+                    poll: originalPost.poll,
+                    backgroundMusic: originalPost.backgroundMusic
+                )
+                allTrendingPosts[index] = updatedPost
+            }
+            print("✅ Like toggled for post \(postId), now liked: \(newLikeState)")
+        } catch {
+            print("Failed to toggle like: \(error)")
+            // Revert on error
+            allTrendingPosts[index] = originalPost
+        }
+    }
+    
     // MARK: - Delete Post
     
     func deletePost(postId: String) async {
-        // Optimistically remove from UI
-        let deletedPost = hashtagPosts.first(where: { $0.id == postId })
+        // Optimistically remove from UI (both arrays)
+        let deletedHashtagPost = hashtagPosts.first(where: { $0.id == postId })
+        let deletedTrendingPost = allTrendingPosts.first(where: { $0.id == postId })
         hashtagPosts.removeAll { $0.id == postId }
+        allTrendingPosts.removeAll { $0.id == postId }
         
         do {
             try await feedService.deletePost(postId: postId)
@@ -206,8 +297,11 @@ final class TrendingFeedViewModel: ObservableObject {
             errorMessage = "Failed to delete post: \(error.localizedDescription)"
             print("❌ Failed to delete post: \(error)")
             // Revert optimistic delete on error
-            if let post = deletedPost {
+            if let post = deletedHashtagPost {
                 hashtagPosts.insert(post, at: 0)
+            }
+            if let post = deletedTrendingPost {
+                allTrendingPosts.insert(post, at: 0)
             }
         }
     }
@@ -216,6 +310,7 @@ final class TrendingFeedViewModel: ObservableObject {
     
     func refresh() async {
         await loadTrending()
+        await loadAllTrendingPosts()
         if selectedHashtag != nil {
             postCursor = nil
             hasMorePosts = true

@@ -78,7 +78,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                     profile_picture_url,
                     region,
                     followers_count,
-                    following_count
+                    following_count,
+                    instagram,
+                    twitter,
+                    tiktok
                 """)
                 .execute()
             
@@ -92,6 +95,9 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 let region: String?
                 let followers_count: Int?
                 let following_count: Int?
+                let instagram: String?
+                let twitter: String?
+                let tiktok: String?
             }
             
             let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
@@ -129,7 +135,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                     isFollowing: isFollowing,
                     region: profile.region,
                     followersCount: profile.followers_count ?? 0,
-                    followingCount: profile.following_count ?? 0
+                    followingCount: profile.following_count ?? 0,
+                    instagramHandle: profile.instagram,
+                    twitterHandle: profile.twitter,
+                    tiktokHandle: profile.tiktok
                 )
             }
             
@@ -304,7 +313,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 profile_picture_url,
                 region,
                 followers_count,
-                following_count
+                following_count,
+                instagram,
+                twitter,
+                tiktok
             """)
             .eq("id", value: userIdUUID)
             .limit(1)
@@ -320,6 +332,9 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let region: String?
             let followers_count: Int?
             let following_count: Int?
+            let instagram: String?
+            let twitter: String?
+            let tiktok: String?
         }
         
         let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
@@ -362,7 +377,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             isFollowing: isFollowing,
             region: profile.region,
             followersCount: profile.followers_count ?? 0,
-            followingCount: profile.following_count ?? 0
+            followingCount: profile.following_count ?? 0,
+            instagramHandle: profile.instagram,
+            twitterHandle: profile.twitter,
+            tiktokHandle: profile.tiktok
         )
     }
     

@@ -13,7 +13,7 @@ struct VideoPlayerView: View {
                 VideoPlayer(player: player)
                     .frame(maxWidth: .infinity)
                     .aspectRatio(16/9, contentMode: .fill)
-                    .frame(maxHeight: 450)
+                    .frame(maxHeight: 1000)
                     .clipped()
                     .onAppear {
                         player.isMuted = isMuted
@@ -29,7 +29,7 @@ struct VideoPlayerView: View {
                     .fill(Color.black)
                     .frame(maxWidth: .infinity)
                     .aspectRatio(16/9, contentMode: .fill)
-                    .frame(maxHeight: 450)
+                    .frame(maxHeight: 1000)
                     .overlay(
                         ProgressView()
                             .tint(.white)

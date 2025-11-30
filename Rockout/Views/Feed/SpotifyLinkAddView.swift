@@ -5,7 +5,6 @@ struct SpotifyLinkAddView: View {
     
     @Binding var selectedSpotifyLink: SpotifyLink?
     
-    @State private var selectedTab = 0
     @State private var pastedURL = ""
     @State private var searchQuery = ""
     @State private var searchResults: [SpotifyTrack] = []
@@ -13,6 +12,7 @@ struct SpotifyLinkAddView: View {
     @State private var isSearching = false
     @State private var isProcessingURL = false
     @State private var errorMessage: String?
+    @State private var showPasteSheet = false
     
     private let spotifyAPI = SpotifyAPI()
     
@@ -22,22 +22,7 @@ struct SpotifyLinkAddView: View {
                 AnimatedGradientBackground()
                     .ignoresSafeArea()
                 
-                VStack(spacing: 0) {
-                    // Tab Picker
-                    Picker("Method", selection: $selectedTab) {
-                        Text("Paste Link").tag(0)
-                        Text("Search").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding()
-                    
-                    // Content
-                    if selectedTab == 0 {
-                        pasteLinkView
-                    } else {
-                        searchView
-                    }
-                }
+                searchView
             }
             .navigationTitle("Add Spotify Link")
             .navigationBarTitleDisplayMode(.inline)
@@ -48,93 +33,128 @@ struct SpotifyLinkAddView: View {
                     }
                     .foregroundColor(.white)
                 }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showPasteSheet = true
+                    } label: {
+                        Image(systemName: "link")
+                            .foregroundColor(.white)
+                    }
+                }
             }
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .sheet(isPresented: $showPasteSheet) {
+                pasteLinkSheet
+            }
         }
     }
     
-    // MARK: - Paste Link View
+    // MARK: - Paste Link Sheet
     
-    private var pasteLinkView: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Text("Paste Spotify URL")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.top)
+    private var pasteLinkSheet: some View {
+        NavigationStack {
+            ZStack {
+                AnimatedGradientBackground()
+                    .ignoresSafeArea()
                 
-                TextField("https://open.spotify.com/track/...", text: $pastedURL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .foregroundColor(.white)
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.15))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                    )
-                    .padding(.horizontal)
-                
-                if isProcessingURL {
-                    ProgressView()
-                        .tint(.white)
-                        .padding()
-                }
-                
-                if let error = errorMessage {
-                    VStack(spacing: 8) {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.center)
+                ScrollView {
+                    VStack(spacing: 20) {
+                        Text("Paste Spotify URL")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.top)
                         
-                        if error.contains("Not authenticated") {
-                            Button {
-                                // Navigate to profile to connect Spotify
-                                if let url = URL(string: "rockout://profile") {
-                                    UIApplication.shared.open(url)
-                                }
-                            } label: {
-                                Text("Connect Spotify")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color(hex: "#1ED760"))
-                                    )
-                            }
+                        TextField("https://open.spotify.com/track/...", text: $pastedURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.15))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                            .padding(.horizontal)
+                        
+                        if isProcessingURL {
+                            ProgressView()
+                                .tint(.white)
+                                .padding()
                         }
+                        
+                        if let error = errorMessage {
+                            VStack(spacing: 8) {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .multilineTextAlignment(.center)
+                                
+                                if error.contains("Not authenticated") {
+                                    Button {
+                                        // Navigate to profile to connect Spotify
+                                        if let url = URL(string: "rockout://profile") {
+                                            UIApplication.shared.open(url)
+                                        }
+                                    } label: {
+                                        Text("Connect Spotify")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(Color(hex: "#1ED760"))
+                                            )
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                        
+                        Button {
+                            Task {
+                                await processPastedURL()
+                                if selectedSpotifyLink != nil {
+                                    showPasteSheet = false
+                                    dismiss()
+                                }
+                            }
+                        } label: {
+                            Text("Add Link")
+                                .font(.headline)
+                                .foregroundColor(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(hex: "#1ED760"))
+                                )
+                        }
+                        .disabled(pastedURL.isEmpty || isProcessingURL)
+                        .padding(.horizontal)
+                        
+                        Spacer()
                     }
-                    .padding(.horizontal)
+                    .padding(.vertical)
                 }
-                
-                Button {
-                    Task {
-                        await processPastedURL()
-                    }
-                } label: {
-                    Text("Add Link")
-                        .font(.headline)
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(hex: "#1ED760"))
-                        )
-                }
-                .disabled(pastedURL.isEmpty || isProcessingURL)
-                .padding(.horizontal)
-                
-                Spacer()
             }
-            .padding(.vertical)
+            .navigationTitle("Paste Spotify Link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        showPasteSheet = false
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
         }
     }
     
@@ -450,4 +470,3 @@ struct SpotifyLinkAddView: View {
         dismiss()
     }
 }
-

@@ -14,6 +14,7 @@ enum FeedType: String, CaseIterable {
 protocol FeedService {
     func fetchHomeFeed(feedType: FeedType, region: String?, cursor: Date?, limit: Int) async throws -> (posts: [Post], nextCursor: String?, hasMore: Bool)
     func fetchThread(for postId: String) async throws -> (root: Post, replies: [Post])
+    func fetchPostById(_ postId: String) async throws -> Post
     func fetchReplies(for postId: String) async throws -> [Post]
     
     func createPost(
@@ -382,6 +383,19 @@ final class InMemoryFeedService: FeedService {
                 let nextCursor: String? = hasMore ? paginatedPosts.last?.createdAt.description : nil
                 
                 continuation.resume(returning: (posts: paginatedPosts, nextCursor: nextCursor, hasMore: hasMore))
+            }
+        }
+    }
+    
+    func fetchPostById(_ postId: String) async throws -> Post {
+        // In-memory implementation - find post by ID
+        return try await withCheckedThrowingContinuation { continuation in
+            self.queue.async {
+                guard let post = self.posts.first(where: { $0.id == postId }) else {
+                    continuation.resume(throwing: NSError(domain: "FeedService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Post not found"]))
+                    return
+                }
+                continuation.resume(returning: post)
             }
         }
     }

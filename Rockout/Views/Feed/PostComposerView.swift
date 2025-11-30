@@ -200,11 +200,11 @@ struct PostComposerView: View {
     private func imagesPreview(images: [UIImage]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Photos (\(images.count)/5)")
+                Text("Photos (\(images.count)/4)")
                     .font(.caption.weight(.medium))
                     .foregroundColor(.white.opacity(0.7))
                 Spacer()
-                if images.count < 5 {
+                if images.count < 4 {
                     Button {
                         showImagePicker = true
                     } label: {

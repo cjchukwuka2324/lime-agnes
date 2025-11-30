@@ -20,6 +20,7 @@ struct FeedView: View {
     @State private var selectedArtistId: ArtistIdWrapper?
     @State private var selectedProfileUserId: UUID?
     @State private var showProfile = false
+    @State private var fabOffset: CGSize = .zero
     
     var body: some View {
         NavigationStack {
@@ -155,28 +156,33 @@ struct FeedView: View {
     }
     
     private var feedContent: some View {
-        ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: 0) {
-                feedTypePicker
-                
+        VStack(spacing: 0) {
+            // Fixed feed type picker at top
+            feedTypePicker
+            
+            // Scrollable content below
+            ZStack(alignment: .bottomTrailing) {
                 // Show TrendingFeedView for trending tab
                 if selectedFeedType == .trending {
                     TrendingFeedView()
                 } else {
                     // For You and Following tabs
                     if viewModel.posts.isEmpty {
-                        Spacer()
-                        emptyStateView
-                        Spacer()
+                        VStack {
+                            Spacer()
+                            emptyStateView
+                            Spacer()
+                        }
+                        .frame(maxHeight: .infinity)
                     } else {
                         postsList
                     }
                 }
-            }
-            
-            // Only show compose button for For You and Following
-            if selectedFeedType != .trending {
-                floatingActionButton
+                
+                // Only show compose button for For You and Following
+                if selectedFeedType != .trending {
+                    floatingActionButton
+                }
             }
         }
     }
@@ -269,31 +275,10 @@ struct FeedView: View {
     }
     
     private var floatingActionButton: some View {
-        Button {
-            showComposer = true
-        } label: {
-            Image(systemName: "plus")
-                .font(.title2.weight(.bold))
-                .foregroundColor(.white)
-                .frame(width: 60, height: 60)
-                .background(
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(hex: "#1ED760"),
-                                    Color(hex: "#1DB954")
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(color: Color(hex: "#1ED760").opacity(0.4), radius: 12, x: 0, y: 6)
-                        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
-                )
-        }
-        .padding(.trailing, 20)
-        .padding(.bottom, 100)
+        DraggableFloatingButton(
+            offset: $fabOffset,
+            action: { showComposer = true }
+        )
     }
     
     // MARK: - Toolbar
@@ -395,7 +380,7 @@ struct FeedView: View {
         HStack(spacing: 4) {
             feedTypeButton(title: "For You", type: .forYou)
             feedTypeButton(title: "Following", type: .following)
-            feedTypeButton(title: "🔥 Trending", type: .trending)
+            feedTypeButton(title: "Trending 🔥", type: .trending)
         }
         .padding(4)
         .background(
@@ -456,11 +441,116 @@ private struct NotificationBadgeView: View {
                 Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(4)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
                     .background(Color(hex: "#1ED760"))
-                    .clipShape(Circle())
-                    .offset(x: 6, y: -6)
+                    .clipShape(Capsule())
+                    .offset(x: 10, y: -8)
             }
+        }
+        .frame(width: 30, height: 24)
+        .padding(.trailing, 8)
+    }
+}
+
+// MARK: - Draggable Floating Button
+
+private struct DraggableFloatingButton: View {
+    @Binding var offset: CGSize
+    let action: () -> Void
+    
+    @State private var isDragging = false
+    @State private var currentDragOffset: CGSize = .zero
+    
+    var body: some View {
+        GeometryReader { geometry in
+            Button {
+                if !isDragging {
+                    action()
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.title2.weight(.bold))
+                    .foregroundColor(.white)
+                    .frame(width: 60, height: 60)
+                    .background(
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .background(
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.white.opacity(0.2),
+                                                Color.white.opacity(0.05)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.white.opacity(0.5),
+                                                Color.white.opacity(0.15)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1.5
+                                    )
+                            )
+                            .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 6)
+                    )
+                    .scaleEffect(isDragging ? 1.15 : 1.0)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .offset(
+                x: -20 + offset.width + currentDragOffset.width,
+                y: -100 + offset.height + currentDragOffset.height
+            )
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if !isDragging {
+                            isDragging = true
+                        }
+                        currentDragOffset = value.translation
+                    }
+                    .onEnded { value in
+                        let screenWidth = geometry.size.width
+                        let screenHeight = geometry.size.height
+                        
+                        // Calculate new offset with boundaries
+                        let proposedOffsetX = offset.width + value.translation.width
+                        let proposedOffsetY = offset.height + value.translation.height
+                        
+                        // Default position is -20 from right, -100 from bottom
+                        // Allow dragging within reasonable bounds
+                        let minX: CGFloat = -screenWidth + 80  // Don't go too far left
+                        let maxX: CGFloat = 40                  // Don't go off right edge
+                        let minY: CGFloat = -screenHeight + 180 // Don't go too far up
+                        let maxY: CGFloat = 40                  // Don't go off bottom
+                        
+                        let boundedOffsetX = max(minX, min(maxX, proposedOffsetX))
+                        let boundedOffsetY = max(minY, min(maxY, proposedOffsetY))
+                        
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.65)) {
+                            offset = CGSize(width: boundedOffsetX, height: boundedOffsetY)
+                            currentDragOffset = .zero
+                        }
+                        
+                        // Delay resetting isDragging to prevent accidental button tap
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            isDragging = false
+                        }
+                    }
+            )
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDragging)
         }
     }
 }

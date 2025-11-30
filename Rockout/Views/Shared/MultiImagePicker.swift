@@ -8,7 +8,7 @@ struct MultiImagePicker: View {
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var isLoading = false
     
-    private let maxSelectionCount = 5
+    private let maxSelectionCount = 4
     
     var body: some View {
         NavigationStack {

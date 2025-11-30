@@ -23,8 +23,11 @@ final class SupabaseNotificationService: NotificationService {
     
     func fetchNotifications(limit: Int = 50, before: Date? = nil) async throws -> [AppNotification] {
         guard let currentUserId = client.auth.currentUser?.id else {
+            print("🔔❌ NotificationService: User not authenticated")
             throw NSError(domain: "NotificationService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
+        
+        print("🔔 NotificationService: Fetching notifications for user \(currentUserId.uuidString)")
         
         // Build query
         let response = try await client
@@ -45,7 +48,6 @@ final class SupabaseNotificationService: NotificationService {
                     first_name,
                     last_name,
                     username,
-                    email,
                     profile_picture_url,
                     region
                 )
@@ -55,9 +57,12 @@ final class SupabaseNotificationService: NotificationService {
             .limit(limit)
             .execute()
         
+        print("🔔 NotificationService: Response data size: \(response.data.count) bytes")
+        print("🔔 NotificationService: Response preview: \(String(data: response.data.prefix(200), encoding: .utf8) ?? "nil")")
+        
         // Parse response
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Don't use convertFromSnakeCase when we have custom CodingKeys
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let dateString = try container.decode(String.self)
@@ -77,6 +82,7 @@ final class SupabaseNotificationService: NotificationService {
         }
         
         let notifications: [NotificationRow] = try decoder.decode([NotificationRow].self, from: response.data)
+        print("🔔 NotificationService: Successfully decoded \(notifications.count) notifications")
         
         // Map to AppNotification
         return notifications.map { row in
@@ -92,8 +98,8 @@ final class SupabaseNotificationService: NotificationService {
                         displayName = dn
                     } else if let first = actorRow.firstName, let last = actorRow.lastName {
                         displayName = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
-                    } else if let email = actorRow.email {
-                        displayName = email.components(separatedBy: "@").first ?? "User"
+                    } else if let username = actorRow.username {
+                        displayName = username
                     } else {
                         displayName = "User"
                     }
@@ -101,8 +107,6 @@ final class SupabaseNotificationService: NotificationService {
                     let handle: String
                     if let username = actorRow.username {
                         handle = "@\(username)"
-                    } else if let email = actorRow.email {
-                        handle = "@\(email.components(separatedBy: "@").first ?? "user")"
                     } else {
                         handle = "@user"
                     }
@@ -249,7 +253,6 @@ private struct ActorRow: Decodable {
     let firstName: String?
     let lastName: String?
     let username: String?
-    let email: String?
     let profilePictureUrl: String?
     let region: String?
     
@@ -258,8 +261,7 @@ private struct ActorRow: Decodable {
         case displayName = "display_name"
         case firstName = "first_name"
         case lastName = "last_name"
-        case username, email, region
+        case username, region
         case profilePictureUrl = "profile_picture_url"
     }
 }
-

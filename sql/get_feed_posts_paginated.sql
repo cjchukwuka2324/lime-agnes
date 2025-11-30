@@ -29,6 +29,9 @@ RETURNS TABLE (
     author_handle TEXT,
     author_profile_picture_url TEXT,
     author_avatar_initials TEXT,
+    author_instagram_handle TEXT,
+    author_twitter_handle TEXT,
+    author_tiktok_handle TEXT,
     spotify_link_url TEXT,
     spotify_link_type TEXT,
     spotify_link_data JSONB,
@@ -112,6 +115,9 @@ BEGIN
                 ELSE
                     UPPER(LEFT(COALESCE(u.email, 'User'), 2))
             END as author_avatar_initials,
+            prof.instagram as author_instagram_handle,
+            prof.twitter as author_twitter_handle,
+            prof.tiktok as author_tiktok_handle,
             -- Algorithm score for "For You" feed
             CASE 
                 WHEN p_feed_type = 'for_you' AND v_user_region IS NOT NULL AND prof.region = v_user_region THEN
@@ -198,6 +204,18 @@ END;
 $$;
 
 -- Grant execute permission to authenticated users
+GRANT EXECUTE ON FUNCTION get_feed_posts_paginated(TEXT, TEXT, INT, TIMESTAMPTZ) TO authenticated;
+
+-- Add comment for documentation
+COMMENT ON FUNCTION get_feed_posts_paginated IS 'Cursor-based paginated feed query for production scalability. Use created_at of last post as cursor for next page.';
+
+
+GRANT EXECUTE ON FUNCTION get_feed_posts_paginated(TEXT, TEXT, INT, TIMESTAMPTZ) TO authenticated;
+
+-- Add comment for documentation
+COMMENT ON FUNCTION get_feed_posts_paginated IS 'Cursor-based paginated feed query for production scalability. Use created_at of last post as cursor for next page.';
+
+
 GRANT EXECUTE ON FUNCTION get_feed_posts_paginated(TEXT, TEXT, INT, TIMESTAMPTZ) TO authenticated;
 
 -- Add comment for documentation

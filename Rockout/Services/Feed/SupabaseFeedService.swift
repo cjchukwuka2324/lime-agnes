@@ -9,6 +9,149 @@ final class SupabaseFeedService: FeedService {
     
     private init() {}
     
+    // MARK: - Data Models
+    
+    struct FeedPostRow: Decodable {
+        // Core fields (required)
+        let id: UUID
+        let user_id: UUID
+        let text: String
+        let created_at: String
+        let like_count: Int
+        let is_liked_by_current_user: Bool
+        let reply_count: Int
+        let author_display_name: String
+        // These fields might be missing if SQL function is old version - provide fallbacks
+        let author_handle: String
+        let author_avatar_initials: String
+        
+        // Optional media fields
+        let image_urls: [String]?
+        let video_url: String?
+        let audio_url: String?
+        let parent_post_id: UUID?
+        let leaderboard_entry_id: String?
+        let leaderboard_artist_name: String?
+        let leaderboard_rank: Int?
+        let leaderboard_percentile_label: String?
+        let leaderboard_minutes_listened: Int?
+        let reshared_post_id: UUID?
+        let author_profile_picture_url: String?
+        
+        // Social media handles
+        let instagram: String?
+        let twitter: String?
+        let tiktok: String?
+        
+        // New optional fields (Spotify, Poll, Background Music)
+        // These might not be present if SQL function hasn't been updated
+        let spotify_link_url: String?
+        let spotify_link_type: String?
+        let spotify_link_data: [String: AnyCodable]?
+        let poll_question: String?
+        let poll_type: String?
+        let poll_options: AnyCodable? // Changed to AnyCodable to handle both array and dictionary
+        let background_music_spotify_id: String?
+        let background_music_data: [String: AnyCodable]?
+        
+        // Custom decoding to handle missing new fields gracefully
+        enum CodingKeys: String, CodingKey {
+            case id, user_id, text, created_at, like_count, is_liked_by_current_user, reply_count
+            case author_display_name, author_handle, author_avatar_initials
+            case image_urls, video_url, audio_url, parent_post_id
+            case leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank
+            case leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id
+            case author_profile_picture_url
+            case instagram, twitter, tiktok
+            case spotify_link_url, spotify_link_type, spotify_link_data
+            case poll_question, poll_type, poll_options
+            case background_music_spotify_id, background_music_data
+        }
+        
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            
+            // Required fields
+            id = try container.decode(UUID.self, forKey: .id)
+            user_id = try container.decode(UUID.self, forKey: .user_id)
+            text = try container.decode(String.self, forKey: .text)
+            created_at = try container.decode(String.self, forKey: .created_at)
+            like_count = try container.decode(Int.self, forKey: .like_count)
+            is_liked_by_current_user = try container.decode(Bool.self, forKey: .is_liked_by_current_user)
+            reply_count = try container.decode(Int.self, forKey: .reply_count)
+            author_display_name = try container.decode(String.self, forKey: .author_display_name)
+            
+            // These fields might be missing if SQL function is old version - provide fallbacks
+            if let handle = try? container.decode(String.self, forKey: .author_handle) {
+                author_handle = handle
+            } else {
+                // Fallback: generate handle from display name or user ID
+                let fallbackHandle = "@\(author_display_name.lowercased().replacingOccurrences(of: " ", with: ""))"
+                author_handle = fallbackHandle.isEmpty ? "@user" : fallbackHandle
+                print("⚠️ author_handle missing, using fallback: \(author_handle)")
+            }
+            
+            if let initials = try? container.decode(String.self, forKey: .author_avatar_initials) {
+                author_avatar_initials = initials
+            } else {
+                // Fallback: generate initials from display name
+                let words = author_display_name.components(separatedBy: " ").filter { !$0.isEmpty }
+                if words.count >= 2 {
+                    author_avatar_initials = String(words[0].prefix(1) + words[1].prefix(1)).uppercased()
+                } else if let firstWord = words.first {
+                    author_avatar_initials = String(firstWord.prefix(2)).uppercased()
+                } else {
+                    author_avatar_initials = "U"
+                }
+                print("⚠️ author_avatar_initials missing, using fallback: \(author_avatar_initials)")
+            }
+            
+            // Optional fields
+            image_urls = try container.decodeIfPresent([String].self, forKey: .image_urls)
+            video_url = try container.decodeIfPresent(String.self, forKey: .video_url)
+            audio_url = try container.decodeIfPresent(String.self, forKey: .audio_url)
+            parent_post_id = try container.decodeIfPresent(UUID.self, forKey: .parent_post_id)
+            leaderboard_entry_id = try container.decodeIfPresent(String.self, forKey: .leaderboard_entry_id)
+            leaderboard_artist_name = try container.decodeIfPresent(String.self, forKey: .leaderboard_artist_name)
+            leaderboard_rank = try container.decodeIfPresent(Int.self, forKey: .leaderboard_rank)
+            leaderboard_percentile_label = try container.decodeIfPresent(String.self, forKey: .leaderboard_percentile_label)
+            leaderboard_minutes_listened = try container.decodeIfPresent(Int.self, forKey: .leaderboard_minutes_listened)
+            reshared_post_id = try container.decodeIfPresent(UUID.self, forKey: .reshared_post_id)
+            author_profile_picture_url = try container.decodeIfPresent(String.self, forKey: .author_profile_picture_url)
+            
+            // Social media handles
+            instagram = try container.decodeIfPresent(String.self, forKey: .instagram)
+            twitter = try container.decodeIfPresent(String.self, forKey: .twitter)
+            tiktok = try container.decodeIfPresent(String.self, forKey: .tiktok)
+            
+            // New optional fields - decode with defaults if missing
+            spotify_link_url = try container.decodeIfPresent(String.self, forKey: .spotify_link_url)
+            spotify_link_type = try container.decodeIfPresent(String.self, forKey: .spotify_link_type)
+            spotify_link_data = try container.decodeIfPresent([String: AnyCodable].self, forKey: .spotify_link_data)
+            poll_question = try container.decodeIfPresent(String.self, forKey: .poll_question)
+            poll_type = try container.decodeIfPresent(String.self, forKey: .poll_type)
+            
+            // poll_options can be either an array or a dictionary - decode as AnyCodable
+            if container.contains(.poll_options) {
+                do {
+                    if try container.decodeNil(forKey: .poll_options) {
+                        poll_options = nil
+                    } else {
+                        poll_options = try container.decode(AnyCodable.self, forKey: .poll_options)
+                    }
+                } catch {
+                    print("⚠️ Failed to decode poll_options: \(error)")
+                    poll_options = nil
+                }
+            } else {
+                poll_options = nil
+            }
+            
+            background_music_spotify_id = try container.decodeIfPresent(String.self, forKey: .background_music_spotify_id)
+            background_music_data = try container.decodeIfPresent([String: AnyCodable].self, forKey: .background_music_data)
+        }
+    }
+    
     // MARK: - Helper Functions
     
     /// Parse hashtags from text using regex
@@ -443,136 +586,6 @@ final class SupabaseFeedService: FeedService {
                 print("❌ Error code: \(supabaseError.code ?? "unknown")")
             }
             throw error
-        }
-        
-        struct FeedPostRow: Decodable {
-            // Core fields (required)
-            let id: UUID
-            let user_id: UUID
-            let text: String
-            let created_at: String
-            let like_count: Int
-            let is_liked_by_current_user: Bool
-            let reply_count: Int
-            let author_display_name: String
-            // These fields might be missing if SQL function is old version - provide fallbacks
-            let author_handle: String
-            let author_avatar_initials: String
-            
-            // Optional media fields
-            let image_urls: [String]?
-            let video_url: String?
-            let audio_url: String?
-            let parent_post_id: UUID?
-            let leaderboard_entry_id: String?
-            let leaderboard_artist_name: String?
-            let leaderboard_rank: Int?
-            let leaderboard_percentile_label: String?
-            let leaderboard_minutes_listened: Int?
-            let reshared_post_id: UUID?
-            let author_profile_picture_url: String?
-            
-            // New optional fields (Spotify, Poll, Background Music)
-            // These might not be present if SQL function hasn't been updated
-            let spotify_link_url: String?
-            let spotify_link_type: String?
-            let spotify_link_data: [String: AnyCodable]?
-            let poll_question: String?
-            let poll_type: String?
-            let poll_options: AnyCodable? // Changed to AnyCodable to handle both array and dictionary
-            let background_music_spotify_id: String?
-            let background_music_data: [String: AnyCodable]?
-            
-            // Custom decoding to handle missing new fields gracefully
-            enum CodingKeys: String, CodingKey {
-                case id, user_id, text, created_at, like_count, is_liked_by_current_user, reply_count
-                case author_display_name, author_handle, author_avatar_initials
-                case image_urls, video_url, audio_url, parent_post_id
-                case leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank
-                case leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id
-                case author_profile_picture_url
-                case spotify_link_url, spotify_link_type, spotify_link_data
-                case poll_question, poll_type, poll_options
-                case background_music_spotify_id, background_music_data
-            }
-            
-            init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                
-                // Required fields
-                id = try container.decode(UUID.self, forKey: .id)
-                user_id = try container.decode(UUID.self, forKey: .user_id)
-                text = try container.decode(String.self, forKey: .text)
-                created_at = try container.decode(String.self, forKey: .created_at)
-                like_count = try container.decode(Int.self, forKey: .like_count)
-                is_liked_by_current_user = try container.decode(Bool.self, forKey: .is_liked_by_current_user)
-                reply_count = try container.decode(Int.self, forKey: .reply_count)
-                author_display_name = try container.decode(String.self, forKey: .author_display_name)
-                
-                // These fields might be missing if SQL function is old version - provide fallbacks
-                if let handle = try? container.decode(String.self, forKey: .author_handle) {
-                    author_handle = handle
-                } else {
-                    // Fallback: generate handle from display name or user ID
-                    let fallbackHandle = "@\(author_display_name.lowercased().replacingOccurrences(of: " ", with: ""))"
-                    author_handle = fallbackHandle.isEmpty ? "@user" : fallbackHandle
-                    print("⚠️ author_handle missing, using fallback: \(author_handle)")
-                }
-                
-                if let initials = try? container.decode(String.self, forKey: .author_avatar_initials) {
-                    author_avatar_initials = initials
-                } else {
-                    // Fallback: generate initials from display name
-                    let words = author_display_name.components(separatedBy: " ").filter { !$0.isEmpty }
-                    if words.count >= 2 {
-                        author_avatar_initials = String(words[0].prefix(1) + words[1].prefix(1)).uppercased()
-                    } else if let firstWord = words.first {
-                        author_avatar_initials = String(firstWord.prefix(2)).uppercased()
-                    } else {
-                        author_avatar_initials = "U"
-                    }
-                    print("⚠️ author_avatar_initials missing, using fallback: \(author_avatar_initials)")
-                }
-                
-                // Optional fields
-                image_urls = try container.decodeIfPresent([String].self, forKey: .image_urls)
-                video_url = try container.decodeIfPresent(String.self, forKey: .video_url)
-                audio_url = try container.decodeIfPresent(String.self, forKey: .audio_url)
-                parent_post_id = try container.decodeIfPresent(UUID.self, forKey: .parent_post_id)
-                leaderboard_entry_id = try container.decodeIfPresent(String.self, forKey: .leaderboard_entry_id)
-                leaderboard_artist_name = try container.decodeIfPresent(String.self, forKey: .leaderboard_artist_name)
-                leaderboard_rank = try container.decodeIfPresent(Int.self, forKey: .leaderboard_rank)
-                leaderboard_percentile_label = try container.decodeIfPresent(String.self, forKey: .leaderboard_percentile_label)
-                leaderboard_minutes_listened = try container.decodeIfPresent(Int.self, forKey: .leaderboard_minutes_listened)
-                reshared_post_id = try container.decodeIfPresent(UUID.self, forKey: .reshared_post_id)
-                author_profile_picture_url = try container.decodeIfPresent(String.self, forKey: .author_profile_picture_url)
-                
-                // New optional fields - decode with defaults if missing
-                spotify_link_url = try container.decodeIfPresent(String.self, forKey: .spotify_link_url)
-                spotify_link_type = try container.decodeIfPresent(String.self, forKey: .spotify_link_type)
-                spotify_link_data = try container.decodeIfPresent([String: AnyCodable].self, forKey: .spotify_link_data)
-                poll_question = try container.decodeIfPresent(String.self, forKey: .poll_question)
-                poll_type = try container.decodeIfPresent(String.self, forKey: .poll_type)
-                
-                // poll_options can be either an array or a dictionary - decode as AnyCodable
-                if container.contains(.poll_options) {
-                    do {
-                        if try container.decodeNil(forKey: .poll_options) {
-                            poll_options = nil
-                        } else {
-                            poll_options = try container.decode(AnyCodable.self, forKey: .poll_options)
-                        }
-                    } catch {
-                        print("⚠️ Failed to decode poll_options: \(error)")
-                        poll_options = nil
-                    }
-                } else {
-                    poll_options = nil
-                }
-                
-                background_music_spotify_id = try container.decodeIfPresent(String.self, forKey: .background_music_spotify_id)
-                background_music_data = try container.decodeIfPresent([String: AnyCodable].self, forKey: .background_music_data)
-            }
         }
         
         // Debug: Print full response to see what we're getting
@@ -1712,53 +1725,213 @@ final class SupabaseFeedService: FeedService {
         return response
     }
     
-    // MARK: - Fetch Thread
+    // MARK: - Fetch Post By ID
     
-    func fetchThread(for postId: String) async throws -> (root: Post, replies: [Post]) {
-        // Step 1: Fetch all posts using the existing fetchHomeFeed method
-        let feedResult = try await fetchHomeFeed(feedType: .forYou, region: nil, cursor: nil, limit: 200)
-        let allPosts = feedResult.posts
+    func fetchPostById(_ postId: String) async throws -> Post {
+        print("🔍 Fetching post by ID: \(postId)")
         
-        // Find the clicked post
-        guard let clickedPost = allPosts.first(where: { $0.id == postId }) else {
+        guard let postUUID = UUID(uuidString: postId) else {
+            throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid post ID"])
+        }
+        
+        // Call the get_post_by_id RPC function
+        struct GetPostByIdParams: Encodable {
+            let p_post_id: UUID
+        }
+        
+        let response = try await supabase
+            .rpc("get_post_by_id", params: GetPostByIdParams(p_post_id: postUUID))
+            .execute()
+        
+        // Decode the response using FeedPostRow
+        let rows: [FeedPostRow] = try JSONDecoder().decode([FeedPostRow].self, from: response.data)
+        
+        guard let row = rows.first else {
             throw NSError(domain: "FeedService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Post not found"])
         }
         
-        // Step 2: Determine the root post
-        let rootPost: Post
-        if let parentId = clickedPost.parentPostId {
-            // If clicked post is a reply, find its root post
-            let rootCandidates = allPosts.filter { $0.id == parentId }
-            guard let foundRoot = rootCandidates.first(where: { $0.parentPostId == nil }) else {
-                throw NSError(domain: "FeedService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Root post not found"])
+        // Parse date
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let createdAt = formatter.date(from: row.created_at) ?? Date()
+        
+        // Convert FeedPostRow to Post
+        let author = UserSummary(
+            id: row.user_id.uuidString,
+            displayName: row.author_display_name,
+            handle: row.author_handle,
+            avatarInitials: row.author_avatar_initials,
+            profilePictureURL: row.author_profile_picture_url.flatMap { URL(string: $0) },
+            isFollowing: false,
+            region: nil,
+            followersCount: 0,
+            followingCount: 0,
+            instagramHandle: row.instagram,
+            twitterHandle: row.twitter,
+            tiktokHandle: row.tiktok
+        )
+        
+        // Parse leaderboard entry if present
+        let leaderboardEntry: LeaderboardEntrySummary? = {
+            guard let entryId = row.leaderboard_entry_id,
+                  let artistName = row.leaderboard_artist_name,
+                  let rank = row.leaderboard_rank else {
+                return nil
             }
-            rootPost = foundRoot
-        } else {
-            // If clicked post has no parent, it IS the root
-            rootPost = clickedPost
-        }
-        
-        // Step 3: Fetch ALL replies in the thread (including nested replies to replies)
-        var allReplies: [Post] = []
-        var postsToCheck = [rootPost.id]
-        var checkedPosts = Set<String>()
-        
-        // Recursively find all nested replies
-        while !postsToCheck.isEmpty {
-            let currentId = postsToCheck.removeFirst()
-            if checkedPosts.contains(currentId) { continue }
-            checkedPosts.insert(currentId)
             
-            let directReplies = allPosts.filter { $0.parentPostId == currentId }
-            for reply in directReplies {
-                if !allReplies.contains(where: { $0.id == reply.id }) {
-                    allReplies.append(reply)
-                    postsToCheck.append(reply.id)
-                }
+            return LeaderboardEntrySummary(
+                id: entryId,
+                userId: row.user_id.uuidString,
+                userDisplayName: row.author_display_name,
+                artistId: "", // Not available in this context
+                artistName: artistName,
+                artistImageURL: nil,
+                rank: rank,
+                percentileLabel: row.leaderboard_percentile_label ?? "",
+                minutesListened: row.leaderboard_minutes_listened ?? 0
+            )
+        }()
+        
+        // Parse Spotify link if present
+        let spotifyLink: SpotifyLink? = {
+            guard let urlString = row.spotify_link_url,
+                  let type = row.spotify_link_type else {
+                return nil
+            }
+            
+            // Extract name and artist from data if available
+            let name = row.spotify_link_data?["name"]?.value as? String ?? ""
+            let artist = row.spotify_link_data?["artist"]?.value as? String
+            let imageURLString = row.spotify_link_data?["imageURL"]?.value as? String
+            let imageURL = imageURLString.flatMap { URL(string: $0) }
+            
+            return SpotifyLink(
+                id: urlString, // Use URL as ID for now
+                url: urlString,
+                type: type,
+                name: name,
+                artist: artist,
+                owner: nil,
+                imageURL: imageURL
+            )
+        }()
+        
+        // Parse poll if present
+        let poll: Poll? = {
+            guard let question = row.poll_question,
+                  let type = row.poll_type,
+                  let optionsData = row.poll_options else {
+                return nil
+            }
+            
+            // Decode poll options from JSONB
+            let decoder = JSONDecoder()
+            guard let optionsArray = try? decoder.decode([[String: AnyCodable]].self, from: JSONEncoder().encode(optionsData)) else {
+                return nil
+            }
+            
+            let options = optionsArray.enumerated().compactMap { (index, dict) -> PollOption? in
+                guard let text = dict["text"]?.value as? String else { return nil }
+                let voteCount = dict["votes"]?.value as? Int ?? 0
+                return PollOption(
+                    id: index,
+                    text: text,
+                    voteCount: voteCount,
+                    isSelected: false
+                )
+            }
+            
+            return Poll(
+                id: row.id.uuidString,
+                question: question,
+                options: options,
+                type: type,
+                userVoteIndices: []
+            )
+        }()
+        
+        // Parse background music if present
+        let backgroundMusic: BackgroundMusic? = {
+            guard let spotifyId = row.background_music_spotify_id else {
+                return nil
+            }
+            
+            // Extract name and artist from data if available
+            let name = row.background_music_data?["name"]?.value as? String ?? ""
+            let artist = row.background_music_data?["artist"]?.value as? String ?? ""
+            let previewURLString = row.background_music_data?["previewURL"]?.value as? String
+            let previewURL = previewURLString.flatMap { URL(string: $0) }
+            let imageURLString = row.background_music_data?["imageURL"]?.value as? String
+            let imageURL = imageURLString.flatMap { URL(string: $0) }
+            
+            return BackgroundMusic(
+                spotifyId: spotifyId,
+                name: name,
+                artist: artist,
+                previewURL: previewURL,
+                imageURL: imageURL
+            )
+        }()
+        
+        return Post(
+            id: row.id.uuidString,
+            text: row.text,
+            createdAt: createdAt,
+            author: author,
+            imageURLs: row.image_urls?.compactMap { URL(string: $0) } ?? [],
+            videoURL: row.video_url.flatMap { URL(string: $0) },
+            audioURL: row.audio_url.flatMap { URL(string: $0) },
+            likeCount: Int(row.like_count),
+            replyCount: Int(row.reply_count),
+            isLiked: row.is_liked_by_current_user,
+            parentPostId: row.parent_post_id?.uuidString,
+            parentPost: nil,
+            leaderboardEntry: leaderboardEntry,
+            resharedPostId: row.reshared_post_id?.uuidString,
+            spotifyLink: spotifyLink,
+            poll: poll,
+            backgroundMusic: backgroundMusic
+        )
+    }
+    
+    // MARK: - Fetch Thread
+    
+    func fetchThread(for postId: String) async throws -> (root: Post, replies: [Post]) {
+        // Step 1: Fetch the clicked post directly by ID using fetchPostById
+        let clickedPost = try await fetchPostById(postId)
+        print("✅ Fetched clicked post: \(clickedPost.id)")
+        
+        // Step 2: Determine the root post by traversing parent chain
+        var currentPost = clickedPost
+        var visitedIds = Set<String>()
+        
+        // Traverse up the parent chain to find the root
+        while let parentId = currentPost.parentPostId {
+            if visitedIds.contains(parentId) {
+                // Circular reference detected - break to avoid infinite loop
+                print("⚠️ Circular reference detected in post chain, using current post as root")
+                break
+            }
+            visitedIds.insert(parentId)
+            
+            // Fetch the parent post
+            do {
+                currentPost = try await fetchPostById(parentId)
+                print("✅ Fetched parent post: \(currentPost.id)")
+            } catch {
+                print("⚠️ Could not fetch parent \(parentId), using current post as root")
+                break
             }
         }
         
-        print("✅ Fetched thread: root=\(rootPost.id), total replies (nested)=\(allReplies.count)")
+        let rootPost = currentPost
+        print("✅ Found root post: \(rootPost.id)")
+        
+        // Step 3: Fetch ALL replies for the root post
+        // Use fetchRepliesByUser or a dedicated thread fetch
+        let allReplies = try await fetchReplies(for: rootPost.id)
+        
+        print("✅ Fetched thread: root=\(rootPost.id), total replies=\(allReplies.count)")
         
         return (rootPost, allReplies)
     }

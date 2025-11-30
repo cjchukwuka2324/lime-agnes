@@ -20,6 +20,7 @@ struct TrendingHashtag: Identifiable, Hashable {
 protocol HashtagService {
     func getTrendingHashtags(timeWindowHours: Int, limit: Int) async throws -> [TrendingHashtag]
     func getPostsByHashtag(tag: String, cursor: Date?, limit: Int) async throws -> (posts: [Post], hasMore: Bool)
+    func getAllTrendingPosts(timeWindowHours: Int, cursor: Date?, limit: Int) async throws -> (posts: [Post], hasMore: Bool)
 }
 
 // MARK: - Supabase Implementation
@@ -30,6 +31,43 @@ final class SupabaseHashtagService: HashtagService {
     private let supabase = SupabaseService.shared.client
     
     private init() {}
+    
+    // MARK: - Shared Data Structures
+    
+    private struct FeedPostRow: Decodable {
+        let id: UUID
+        let user_id: UUID
+        let text: String
+        let created_at: String
+        let like_count: Int
+        let is_liked_by_current_user: Bool
+        let reply_count: Int
+        let author_display_name: String
+        let author_handle: String
+        let author_avatar_initials: String
+        let author_instagram_handle: String?
+        let author_twitter_handle: String?
+        let author_tiktok_handle: String?
+        let image_urls: [String]?
+        let video_url: String?
+        let audio_url: String?
+        let parent_post_id: UUID?
+        let leaderboard_entry_id: String?
+        let leaderboard_artist_name: String?
+        let leaderboard_rank: Int?
+        let leaderboard_percentile_label: String?
+        let leaderboard_minutes_listened: Int?
+        let reshared_post_id: UUID?
+        let author_profile_picture_url: String?
+        let spotify_link_url: String?
+        let spotify_link_type: String?
+        let spotify_link_data: [String: SupabaseFeedService.AnyCodable]?
+        let poll_question: String?
+        let poll_type: String?
+        let poll_options: SupabaseFeedService.AnyCodable?
+        let background_music_spotify_id: String?
+        let background_music_data: [String: SupabaseFeedService.AnyCodable]?
+    }
     
     // MARK: - Get Trending Hashtags
     
@@ -111,39 +149,6 @@ final class SupabaseHashtagService: HashtagService {
             .rpc("get_posts_by_hashtag", params: params)
             .execute()
         
-        // Use the same FeedPostRow structure as SupabaseFeedService
-        struct FeedPostRow: Decodable {
-            let id: UUID
-            let user_id: UUID
-            let text: String
-            let created_at: String
-            let like_count: Int
-            let is_liked_by_current_user: Bool
-            let reply_count: Int
-            let author_display_name: String
-            let author_handle: String
-            let author_avatar_initials: String
-            let image_urls: [String]?
-            let video_url: String?
-            let audio_url: String?
-            let parent_post_id: UUID?
-            let leaderboard_entry_id: String?
-            let leaderboard_artist_name: String?
-            let leaderboard_rank: Int?
-            let leaderboard_percentile_label: String?
-            let leaderboard_minutes_listened: Int?
-            let reshared_post_id: UUID?
-            let author_profile_picture_url: String?
-            let spotify_link_url: String?
-            let spotify_link_type: String?
-            let spotify_link_data: [String: SupabaseFeedService.AnyCodable]?
-            let poll_question: String?
-            let poll_type: String?
-            let poll_options: SupabaseFeedService.AnyCodable?
-            let background_music_spotify_id: String?
-            let background_music_data: [String: SupabaseFeedService.AnyCodable]?
-        }
-        
         let decoder = JSONDecoder()
         let rows = try decoder.decode([FeedPostRow].self, from: response.data)
         
@@ -151,7 +156,7 @@ final class SupabaseHashtagService: HashtagService {
         
         // Convert rows to Post objects
         let posts = try rows.map { row -> Post in
-            try convertRowToPost(row: row)
+            try convertFeedRowToPost(row: row)
         }
         
         // Determine if there are more pages
@@ -160,7 +165,107 @@ final class SupabaseHashtagService: HashtagService {
         return (posts: posts, hasMore: hasMore)
     }
     
-    // MARK: - Helper: Convert Row to Post
+    // MARK: - Get All Trending Posts
+    
+    func getAllTrendingPosts(timeWindowHours: Int = 72, cursor: Date? = nil, limit: Int = 50) async throws -> (posts: [Post], hasMore: Bool) {
+        // Convert cursor to ISO8601 string
+        let cursorString: String?
+        if let cursor = cursor {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            cursorString = formatter.string(from: cursor)
+        } else {
+            cursorString = nil
+        }
+        
+        struct GetAllTrendingParams: Encodable {
+            let p_limit: Int
+            let p_time_window_hours: Int
+            let p_cursor: String?
+        }
+        
+        let params = GetAllTrendingParams(
+            p_limit: limit,
+            p_time_window_hours: timeWindowHours,
+            p_cursor: cursorString
+        )
+        
+        print("🔥 Fetching all trending posts, cursor: \(cursorString ?? "nil")")
+        
+        let response = try await supabase
+            .rpc("get_all_trending_posts", params: params)
+            .execute()
+        
+        let decoder = JSONDecoder()
+        let rows = try decoder.decode([FeedPostRow].self, from: response.data)
+        
+        print("✅ Fetched \(rows.count) trending posts")
+        
+        // Convert rows to Post objects
+        let posts = try rows.map { row -> Post in
+            try convertFeedRowToPost(row: row)
+        }
+        
+        // Determine if there are more pages
+        let hasMore = posts.count == limit
+        
+        return (posts: posts, hasMore: hasMore)
+    }
+    
+    // MARK: - Helper: Convert FeedPostRow to Post
+    
+    private func convertFeedRowToPost(row: FeedPostRow) throws -> Post {
+        // Parse date
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let createdAt = formatter.date(from: row.created_at) else {
+            throw NSError(domain: "HashtagService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid date format"])
+        }
+        
+        // Create author with social media handles
+        let author = UserSummary(
+            id: row.user_id.uuidString,
+            displayName: row.author_display_name,
+            handle: row.author_handle,
+            avatarInitials: row.author_avatar_initials,
+            profilePictureURL: row.author_profile_picture_url.flatMap { URL(string: $0) },
+            isFollowing: false,
+            region: nil,
+            followersCount: 0,
+            followingCount: 0,
+            instagramHandle: row.author_instagram_handle,
+            twitterHandle: row.author_twitter_handle,
+            tiktokHandle: row.author_tiktok_handle
+        )
+        
+        // Extract optional fields
+        let imageURLs = row.image_urls?.compactMap { URL(string: $0) } ?? []
+        let videoURL = row.video_url.flatMap { URL(string: $0) }
+        let audioURL = row.audio_url.flatMap { URL(string: $0) }
+        
+        // Create Post
+        return Post(
+            id: row.id.uuidString,
+            text: row.text,
+            createdAt: createdAt,
+            author: author,
+            imageURLs: imageURLs,
+            videoURL: videoURL,
+            audioURL: audioURL,
+            likeCount: row.like_count,
+            replyCount: row.reply_count,
+            isLiked: row.is_liked_by_current_user,
+            parentPostId: row.parent_post_id?.uuidString,
+            parentPost: nil,
+            leaderboardEntry: nil,
+            resharedPostId: row.reshared_post_id?.uuidString,
+            spotifyLink: nil,
+            poll: nil,
+            backgroundMusic: nil
+        )
+    }
+    
+    // MARK: - Helper: Convert Row to Post (Legacy - for dict-based rows)
     
     private func convertRowToPost(row: Any) throws -> Post {
         // Use reflection to convert the row to Post
@@ -193,14 +298,20 @@ final class SupabaseHashtagService: HashtagService {
             throw NSError(domain: "HashtagService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid date format"])
         }
         
-        // Create author
+        // Create author with social media handles
         let author = UserSummary(
             id: userId.uuidString,
             displayName: authorDisplayName,
             handle: authorHandle,
             avatarInitials: authorInitials,
             profilePictureURL: (rowDict["author_profile_picture_url"] as? String).flatMap { URL(string: $0) },
-            isFollowing: false
+            isFollowing: false,
+            region: nil,
+            followersCount: 0,
+            followingCount: 0,
+            instagramHandle: rowDict["author_instagram_handle"] as? String,
+            twitterHandle: rowDict["author_twitter_handle"] as? String,
+            tiktokHandle: rowDict["author_tiktok_handle"] as? String
         )
         
         // Extract optional fields
@@ -230,4 +341,3 @@ final class SupabaseHashtagService: HashtagService {
         )
     }
 }
-

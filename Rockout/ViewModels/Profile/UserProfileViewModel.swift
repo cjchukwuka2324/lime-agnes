@@ -7,9 +7,11 @@ final class UserProfileViewModel: ObservableObject {
         case posts = "Posts"
         case replies = "Replies"
         case likes = "Likes"
+        case mutuals = "Mutuals"
+        // Note: followers and following are removed from tabs but still exist as orphaned cases
+        // for backward compatibility. Access followers/following via stats buttons instead.
         case followers = "Followers"
         case following = "Following"
-        case mutuals = "Mutuals"
     }
     
     @Published var user: UserSummary?
@@ -62,14 +64,16 @@ final class UserProfileViewModel: ObservableObject {
                 self.mutuals = mutualsResult
             }
             
-            // Load posts and liked posts
+            // Load posts, replies, and liked posts
             async let postsTask = feed.fetchPostsByUser(userId)
+            async let repliesTask = feed.fetchRepliesByUser(userId)
             async let likedPostsTask = feed.fetchLikedPostsByUser(userId)
             
-            let (postsResult, likedPostsResult) = try await (postsTask, likedPostsTask)
+            let (postsResult, repliesResult, likedPostsResult) = try await (postsTask, repliesTask, likedPostsTask)
             
             await MainActor.run {
-                self.posts = postsResult
+                // Combine posts and replies for display
+                self.posts = postsResult + repliesResult
                 self.likedPosts = likedPostsResult
             }
             

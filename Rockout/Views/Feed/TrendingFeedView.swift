@@ -30,6 +30,7 @@ struct TrendingFeedView: View {
         }
         .task {
             await viewModel.loadTrending()
+            await viewModel.loadAllTrendingPosts()
         }
         .onAppear {
             // Start auto-refresh when view appears (every 5 minutes)
@@ -73,9 +74,13 @@ struct TrendingFeedView: View {
                         .font(.title2.bold())
                         .foregroundColor(.white)
                 } else {
-                    Text("🔥 Trending")
-                        .font(.title2.bold())
-                        .foregroundColor(.white)
+                    HStack(spacing: 6) {
+                        Text("Trending")
+                            .font(.title2.bold())
+                            .foregroundColor(.white)
+                        Text("🔥")
+                            .font(.title2)
+                    }
                 }
                 
                 Spacer()
@@ -120,7 +125,7 @@ struct TrendingFeedView: View {
                 ProgressView()
                     .tint(.white)
                     .padding(.top, 40)
-            } else if viewModel.hashtagPosts.isEmpty {
+            } else if viewModel.allTrendingPosts.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "flame")
                         .font(.system(size: 60))
@@ -135,7 +140,7 @@ struct TrendingFeedView: View {
                 .padding(.top, 100)
             } else {
                 LazyVStack(spacing: 16) {
-                    ForEach(viewModel.hashtagPosts) { post in
+                    ForEach(viewModel.allTrendingPosts) { post in
                         FeedCardView(
                             post: post,
                             onLike: { postId in
@@ -153,39 +158,6 @@ struct TrendingFeedView: View {
                         .padding(.horizontal, 16)
                         .onTapGesture {
                             selectedPostId = post.id
-                        }
-                        .onAppear {
-                            // Trigger load more when near the end
-                            if let lastPost = viewModel.hashtagPosts.last,
-                               post.id == lastPost.id,
-                               viewModel.hasMorePosts && !viewModel.isLoadingMore {
-                                Task {
-                                    await viewModel.loadMorePosts()
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Loading indicator at bottom
-                    if viewModel.isLoadingMore {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .tint(.white)
-                                .padding(.vertical, 20)
-                            Spacer()
-                        }
-                    }
-                    
-                    // End of feed indicator
-                    if !viewModel.hasMorePosts && !viewModel.hashtagPosts.isEmpty {
-                        HStack {
-                            Spacer()
-                            Text("You've reached the end")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.5))
-                                .padding(.vertical, 20)
-                            Spacer()
                         }
                     }
                 }

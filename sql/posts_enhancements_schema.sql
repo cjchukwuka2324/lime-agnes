@@ -234,12 +234,12 @@ BEGIN
         SELECT COALESCE(
             jsonb_agg(
                 jsonb_build_object(
-                    'text', COALESCE(option->>'text', (option->'options'->>(ordinality - 1))->>'text'),
+                    'text', COALESCE(option->>'text', option->'options'->((ordinality - 1)::int)->>'text'),
                     'votes', (
-                        SELECT COUNT(*)
-                        FROM post_poll_votes
-                        WHERE post_id = p_post_id 
-                        AND option_index = (ordinality - 1)::INT
+                        SELECT COUNT(*)::INT
+                        FROM post_poll_votes ppv
+                        WHERE ppv.post_id = p_post_id 
+                        AND ppv.option_index = (ordinality - 1)::INT
                     )
                 )
             ),

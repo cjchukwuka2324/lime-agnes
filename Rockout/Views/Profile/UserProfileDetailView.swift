@@ -44,7 +44,7 @@ struct UserProfileDetailView: View {
                     }
                 }
             }
-            .navigationTitle(profileDisplayName)
+            .navigationTitle(isCurrentUser ? profileDisplayName : "")
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -181,6 +181,132 @@ struct UserProfileDetailView: View {
             .sheet(isPresented: $showMutualsList) {
                 FollowersFollowingListView(userId: userId.uuidString, mode: .mutuals)
             }
+            
+            // Social Media Links - Always show all 3 platforms
+            socialMediaLinksSection
+                .padding(.top, 8)
+        }
+    }
+    
+    // MARK: - Social Media Links
+    
+    private var socialMediaLinksSection: some View {
+        HStack(spacing: 10) {
+            socialMediaCardOrPlaceholder(
+                platform: .instagram,
+                handle: viewModel.user?.instagramHandle
+            )
+            
+            socialMediaCardOrPlaceholder(
+                platform: .twitter,
+                handle: viewModel.user?.twitterHandle
+            )
+            
+            socialMediaCardOrPlaceholder(
+                platform: .tiktok,
+                handle: viewModel.user?.tiktokHandle
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private func socialMediaCardOrPlaceholder(platform: SocialMediaPlatform, handle: String?) -> some View {
+        if let handle = handle, !handle.isEmpty {
+            // Existing socialMediaCard for populated handles
+            socialMediaCard(platform: platform, handle: handle)
+        } else {
+            // Placeholder card
+            Button {
+                // Only allow editing on own profile
+                if isCurrentUser {
+                    // TODO: Navigate to edit profile or show edit dialog
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: platform.iconName)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 20, height: 20)
+                    
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(platform.name)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        
+                        Text(isCurrentUser ? "Add" : "Not added")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(.white.opacity(0.5))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(white: 0.15))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(!isCurrentUser)
+        }
+    }
+    
+    private func socialMediaCard(platform: SocialMediaPlatform, handle: String) -> some View {
+        Button {
+            openSocialMediaApp(platform: platform, handle: handle)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: platform.iconName)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 20, height: 20)
+                
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(platform.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    
+                    Text("@\(handle.replacingOccurrences(of: "@", with: ""))")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(platform.displayColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(platform.displayColor.opacity(0.5), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func openSocialMediaApp(platform: SocialMediaPlatform, handle: String) {
+        // Try to open in app first
+        if let appURL = platform.appURL(for: handle),
+           UIApplication.shared.canOpenURL(appURL) {
+            UIApplication.shared.open(appURL)
+        } else if let webURL = platform.url(for: handle) {
+            // Fallback to web
+            UIApplication.shared.open(webURL)
         }
     }
     
@@ -230,9 +356,11 @@ struct UserProfileDetailView: View {
                     case .posts: return ProfileContentTab.posts
                     case .replies: return ProfileContentTab.replies
                     case .likes: return ProfileContentTab.likes
-                    case .followers: return ProfileContentTab.followers
-                    case .following: return ProfileContentTab.following
                     case .mutuals: return ProfileContentTab.mutuals
+                    case .followers, .following:
+                        // Orphaned states - reset to posts
+                        viewModel.selectedSection = .posts
+                        return ProfileContentTab.posts
                     }
                 },
                 set: { (newTab: ProfileContentTab) in
@@ -240,16 +368,13 @@ struct UserProfileDetailView: View {
                     case .posts: viewModel.selectedSection = .posts
                     case .replies: viewModel.selectedSection = .replies
                     case .likes: viewModel.selectedSection = .likes
-                    case .followers: viewModel.selectedSection = .followers
-                    case .following: viewModel.selectedSection = .following
                     case .mutuals: viewModel.selectedSection = .mutuals
                     }
                 }
             )) {
                 Text("Posts").tag(ProfileContentTab.posts)
+                Text("Replies").tag(ProfileContentTab.replies)
                 Text("Likes").tag(ProfileContentTab.likes)
-                Text("Followers").tag(ProfileContentTab.followers)
-                Text("Following").tag(ProfileContentTab.following)
                 Text("Mutuals").tag(ProfileContentTab.mutuals)
             }
             .pickerStyle(.segmented)
@@ -261,15 +386,14 @@ struct UserProfileDetailView: View {
                 case .posts:
                     postsContentList
                 case .replies:
-                    postsContentList // For now, use same as posts
+                    repliesContentList
                 case .likes:
                     likesContentList
-                case .followers:
-                    userListContent(users: viewModel.followers, emptyIcon: "person.2", emptyTitle: "No followers yet", emptyMessage: "When someone follows this user, they'll appear here")
-                case .following:
-                    userListContent(users: viewModel.following, emptyIcon: "person.2.fill", emptyTitle: "Not following anyone", emptyMessage: "This user isn't following anyone yet")
                 case .mutuals:
                     userListContent(users: viewModel.mutuals, emptyIcon: "person.3", emptyTitle: "No mutual follows", emptyMessage: "Users you both follow will appear here")
+                case .followers, .following:
+                    // Orphaned states - show empty
+                    emptyStateView(icon: "exclamationmark.triangle", title: "Invalid Section", message: "Please select a different tab")
                 }
             }
         }
@@ -307,6 +431,24 @@ struct UserProfileDetailView: View {
         }
     }
     
+    @ViewBuilder
+    private var repliesContentList: some View {
+        let replies = viewModel.posts.filter { $0.parentPostId != nil }
+        
+        if replies.isEmpty {
+            emptyStateView(icon: "arrowshape.turn.up.left", title: "No replies yet", message: "This user hasn't replied to any posts yet.")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(replies) { post in
+                        FeedCardView(post: post)
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+    
     private func emptyStateView(icon: String, title: String, message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
@@ -328,8 +470,6 @@ struct UserProfileDetailView: View {
         case posts = "Posts"
         case replies = "Replies"
         case likes = "Likes"
-        case followers = "Followers"
-        case following = "Following"
         case mutuals = "Mutuals"
     }
     

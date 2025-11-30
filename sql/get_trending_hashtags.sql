@@ -68,6 +68,9 @@ $$ LANGUAGE plpgsql STABLE;
 
 -- Function: Get posts by hashtag (paginated)
 -- Returns posts that use a specific hashtag, with pagination support
+-- Drop existing function first (return type changed - added social media columns)
+DROP FUNCTION IF EXISTS get_posts_by_hashtag(TEXT, INT, TIMESTAMPTZ);
+
 CREATE OR REPLACE FUNCTION get_posts_by_hashtag(
     p_tag TEXT,
     p_limit INT DEFAULT 20,
@@ -95,6 +98,9 @@ RETURNS TABLE (
     author_handle TEXT,
     author_profile_picture_url TEXT,
     author_avatar_initials TEXT,
+    author_instagram_handle TEXT,
+    author_twitter_handle TEXT,
+    author_tiktok_handle TEXT,
     spotify_link_url TEXT,
     spotify_link_type TEXT,
     spotify_link_data JSONB,
@@ -166,13 +172,12 @@ BEGIN
             COALESCE(plc.like_count, 0)::BIGINT as like_count,
             (ul.post_id IS NOT NULL) as is_liked_by_current_user,
             COALESCE(prc.reply_count, 0)::BIGINT as reply_count,
-            COALESCE(prof.display_name, u.email, 'User') as author_display_name,
+            COALESCE(prof.display_name, 'User') as author_display_name,
             COALESCE(
                 CASE 
                     WHEN prof.username IS NOT NULL AND prof.username != '' THEN '@' || prof.username
                     ELSE NULL
                 END,
-                '@' || SPLIT_PART(u.email, '@', 1),
                 '@user'
             ) as author_handle,
             NULLIF(prof.profile_picture_url, '') as author_profile_picture_url,
@@ -182,8 +187,11 @@ BEGIN
                 WHEN prof.display_name IS NOT NULL AND prof.display_name != '' THEN
                     UPPER(LEFT(prof.display_name, 2))
                 ELSE
-                    UPPER(LEFT(COALESCE(u.email, 'User'), 2))
+                    'US'
             END as author_avatar_initials,
+            prof.instagram as author_instagram_handle,
+            prof.twitter as author_twitter_handle,
+            prof.tiktok as author_tiktok_handle,
             pwh.hashtag_created_at
         FROM posts_with_hashtag pwh
         JOIN posts p ON p.id = pwh.post_id
@@ -193,13 +201,12 @@ BEGIN
             GROUP BY post_id
         ) plc ON plc.post_id = p.id
         LEFT JOIN (
-            SELECT parent_post_id, COUNT(*)::BIGINT as reply_count
-            FROM posts
-            WHERE parent_post_id IS NOT NULL AND deleted_at IS NULL
-            GROUP BY parent_post_id
+            SELECT pr.parent_post_id, COUNT(*)::BIGINT as reply_count
+            FROM posts pr
+            WHERE pr.parent_post_id IS NOT NULL AND pr.deleted_at IS NULL
+            GROUP BY pr.parent_post_id
         ) prc ON prc.parent_post_id = p.id
         LEFT JOIN post_likes ul ON ul.post_id = p.id AND ul.user_id = v_current_user_id
-        LEFT JOIN auth.users u ON u.id = p.user_id
         LEFT JOIN profiles prof ON prof.id = p.user_id
         WHERE p.deleted_at IS NULL
     )
@@ -225,6 +232,9 @@ BEGIN
         pwd.author_handle,
         pwd.author_profile_picture_url,
         pwd.author_avatar_initials,
+        pwd.author_instagram_handle,
+        pwd.author_twitter_handle,
+        pwd.author_tiktok_handle,
         pwd.spotify_link_url,
         pwd.spotify_link_type,
         pwd.spotify_link_data,

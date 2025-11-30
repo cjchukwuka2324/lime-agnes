@@ -12,8 +12,11 @@ struct UserSummary: Identifiable, Hashable, Codable {
     let region: String?
     let followersCount: Int
     let followingCount: Int
+    let instagramHandle: String?
+    let twitterHandle: String?
+    let tiktokHandle: String?
     
-    init(id: String, displayName: String, handle: String, avatarInitials: String, profilePictureURL: URL? = nil, isFollowing: Bool = false, region: String? = nil, followersCount: Int = 0, followingCount: Int = 0) {
+    init(id: String, displayName: String, handle: String, avatarInitials: String, profilePictureURL: URL? = nil, isFollowing: Bool = false, region: String? = nil, followersCount: Int = 0, followingCount: Int = 0, instagramHandle: String? = nil, twitterHandle: String? = nil, tiktokHandle: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.handle = handle
@@ -23,6 +26,9 @@ struct UserSummary: Identifiable, Hashable, Codable {
         self.region = region
         self.followersCount = followersCount
         self.followingCount = followingCount
+        self.instagramHandle = instagramHandle
+        self.twitterHandle = twitterHandle
+        self.tiktokHandle = tiktokHandle
     }
 }
 
