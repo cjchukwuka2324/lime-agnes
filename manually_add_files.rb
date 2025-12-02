@@ -11,15 +11,8 @@ target = project.targets.first
 rockout_group = project.main_group['Rockout']
 
 files_to_add = [
-  'Views/SoundPrint/Features/ListeningStatsView.swift',
-  'Views/SoundPrint/Features/TimeAnalysisView.swift',
-  'Views/SoundPrint/Features/DiscoveryView.swift',
-  'Views/SoundPrint/Features/SocialSharingView.swift',
-  'Views/SoundPrint/Features/MoodContextView.swift',
-  'Views/SoundPrint/Features/AdvancedAnalyticsView.swift',
-  'ViewModels/SharedAlbumHandler.swift',
-  'Views/StudioSessions/AcceptSharedAlbumView.swift',
-  'Models/SpotifyListeningStats.swift'
+  'Views/Shared/CameraPickerView.swift',
+  'Views/Shared/HashtagTextView.swift'
 ]
 
 files_to_add.each do |file_path|
