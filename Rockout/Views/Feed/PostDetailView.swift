@@ -7,7 +7,7 @@ struct PostDetailView: View {
     @StateObject private var viewModel: PostDetailViewModel
     @State private var showComposer = false
     
-    init(postId: String, service: FeedService = InMemoryFeedService.shared) {
+    init(postId: String, service: FeedService = SupabaseFeedService.shared as FeedService) {
         self.postId = postId
         self.service = service
         self._viewModel = StateObject(wrappedValue: PostDetailViewModel(postId: postId, service: service))
@@ -52,7 +52,20 @@ struct PostDetailView: View {
                 ScrollView {
                     VStack(spacing: 24) {
                         // Root Post
-                        FeedCardView(post: rootPost)
+                        FeedCardView(
+                            post: rootPost,
+                            onLike: { postId in
+                                Task {
+                                    await viewModel.toggleLike(postId: postId)
+                                }
+                            },
+                            onDelete: { postId in
+                                Task {
+                                    await viewModel.deletePost(postId: postId)
+                                }
+                            },
+                            service: service
+                        )
                         
                         // Replies Section
                         if !viewModel.replies.isEmpty {
@@ -62,9 +75,24 @@ struct PostDetailView: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 20)
                                 
-                                ForEach(viewModel.replies) { reply in
-                                    FeedCardView(post: reply, isReply: true)
-                                        .padding(.horizontal, 20)
+                                ForEach(viewModel.topLevelReplies) { reply in
+                                    ThreadReplyView(
+                                        post: reply,
+                                        allReplies: viewModel.replies,
+                                        onLike: { postId in
+                                            Task {
+                                                await viewModel.toggleLike(postId: postId)
+                                            }
+                                        },
+                                        onDelete: { postId in
+                                            Task {
+                                                await viewModel.deletePost(postId: postId)
+                                            }
+                                        },
+                                        service: service,
+                                        level: 0
+                                    )
+                                    .padding(.horizontal, 20)
                                 }
                             }
                         } else {
@@ -113,6 +141,67 @@ struct PostDetailView: View {
         .task {
             if viewModel.rootPost == nil {
                 await viewModel.loadThread()
+            }
+        }
+    }
+}
+
+// MARK: - Thread Reply View (Nested)
+
+/// A view that displays a reply with nested sub-replies in a thread
+struct ThreadReplyView: View {
+    let post: Post
+    let allReplies: [Post]
+    let onLike: ((String) -> Void)?
+    let onDelete: ((String) -> Void)?
+    let service: FeedService?
+    let level: Int
+    
+    // Max nesting level to prevent infinite recursion
+    private let maxLevel = 5
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Current reply with indentation
+            HStack(spacing: 0) {
+                // Indentation based on nesting level
+                if level > 0 {
+                    ForEach(0..<level, id: \.self) { _ in
+                        Rectangle()
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 2)
+                            .padding(.leading, 12)
+                    }
+                    .padding(.trailing, 8)
+                }
+                
+                FeedCardView(
+                    post: post,
+                    isReply: true,
+                    onLike: onLike,
+                    onDelete: onDelete,
+                    service: service
+                )
+            }
+            
+            // Nested replies (if any and within max level)
+            if level < maxLevel {
+                let nestedReplies = allReplies.filter { $0.parentPostId == post.id }
+                if !nestedReplies.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(nestedReplies) { nestedReply in
+                            ThreadReplyView(
+                                post: nestedReply,
+                                allReplies: allReplies,
+                                onLike: onLike,
+                                onDelete: onDelete,
+                                service: service,
+                                level: level + 1
+                            )
+                        }
+                    }
+                    .padding(.top, 12)
+                }
             }
         }
     }

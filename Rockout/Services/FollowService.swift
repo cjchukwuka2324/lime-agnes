@@ -22,7 +22,7 @@ class FollowService {
             .from("user_follows")
             .insert([
                 "follower_id": currentUserId.uuidString,
-                "followed_id": userId.uuidString
+                "following_id": userId.uuidString
             ])
             .execute()
         
@@ -63,13 +63,13 @@ class FollowService {
                 id: currentUserId.uuidString,
                 displayName: displayName,
                 handle: handle,
-                avatarInitials: initials
+                avatarInitials: initials,
+                profilePictureURL: nil,
+                isFollowing: false
             )
             
-            NotificationService.shared.createFollowNotification(
-                from: fromUser,
-                targetUserId: userId.uuidString
-            )
+            // Note: Notifications are now created automatically by database triggers
+            // See sql/notification_triggers.sql for the implementation
         }
     }
     
@@ -82,7 +82,7 @@ class FollowService {
             .from("user_follows")
             .delete()
             .eq("follower_id", value: currentUserId)
-            .eq("followed_id", value: userId)
+            .eq("following_id", value: userId)
             .execute()
     }
     
@@ -93,14 +93,14 @@ class FollowService {
         
         struct FollowRow: Codable {
             let follower_id: UUID
-            let followed_id: UUID
+            let following_id: UUID
         }
         
         let response: [FollowRow] = try await supabase
             .from("user_follows")
             .select("*")
             .eq("follower_id", value: currentUserId)
-            .eq("followed_id", value: userId)
+            .eq("following_id", value: userId)
             .limit(1)
             .execute()
             .value
@@ -111,7 +111,7 @@ class FollowService {
     func getFollowingCount(userId: UUID) async throws -> Int {
         struct FollowRow: Codable {
             let follower_id: UUID
-            let followed_id: UUID
+            let following_id: UUID
         }
         
         let response: [FollowRow] = try await supabase
@@ -127,17 +127,51 @@ class FollowService {
     func getFollowersCount(userId: UUID) async throws -> Int {
         struct FollowRow: Codable {
             let follower_id: UUID
-            let followed_id: UUID
+            let following_id: UUID
         }
         
         let response: [FollowRow] = try await supabase
             .from("user_follows")
             .select("*")
-            .eq("followed_id", value: userId)
+            .eq("following_id", value: userId)
             .execute()
             .value
         
         return response.count
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

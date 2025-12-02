@@ -20,6 +20,11 @@ struct ProfileView: View {
     @State private var isUploadingProfilePicture = false
     @State private var showSocialMediaEditor = false
     @State private var selectedSocialPlatform: SocialMediaPlatform?
+    @State private var followingCount = 0
+    @State private var followersCount = 0
+    @State private var userSummary: UserSummary?
+    
+    private let social: SocialGraphService = SupabaseSocialGraphService.shared
     
     enum ProfileContentTab: String, CaseIterable {
         case posts = "Posts"
@@ -107,6 +112,23 @@ struct ProfileView: View {
                 await loadUserProfile()
                 if let userId = currentUserId {
                     await loadCurrentContent()
+                    await loadFollowStats(userId: userId)
+                }
+            }
+            .onAppear {
+                // Refresh counts when view appears (e.g., after returning from follow/unfollow)
+                if let userId = currentUserId {
+                    Task {
+                        await loadFollowStats(userId: userId)
+                        await loadCurrentContent()
+                    }
+                }
+            }
+            .onChange(of: selectedProfileTab) { _, newTab in
+                if let userId = currentUserId {
+                    Task {
+                        await loadContentForTab(newTab, userId: userId)
+                    }
                 }
             }
             .sheet(isPresented: $showSettings) {
@@ -128,13 +150,6 @@ struct ProfileView: View {
                 if let image = newImage {
                     Task {
                         await uploadProfileImage(image)
-                    }
-                }
-            }
-            .onChange(of: selectedProfileTab) { _, newTab in
-                if let userId = currentUserId {
-                    Task {
-                        await loadContentForTab(newTab, userId: userId)
                     }
                 }
             }
@@ -218,6 +233,62 @@ struct ProfileView: View {
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.7))
             }
+            
+            // Followers/Following Stats
+            if let userId = currentUserId {
+                profileStatsSection(userId: userId)
+            }
+        }
+    }
+    
+    @State private var showFollowersList = false
+    @State private var showFollowingList = false
+    
+    private func profileStatsSection(userId: String) -> some View {
+        HStack(spacing: 32) {
+            Button {
+                showFollowersList = true
+            } label: {
+                VStack {
+                    Text("\(followersCount)")
+                        .font(.title3.bold())
+                        .foregroundColor(.white)
+                    Text("Followers")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+            
+            Button {
+                showFollowingList = true
+            } label: {
+                VStack {
+                    Text("\(followingCount)")
+                        .font(.title3.bold())
+                        .foregroundColor(.white)
+                    Text("Following")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+        }
+        .sheet(isPresented: $showFollowersList) {
+            FollowersFollowingListView(userId: userId, mode: .followers)
+                .onDisappear {
+                    // Refresh counts when sheet is dismissed (in case user followed/unfollowed)
+                    Task {
+                        await loadFollowStats(userId: userId)
+                    }
+                }
+        }
+        .sheet(isPresented: $showFollowingList) {
+            FollowersFollowingListView(userId: userId, mode: .following)
+                .onDisappear {
+                    // Refresh counts when sheet is dismissed (in case user followed/unfollowed)
+                    Task {
+                        await loadFollowStats(userId: userId)
+                    }
+                }
         }
     }
     
@@ -348,7 +419,7 @@ struct ProfileView: View {
                     FeedCardView(
                         post: post,
                         showInlineReplies: true,
-                        service: InMemoryFeedService.shared
+                        service: SupabaseFeedService.shared
                     )
                 }
             }
@@ -382,6 +453,27 @@ struct ProfileView: View {
             await userRepliesViewModel.loadUserReplies(userId: userId)
         case .likes:
             await userLikedViewModel.loadUserLikedPosts(userId: userId)
+        }
+    }
+    
+    private func loadFollowStats(userId: String) async {
+        // Always count from actual user_follows table for accuracy
+        let following = await social.followingIds(for: userId)
+        let followers = await social.followerIds(for: userId)
+        
+        await MainActor.run {
+            followingCount = following.count
+            followersCount = followers.count
+        }
+        
+        // Also try to load the full profile for other data
+        do {
+            let profile = try await social.getProfile(userId: userId)
+            await MainActor.run {
+                userSummary = profile
+            }
+        } catch {
+            print("Error loading profile: \(error)")
         }
     }
     
@@ -419,6 +511,12 @@ struct ProfileView: View {
             
             profilePictureURL = publicURL
             await loadUserProfile() // Reload profile
+            
+            // Refresh posts to show new profile picture
+            await SupabaseFeedService.shared.refreshCurrentUserProfileInPosts()
+            
+            // Notify feed to update
+            NotificationCenter.default.post(name: .feedDidUpdate, object: nil)
         } catch {
             message = "Failed to upload profile picture: \(error.localizedDescription)"
         }

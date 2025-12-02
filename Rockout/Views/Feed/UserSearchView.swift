@@ -1,15 +1,25 @@
 import SwiftUI
 import Supabase
+import Combine
 
 struct UserSearchView: View {
     @State private var searchText = ""
     @State private var searchResults: [UserProfileCard] = []
     @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var hasMorePages = true
     @State private var errorMessage: String?
+    @State private var selectedUserId: UUID?
+    @State private var currentOffset = 0
     
     private let profileService = UserProfileService.shared
     private let followService = FollowService.shared
     private let supabase = SupabaseService.shared.client
+    private let social = SupabaseSocialGraphService.shared
+    private let pageSize = 20
+    
+    // Debounce publisher
+    @State private var searchTask: Task<Void, Never>?
     
     var body: some View {
         NavigationStack {
@@ -34,16 +44,25 @@ struct UserSearchView: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.white.opacity(0.6))
                         
-                        TextField("Search users...", text: $searchText)
+                        TextField("Search by name, @handle, or email...", text: $searchText)
                             .foregroundColor(.white)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .onChange(of: searchText) { _, newValue in
+                                // Cancel previous search task
+                                searchTask?.cancel()
+                                
                                 if newValue.isEmpty {
                                     searchResults = []
+                                    currentOffset = 0
+                                    hasMorePages = true
                                 } else {
-                                    Task {
-                                        await searchUsers(query: newValue)
+                                    // Debounce search by 500ms
+                                    searchTask = Task {
+                                        try? await Task.sleep(nanoseconds: 500_000_000)
+                                        if !Task.isCancelled {
+                                            await searchUsers(query: newValue, resetPagination: true)
+                                        }
                                     }
                                 }
                             }
@@ -106,8 +125,28 @@ struct UserSearchView: View {
                         ScrollView {
                             LazyVStack(spacing: 16) {
                                 ForEach(searchResults) { user in
-                                    UserProfileCardView(user: user)
-                                        .padding(.horizontal, 20)
+                                    NavigationLink {
+                                        UserProfileDetailView(userId: user.id)
+                                    } label: {
+                                        UserProfileCardView(user: user)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .padding(.horizontal, 20)
+                                    .onAppear {
+                                        // Load more when we reach the last item
+                                        if user == searchResults.last && hasMorePages && !isLoadingMore {
+                                            Task {
+                                                await searchUsers(query: searchText, resetPagination: false)
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Loading more indicator
+                                if isLoadingMore {
+                                    ProgressView()
+                                        .tint(.white)
+                                        .padding()
                                 }
                             }
                             .padding(.vertical, 20)
@@ -121,82 +160,59 @@ struct UserSearchView: View {
         }
     }
     
-    private func searchUsers(query: String) async {
+    private func searchUsers(query: String, resetPagination: Bool) async {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
             searchResults = []
             return
         }
         
-        isLoading = true
+        if resetPagination {
+            isLoading = true
+            currentOffset = 0
+            hasMorePages = true
+        } else {
+            isLoadingMore = true
+        }
+        
         errorMessage = nil
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            isLoadingMore = false
+        }
         
         do {
-            guard let currentUserId = supabase.auth.currentUser?.id else {
-                throw NSError(domain: "UserSearchView", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
-            }
+            // Use the paginated RPC function
+            let result = try await social.searchUsersPaginated(
+                query: query,
+                limit: pageSize,
+                offset: currentOffset
+            )
             
-            // Search profiles by first name, last name, or display name
-            let searchQuery = query.trimmingCharacters(in: .whitespaces).lowercased()
-            
-            struct ProfileRow: Codable {
-                let id: UUID
-                let display_name: String?
-                let first_name: String?
-                let last_name: String?
-            }
-            
-            let allProfiles: [ProfileRow] = try await supabase
-                .from("profiles")
-                .select("id, display_name, first_name, last_name")
-                .neq("id", value: currentUserId)
-                .execute()
-                .value
-            
-            let matchingProfiles = allProfiles.filter { profile in
-                let displayName = (profile.display_name ?? "").lowercased()
-                let firstName = (profile.first_name ?? "").lowercased()
-                let lastName = (profile.last_name ?? "").lowercased()
-                let fullName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces).lowercased()
-                
-                return displayName.contains(searchQuery) ||
-                       firstName.contains(searchQuery) ||
-                       lastName.contains(searchQuery) ||
-                       fullName.contains(searchQuery)
-            }
-            
-            // Convert to UserProfileCard with follow status
-            var cards: [UserProfileCard] = []
-            for profile in matchingProfiles.prefix(20) {
-                let displayName: String
-                if let firstName = profile.first_name, let lastName = profile.last_name {
-                    displayName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
-                } else if let displayNameValue = profile.display_name, !displayNameValue.isEmpty {
-                    displayName = displayNameValue
-                } else {
-                    continue // Skip profiles without names
-                }
-                
-                let handle = displayName.lowercased().replacingOccurrences(of: " ", with: "")
-                let initials = generateInitials(firstName: profile.first_name, lastName: profile.last_name, displayName: displayName)
-                
-                let isFollowing = try? await followService.isFollowing(userId: profile.id)
-                
-                let user = UserProfileCard(
-                    id: profile.id,
-                    displayName: displayName,
-                    handle: "@\(handle)",
-                    avatarInitials: initials,
-                    isFollowing: isFollowing ?? false
+            // Convert UserSummary to UserProfileCard
+            let cards = result.users.map { userSummary in
+                UserProfileCard(
+                    id: UUID(uuidString: userSummary.id) ?? UUID(),
+                    displayName: userSummary.displayName,
+                    handle: userSummary.handle,
+                    avatarInitials: userSummary.avatarInitials,
+                    isFollowing: userSummary.isFollowing
                 )
-                
-                cards.append(user)
             }
             
-            searchResults = cards
+            if resetPagination {
+                searchResults = cards
+            } else {
+                searchResults.append(contentsOf: cards)
+            }
+            
+            currentOffset += pageSize
+            hasMorePages = result.hasMore
+            
         } catch {
             errorMessage = error.localizedDescription
-            searchResults = []
+            if resetPagination {
+                searchResults = []
+            }
         }
     }
     
@@ -213,12 +229,16 @@ struct UserSearchView: View {
 
 // MARK: - User Profile Card Model
 
-struct UserProfileCard: Identifiable {
+struct UserProfileCard: Identifiable, Equatable {
     let id: UUID
     let displayName: String
     let handle: String
     let avatarInitials: String
     var isFollowing: Bool
+    
+    static func == (lhs: UserProfileCard, rhs: UserProfileCard) -> Bool {
+        return lhs.id == rhs.id
+    }
 }
 
 // MARK: - User Profile Card View

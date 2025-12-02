@@ -15,7 +15,7 @@ final class SpotifyAuthService: ObservableObject {
     private let clientID = "13aa07c310bb445d82fc8035ee426d0c"
     private let redirectURI = "rockout://auth"
     private let tokenURL = "https://accounts.spotify.com/api/token"
-    private let scopes = "user-read-email user-read-private user-top-read playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
+    private let scopes = "user-read-email user-read-private user-top-read user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
     private let connectionService = SpotifyConnectionService.shared
 
     private init() {
