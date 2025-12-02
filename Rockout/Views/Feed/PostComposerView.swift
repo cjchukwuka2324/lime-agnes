@@ -23,6 +23,7 @@ struct PostComposerView: View {
     @State private var audioRecorder: AVAudioRecorder?
     @State private var isUploadingMedia = false
     @State private var showImagePicker = false
+    @State private var showCameraPicker = false
     @State private var showImageCrop = false
     @State private var imageToCrop: UIImage?
     @State private var showVideoPicker = false
@@ -104,6 +105,12 @@ struct PostComposerView: View {
             }
             .sheet(isPresented: $showVideoPicker) {
                 VideoPicker(selectedVideoURL: $selectedVideo)
+            }
+            .sheet(isPresented: $showCameraPicker) {
+                CameraPickerView(
+                    selectedImages: $selectedImages,
+                    selectedVideo: $selectedVideo
+                )
             }
             .sheet(isPresented: $showSpotifyLinkAdd) {
                 SpotifyLinkAddView(selectedSpotifyLink: $spotifyLink)
@@ -334,8 +341,7 @@ struct PostComposerView: View {
     
     private var mediaButtonsRow: some View {
         HStack(spacing: 12) {
-            photoButton
-            videoButton
+            cameraButton
             voiceButton
             musicButton
             pollButton
@@ -346,35 +352,24 @@ struct PostComposerView: View {
         .padding(.vertical, 8)
     }
     
-    private var photoButton: some View {
-        Button {
-            showImagePicker = true
+    private var cameraButton: some View {
+        Menu {
+            Button {
+                showCameraPicker = true
+            } label: {
+                Label("Take Photo/Video", systemImage: "camera")
+            }
+            
+            Button {
+                showImagePicker = true
+            } label: {
+                Label("Choose from Gallery", systemImage: "photo.on.rectangle")
+            }
         } label: {
             VStack(spacing: 6) {
-                Image(systemName: "photo.fill")
+                Image(systemName: "camera.fill")
                     .font(.title3)
                 Text("Photo")
-                    .font(.caption2)
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.15))
-            )
-        }
-        .disabled(isPosting || isUploadingMedia || isRecording)
-    }
-    
-    private var videoButton: some View {
-        Button {
-            showVideoPicker = true
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: "video.fill")
-                    .font(.title3)
-                Text("Video")
                     .font(.caption2)
             }
             .foregroundColor(.white)

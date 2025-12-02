@@ -12,6 +12,7 @@ struct FeedCardView: View {
     let onNavigateToRockList: ((String) -> Void)?
     let onTapProfile: (() -> Void)?
     let onDelete: ((String) -> Void)?
+    let onHashtagTap: ((String) -> Void)?
     let showInlineReplies: Bool
     let service: FeedService?
     
@@ -33,6 +34,7 @@ struct FeedCardView: View {
         onNavigateToRockList: ((String) -> Void)? = nil,
         onTapProfile: (() -> Void)? = nil,
         onDelete: ((String) -> Void)? = nil,
+        onHashtagTap: ((String) -> Void)? = nil,
         showInlineReplies: Bool = false,
         service: FeedService? = nil
     ) {
@@ -41,11 +43,12 @@ struct FeedCardView: View {
         self.onLike = onLike
         self.onReply = onReply
         self.onNavigateToParent = onNavigateToParent
-                self.onNavigateToRockList = onNavigateToRockList
-                self.onTapProfile = onTapProfile
-                self.onDelete = onDelete
-                self.showInlineReplies = showInlineReplies
-                self.service = service
+        self.onNavigateToRockList = onNavigateToRockList
+        self.onTapProfile = onTapProfile
+        self.onDelete = onDelete
+        self.onHashtagTap = onHashtagTap
+        self.showInlineReplies = showInlineReplies
+        self.service = service
     }
     
     var body: some View {
@@ -259,12 +262,16 @@ struct FeedCardView: View {
     @ViewBuilder
     private var postContent: some View {
         if !post.text.isEmpty {
-            Text(post.text)
-                .font(isReply ? .body : .body)
-                .foregroundColor(.white.opacity(0.95))
-                .lineSpacing(6)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 16)
+            HashtagTextView(
+                text: post.text,
+                font: isReply ? .body : .body,
+                textColor: .white.opacity(0.95),
+                hashtagColor: Color(hex: "#1ED760"),
+                onHashtagTap: onHashtagTap
+            )
+            .lineSpacing(6)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 16)
         }
     }
     

@@ -20,11 +20,34 @@ final class NotificationsViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            notifications = try await notificationService.fetchNotifications(limit: 50, before: nil)
+            let fetchedNotifications = try await notificationService.fetchNotifications(limit: 50, before: nil)
+            // Deduplicate notifications - keep only unique by ID and remove duplicates with same type/post within 1 minute
+            notifications = deduplicateNotifications(fetchedNotifications)
             await refreshUnreadCount()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+    
+    /// Removes duplicate notifications based on content and timing
+    private func deduplicateNotifications(_ notifications: [AppNotification]) -> [AppNotification] {
+        var seen: Set<String> = []
+        var result: [AppNotification] = []
+        
+        for notification in notifications {
+            // Create a unique key based on type, post, actor, and time window (within 1 minute)
+            let timeKey = Int(notification.createdAt.timeIntervalSince1970 / 60) // 1-minute buckets
+            let postKey = notification.postId ?? "none"
+            let actorKey = notification.actor?.id ?? "none"
+            let uniqueKey = "\(notification.type)_\(postKey)_\(actorKey)_\(timeKey)"
+            
+            if !seen.contains(uniqueKey) {
+                seen.insert(uniqueKey)
+                result.append(notification)
+            }
+        }
+        
+        return result
     }
     
     func markAsRead(_ id: String) async {

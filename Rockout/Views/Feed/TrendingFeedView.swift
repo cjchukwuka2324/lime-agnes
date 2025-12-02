@@ -5,6 +5,12 @@ struct TrendingFeedView: View {
     @State private var selectedPostId: String?
     @State private var showHashtags = false
     
+    let initialHashtag: String?
+    
+    init(initialHashtag: String? = nil) {
+        self.initialHashtag = initialHashtag
+    }
+    
     var body: some View {
         ZStack {
             // Match For You and Following background
@@ -31,6 +37,13 @@ struct TrendingFeedView: View {
         .task {
             await viewModel.loadTrending()
             await viewModel.loadAllTrendingPosts()
+            
+            // If an initial hashtag was provided, select it
+            if let hashtag = initialHashtag {
+                showHashtags = true
+                viewModel.selectedHashtag = hashtag
+                await viewModel.loadPostsForHashtag(hashtag)
+            }
         }
         .onAppear {
             // Start auto-refresh when view appears (every 5 minutes)
@@ -153,6 +166,13 @@ struct TrendingFeedView: View {
                                     await viewModel.deletePost(postId: postId)
                                 }
                             },
+                            onHashtagTap: { hashtag in
+                                showHashtags = true
+                                viewModel.selectedHashtag = hashtag
+                                Task {
+                                    await viewModel.loadPostsForHashtag(hashtag)
+                                }
+                            },
                             service: SupabaseFeedService.shared
                         )
                         .padding(.horizontal, 16)
@@ -232,6 +252,12 @@ struct TrendingFeedView: View {
                             onLike: { postId in
                                 Task {
                                     await viewModel.toggleLike(postId: postId)
+                                }
+                            },
+                            onHashtagTap: { hashtag in
+                                viewModel.selectedHashtag = hashtag
+                                Task {
+                                    await viewModel.loadPostsForHashtag(hashtag)
                                 }
                             },
                             service: SupabaseFeedService.shared

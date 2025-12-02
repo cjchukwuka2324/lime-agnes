@@ -21,6 +21,7 @@ struct FeedView: View {
     @State private var selectedProfileUserId: UUID?
     @State private var showProfile = false
     @State private var fabOffset: CGSize = .zero
+    @State private var selectedHashtag: String?
     
     var body: some View {
         NavigationStack {
@@ -164,7 +165,13 @@ struct FeedView: View {
             ZStack(alignment: .bottomTrailing) {
                 // Show TrendingFeedView for trending tab
                 if selectedFeedType == .trending {
-                    TrendingFeedView()
+                    TrendingFeedView(initialHashtag: selectedHashtag)
+                        .onChange(of: selectedFeedType) { _, newValue in
+                            // Clear selected hashtag when switching away from trending
+                            if newValue != .trending {
+                                selectedHashtag = nil
+                            }
+                        }
                 } else {
                     // For You and Following tabs
                     if viewModel.posts.isEmpty {
@@ -259,6 +266,11 @@ struct FeedView: View {
                 Task {
                     await viewModel.deletePost(postId: postId)
                 }
+            },
+            onHashtagTap: { hashtag in
+                // Switch to Trending tab and filter by hashtag
+                selectedHashtag = hashtag
+                selectedFeedType = .trending
             },
             showInlineReplies: true,
             service: viewModel.service

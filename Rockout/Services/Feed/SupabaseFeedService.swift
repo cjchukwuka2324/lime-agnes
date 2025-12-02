@@ -717,8 +717,11 @@ final class SupabaseFeedService: FeedService {
                     let audio_url: String?
                 }
                 
-                // Get parent post authors
-                let parentUserIds = Set(parentIdsArray.map { $0.uuidString })
+                // First decode the parent posts to get user IDs
+                let parentPosts: [ParentPostRow] = try JSONDecoder().decode([ParentPostRow].self, from: parentResponse.data)
+                
+                // Get parent post authors by USER ID (not post ID)
+                let parentUserIds = Set(parentPosts.map { $0.user_id })
                 var parentAuthorsMap: [String: UserSummary] = [:]
                 
                 if !parentUserIds.isEmpty {
@@ -732,7 +735,7 @@ final class SupabaseFeedService: FeedService {
                             username,
                             profile_picture_url
                         """)
-                        .in("id", values: Array(parentUserIds.compactMap { UUID(uuidString: $0) }))
+                        .in("id", values: Array(parentUserIds))
                         .limit(1000)
                         .execute()
                     
@@ -779,11 +782,10 @@ final class SupabaseFeedService: FeedService {
                     }
                 }
                 
-                let parentPosts: [ParentPostRow] = try JSONDecoder().decode([ParentPostRow].self, from: parentResponse.data)
-                
                 for parentRow in parentPosts {
                     let parentId = parentRow.id.uuidString
-                    let author = parentAuthorsMap[parentId] ?? UserSummary(
+                    // Look up author by USER ID, not post ID
+                    let author = parentAuthorsMap[parentRow.user_id.uuidString] ?? UserSummary(
                         id: parentRow.user_id.uuidString,
                         displayName: "User",
                         handle: "@user",
@@ -1939,8 +1941,32 @@ final class SupabaseFeedService: FeedService {
     // MARK: - Fetch Replies
     
     func fetchReplies(for postId: String) async throws -> [Post] {
-        let feedResult = try await fetchHomeFeed(feedType: .forYou, region: nil, cursor: nil, limit: 100)
-        return feedResult.posts.filter { $0.parentPostId == postId }
+        // Fetch all posts to find the entire reply tree
+        let feedResult = try await fetchHomeFeed(feedType: .forYou, region: nil, cursor: nil, limit: 200)
+        let allPosts = feedResult.posts
+        
+        // Build a set of all post IDs that are part of this thread (including nested replies)
+        var threadPostIds = Set<String>()
+        var postsToCheck = [postId]
+        
+        // Recursively find all nested replies
+        while !postsToCheck.isEmpty {
+            let currentId = postsToCheck.removeFirst()
+            
+            // Find all posts that are direct replies to currentId
+            let directReplies = allPosts.filter { $0.parentPostId == currentId }
+            for reply in directReplies {
+                if !threadPostIds.contains(reply.id) {
+                    threadPostIds.insert(reply.id)
+                    postsToCheck.append(reply.id) // Check for nested replies
+                }
+            }
+        }
+        
+        // Return all posts that are part of the thread
+        let replies = allPosts.filter { threadPostIds.contains($0.id) }
+        print("✅ Found \(replies.count) total replies (including nested) for post \(postId)")
+        return replies
     }
     
     // MARK: - Create Leaderboard Comment
