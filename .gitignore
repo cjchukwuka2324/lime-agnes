@@ -131,3 +131,8 @@ AuthKey_*.p8
 
 AuthKey_*.p8
 
+
+# Xcode user-specific files
+*.xcuserstate
+*.xcuserdatad
+xcuserdata/
