@@ -177,11 +177,22 @@ final class StudioSessionsViewModel: ObservableObject {
             
             do {
                 let (album, isCollaboration) = try await shareService.acceptSharedAlbum(shareToken: shareToken)
-                // Add to appropriate list based on collaboration status
+                
+                // If upgrading from view-only to collaboration, remove from sharedAlbums
                 if isCollaboration {
-                    collaborativeAlbums.insert(album, at: 0)
+                    // Remove from sharedAlbums if it exists there (upgrade scenario)
+                    sharedAlbums.removeAll { $0.id == album.id }
+                    // Add to collaborativeAlbums
+                    if !collaborativeAlbums.contains(where: { $0.id == album.id }) {
+                        collaborativeAlbums.insert(album, at: 0)
+                    }
                 } else {
-                    sharedAlbums.insert(album, at: 0)
+                    // Remove from collaborativeAlbums if it exists there (downgrade scenario)
+                    collaborativeAlbums.removeAll { $0.id == album.id }
+                    // Add to sharedAlbums
+                    if !sharedAlbums.contains(where: { $0.id == album.id }) {
+                        sharedAlbums.insert(album, at: 0)
+                    }
                 }
             } catch {
                 errorMessage = error.localizedDescription

@@ -2,8 +2,13 @@ import SwiftUI
 import AVFoundation
 
 struct AudioPlayerView: View {
-    @StateObject private var playerVM = AudioPlayerViewModel()
+    @ObservedObject var playerVM: AudioPlayerViewModel
     let track: StudioTrackRecord
+    
+    init(track: StudioTrackRecord) {
+        self.track = track
+        self.playerVM = AudioPlayerViewModel.shared
+    }
     
     @State private var showControls = false
     @State private var showPitchControls = false
@@ -95,12 +100,44 @@ struct AudioPlayerView: View {
             }
         }
         .onAppear {
-            playerVM.loadTrack(track)
+            // Track is already loaded if coming from bottom player bar
+            // Only load if it's a different track
+            if playerVM.currentTrack?.id != track.id {
+                playerVM.loadTrack(track)
+            }
         }
     }
     
     // MARK: - Album Art View
     private var albumArtView: some View {
+        Group {
+            if let album = playerVM.currentAlbum,
+               let urlString = album.cover_art_url,
+               let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        albumPlaceholder
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        albumPlaceholder
+                    @unknown default:
+                        albumPlaceholder
+                    }
+                }
+            } else {
+                albumPlaceholder
+            }
+        }
+        .frame(width: 280, height: 280)
+        .cornerRadius(20)
+        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+    }
+    
+    private var albumPlaceholder: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
                 .fill(
@@ -110,8 +147,6 @@ struct AudioPlayerView: View {
                         endPoint: .bottomTrailing
                     )
                 )
-                .frame(width: 280, height: 280)
-                .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
             
             Image(systemName: "music.note")
                 .font(.system(size: 80))

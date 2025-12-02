@@ -2,9 +2,12 @@ import Foundation
 import AVFoundation
 import Combine
 import SwiftUI
+import Supabase
 
 @MainActor
 class AudioPlayerViewModel: ObservableObject {
+    static let shared = AudioPlayerViewModel()
+    
     @Published var isPlaying = false
     @Published var currentTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
@@ -16,9 +19,11 @@ class AudioPlayerViewModel: ObservableObject {
     @Published var loopEnd: TimeInterval = 0
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var currentAlbum: StudioAlbumRecord?
     
     private var player: AVPlayer?
     private var timeObserver: Any?
+    private var playerForObserver: AVPlayer? // Track which player the observer belongs to
     private var playerItem: AVPlayerItem?
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
@@ -28,63 +33,176 @@ class AudioPlayerViewModel: ObservableObject {
     
     var currentTrack: StudioTrackRecord?
     
+    private init() {}
+    
     // MARK: - Load Track
-    func loadTrack(_ track: StudioTrackRecord) {
+    func loadTrack(_ track: StudioTrackRecord, album: StudioAlbumRecord? = nil) {
         currentTrack = track
+        currentAlbum = album
         isLoading = true
         errorMessage = nil
         
-        guard let url = URL(string: track.audio_url) else {
-            errorMessage = "Invalid audio URL"
-            isLoading = false
-            return
-        }
+        // Remove time observer BEFORE stopping/creating new player
+        removeTimeObserver()
         
         // Stop current playback
         stop()
         
-        // Configure AVPlayer for remote playback
-        let asset = AVURLAsset(url: url)
-        playerItem = AVPlayerItem(asset: asset)
-        player = AVPlayer(playerItem: playerItem)
+        // Try to get a playable URL (signed URL if needed)
+        Task {
+            do {
+                let playableURL = try await getPlayableAudioURL(from: track.audio_url)
+                
+                await MainActor.run {
+                    // Configure AVPlayer for remote playback
+                    let asset = AVURLAsset(url: playableURL)
+                    self.playerItem = AVPlayerItem(asset: asset)
+                    self.player = AVPlayer(playerItem: self.playerItem)
+                    
+                    // Configure audio session for playback
+                    do {
+                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+                        try AVAudioSession.sharedInstance().setActive(true)
+                    } catch {
+                        print("Failed to configure audio session: \(error)")
+                    }
+                    
+                    // Observe duration
+                    self.playerItem?.publisher(for: \.duration)
+                        .sink { [weak self] duration in
+                            guard let self = self, duration.isValid else { return }
+                            let seconds = duration.seconds
+                            // Only set if valid (not NaN or Infinity)
+                            guard seconds.isFinite && !seconds.isNaN else { return }
+                            self.duration = seconds
+                            if self.loopEnd == 0 {
+                                self.loopEnd = seconds
+                            }
+                        }
+                        .store(in: &self.cancellables)
+                    
+                    // Observe status
+                    self.playerItem?.publisher(for: \.status)
+                        .sink { [weak self] status in
+                            guard let self = self else { return }
+                            if status == .readyToPlay {
+                                self.isLoading = false
+                                // Auto-play when ready
+                                self.player?.play()
+                                self.player?.rate = self.playbackRate
+                                self.isPlaying = true
+                            } else if status == .failed {
+                                // Try to get more detailed error info
+                                if let error = self.playerItem?.error {
+                                    print("❌ AVPlayerItem error: \(error.localizedDescription)")
+                                    if let underlyingError = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError {
+                                        print("   Underlying error: \(underlyingError.localizedDescription)")
+                                    }
+                                }
+                                
+                                self.errorMessage = "Failed to load audio file"
+                                self.isLoading = false
+                            }
+                        }
+                        .store(in: &self.cancellables)
+                    
+                    // Setup time observer
+                    self.setupTimeObserver()
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Failed to load audio: \(error.localizedDescription)"
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    // MARK: - Get Playable Audio URL
+    private func getPlayableAudioURL(from audioURLString: String) async throws -> URL {
+        print("🎵 Loading audio from URL: \(audioURLString)")
         
-        // Configure audio session for playback
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("Failed to configure audio session: \(error)")
+        guard let originalURL = URL(string: audioURLString) else {
+            throw NSError(domain: "AudioPlayerViewModel", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid audio URL"])
         }
         
-        // Observe duration
-        playerItem?.publisher(for: \.duration)
-            .sink { [weak self] duration in
-                guard let self = self, duration.isValid else { return }
-                let seconds = duration.seconds
-                // Only set if valid (not NaN or Infinity)
-                guard seconds.isFinite && !seconds.isNaN else { return }
-                self.duration = seconds
-                if self.loopEnd == 0 {
-                    self.loopEnd = seconds
+        // Check if this is a Supabase storage URL
+        // Supabase storage URLs typically look like: https://[project].supabase.co/storage/v1/object/public/[bucket]/[path]
+        if let host = originalURL.host, host.contains("supabase.co") {
+            print("🔍 Detected Supabase storage URL")
+            // Try to extract the bucket and path from the URL
+            let pathComponents = originalURL.pathComponents
+            print("   Path components: \(pathComponents)")
+            
+            if let publicIndex = pathComponents.firstIndex(of: "public"),
+               publicIndex + 1 < pathComponents.count {
+                let bucket = pathComponents[publicIndex + 1]
+                let filePath = pathComponents.dropFirst(publicIndex + 2).joined(separator: "/")
+                
+                print("   Extracted bucket: '\(bucket)', path: '\(filePath)'")
+                
+                // Try to create a signed URL first (works even if bucket is public)
+                print("   Attempting to create signed URL for path: '\(filePath)' in bucket: '\(bucket)'...")
+                do {
+                    let supabase = SupabaseService.shared.client
+                    
+                    // First, try to verify the file exists by listing the directory
+                    let pathComponents = filePath.split(separator: "/")
+                    if pathComponents.count >= 2 {
+                        let directoryPath = pathComponents.dropLast().joined(separator: "/")
+                        let fileName = String(pathComponents.last ?? "")
+                        
+                        print("   Checking if file exists in directory: '\(directoryPath)'...")
+                        do {
+                            let files = try await supabase.storage
+                                .from(bucket)
+                                .list(path: directoryPath)
+                            
+                            let matchingFiles = files.filter { $0.name == fileName }
+                            if matchingFiles.isEmpty {
+                                print("   ⚠️ File '\(fileName)' not found in directory '\(directoryPath)'")
+                                print("   Available files: \(files.map { $0.name })")
+                            } else {
+                                print("   ✅ File found in storage")
+                            }
+                        } catch {
+                            print("   ⚠️ Could not list directory (may be RLS issue): \(error.localizedDescription)")
+                        }
+                    }
+                    
+                    let signedURL = try await supabase.storage
+                        .from(bucket)
+                        .createSignedURL(path: filePath, expiresIn: 3600)
+                    
+                    print("✅ Created signed URL: \(signedURL.absoluteString)")
+                    return signedURL
+                } catch {
+                    print("⚠️ Failed to create signed URL: \(error.localizedDescription)")
+                    if let nsError = error as NSError? {
+                        print("   Error domain: \(nsError.domain), code: \(nsError.code)")
+                        if let userInfo = nsError.userInfo as? [String: Any] {
+                            print("   Error userInfo: \(userInfo)")
+                        }
+                    }
+                    
+                    // If signed URL fails with "Object not found", the file might not exist
+                    // or the path is incorrect. Try public URL as fallback anyway.
+                    print("   Falling back to public URL...")
+                    print("   NOTE: If this also fails, check:")
+                    print("   1. The file exists at path: \(filePath)")
+                    print("   2. The '\(bucket)' bucket is public OR has proper RLS policies")
+                    print("   3. The storage bucket allows signed URL creation")
+                    return originalURL
                 }
+            } else {
+                print("⚠️ Could not extract bucket/path from Supabase URL, using public URL")
             }
-            .store(in: &cancellables)
+        } else {
+            print("ℹ️ Not a Supabase URL, using as-is")
+        }
         
-        // Observe status
-        playerItem?.publisher(for: \.status)
-            .sink { [weak self] status in
-                guard let self = self else { return }
-                if status == .readyToPlay {
-                    self.isLoading = false
-                } else if status == .failed {
-                    self.errorMessage = "Failed to load audio"
-                    self.isLoading = false
-                }
-            }
-            .store(in: &cancellables)
-        
-        // Setup time observer
-        setupTimeObserver()
+        // If not a Supabase URL or extraction failed, use the original URL
+        return originalURL
     }
     
     // MARK: - Playback Controls
@@ -208,10 +326,13 @@ class AudioPlayerViewModel: ObservableObject {
     
     // MARK: - Private Methods
     private func setupTimeObserver() {
+        // Remove any existing observer first
         removeTimeObserver()
         
+        guard let currentPlayer = player else { return }
+        
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        timeObserver = currentPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self else { return }
             self.currentTime = time.seconds
             
@@ -220,12 +341,33 @@ class AudioPlayerViewModel: ObservableObject {
                 self.seek(to: self.loopStart)
             }
         }
+        
+        // Store reference to the player this observer belongs to
+        playerForObserver = currentPlayer
     }
     
     private func removeTimeObserver() {
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
+        if let observer = timeObserver, let playerToRemoveFrom = playerForObserver {
+            // Only remove from the player that added it
+            playerToRemoveFrom.removeTimeObserver(observer)
             timeObserver = nil
+            playerForObserver = nil
+        } else if timeObserver != nil {
+            // If we have an observer but no player reference, try current player
+            // This handles edge cases
+            if let observer = timeObserver, let currentPlayer = player {
+                currentPlayer.removeTimeObserver(observer)
+            }
+            timeObserver = nil
+            playerForObserver = nil
+        }
+    }
+    
+    nonisolated private func removeTimeObserverUnsafe() {
+        // This version can be called from deinit
+        // We need to access the properties directly without main actor isolation
+        Task { @MainActor in
+            self.removeTimeObserver()
         }
     }
     
@@ -235,12 +377,13 @@ class AudioPlayerViewModel: ObservableObject {
     }
     
     deinit {
-        // Cleanup directly without calling main actor methods
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
+        // Cleanup: remove time observer if it exists
+        // We can't call main actor methods from deinit, so we do minimal cleanup
+        if let observer = timeObserver, let playerToRemoveFrom = playerForObserver {
+            playerToRemoveFrom.removeTimeObserver(observer)
         }
         player?.pause()
-        cancellables.removeAll()
+        // Note: cancellables will be cleaned up automatically
     }
 }
 
