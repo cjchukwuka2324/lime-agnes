@@ -41,8 +41,7 @@ struct TrendingFeedView: View {
             // If an initial hashtag was provided, select it
             if let hashtag = initialHashtag {
                 showHashtags = true
-                viewModel.selectedHashtag = hashtag
-                await viewModel.loadPostsForHashtag(hashtag)
+                await viewModel.selectHashtagByString(hashtag)
             }
         }
         .onAppear {
@@ -166,13 +165,12 @@ struct TrendingFeedView: View {
                                     await viewModel.deletePost(postId: postId)
                                 }
                             },
-                            onHashtagTap: { hashtag in
-                                showHashtags = true
-                                viewModel.selectedHashtag = hashtag
-                                Task {
-                                    await viewModel.loadPostsForHashtag(hashtag)
-                                }
-                            },
+            onHashtagTap: { hashtag in
+                showHashtags = true
+                Task {
+                    await viewModel.selectHashtagByString(hashtag)
+                }
+            },
                             service: SupabaseFeedService.shared
                         )
                         .padding(.horizontal, 16)
@@ -255,9 +253,8 @@ struct TrendingFeedView: View {
                                 }
                             },
                             onHashtagTap: { hashtag in
-                                viewModel.selectedHashtag = hashtag
                                 Task {
-                                    await viewModel.loadPostsForHashtag(hashtag)
+                                    await viewModel.selectHashtagByString(hashtag)
                                 }
                             },
                             service: SupabaseFeedService.shared

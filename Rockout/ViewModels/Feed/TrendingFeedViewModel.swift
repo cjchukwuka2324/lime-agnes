@@ -84,6 +84,20 @@ final class TrendingFeedViewModel: ObservableObject {
         await loadPostsForSelectedHashtag()
     }
     
+    func selectHashtagByString(_ hashtagString: String) async {
+        // Create a TrendingHashtag from the string
+        let hashtag = TrendingHashtag(
+            tag: hashtagString,
+            postCount: 0,
+            engagementScore: 0,
+            latestPostAt: Date()
+        )
+        selectedHashtag = hashtag
+        postCursor = nil
+        hasMorePosts = true
+        await loadPostsForSelectedHashtag()
+    }
+    
     // MARK: - Load Posts for Hashtag
     
     private func loadPostsForSelectedHashtag() async {
