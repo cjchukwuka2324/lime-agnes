@@ -20,6 +20,7 @@ class AudioPlayerViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var currentAlbum: StudioAlbumRecord?
+    @Published var albumTracks: [StudioTrackRecord] = []
     
     private var player: AVPlayer?
     private var timeObserver: Any?
@@ -36,9 +37,19 @@ class AudioPlayerViewModel: ObservableObject {
     private init() {}
     
     // MARK: - Load Track
-    func loadTrack(_ track: StudioTrackRecord, album: StudioAlbumRecord? = nil) {
+    func loadTrack(_ track: StudioTrackRecord, album: StudioAlbumRecord? = nil, tracks: [StudioTrackRecord]? = nil) {
         currentTrack = track
-        currentAlbum = album
+        if let album = album {
+            currentAlbum = album
+        }
+        if let tracks = tracks {
+            albumTracks = tracks.sorted { ($0.track_number ?? 0) < ($1.track_number ?? 0) }
+        }
+        // If tracks not provided but album matches, keep existing tracks
+        // If album changes, clear tracks (will need to be reloaded)
+        if tracks == nil, let album = album, currentAlbum?.id != album.id {
+            albumTracks = []
+        }
         isLoading = true
         errorMessage = nil
         
@@ -250,6 +261,31 @@ class AudioPlayerViewModel: ObservableObject {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
         currentTime = time
+    }
+    
+    // MARK: - Track Navigation
+    func previousTrack() {
+        guard let currentTrack = currentTrack,
+              !albumTracks.isEmpty else { return }
+        
+        let sortedTracks = albumTracks.sorted { ($0.track_number ?? 0) < ($1.track_number ?? 0) }
+        guard let currentIndex = sortedTracks.firstIndex(where: { $0.id == currentTrack.id }),
+              currentIndex > 0 else { return }
+        
+        let previousTrack = sortedTracks[currentIndex - 1]
+        loadTrack(previousTrack, album: currentAlbum, tracks: albumTracks)
+    }
+    
+    func nextTrack() {
+        guard let currentTrack = currentTrack,
+              !albumTracks.isEmpty else { return }
+        
+        let sortedTracks = albumTracks.sorted { ($0.track_number ?? 0) < ($1.track_number ?? 0) }
+        guard let currentIndex = sortedTracks.firstIndex(where: { $0.id == currentTrack.id }),
+              currentIndex < sortedTracks.count - 1 else { return }
+        
+        let nextTrack = sortedTracks[currentIndex + 1]
+        loadTrack(nextTrack, album: currentAlbum, tracks: albumTracks)
     }
     
     // MARK: - Playback Rate
