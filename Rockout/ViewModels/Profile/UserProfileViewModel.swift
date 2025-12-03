@@ -136,4 +136,86 @@ final class UserProfileViewModel: ObservableObject {
     var followingCount: Int {
         user?.followingCount ?? 0
     }
+    
+    func toggleLike(postId: String) async {
+        // Store original posts for potential revert
+        let originalPosts = posts
+        let originalLikedPosts = likedPosts
+        
+        // Update local state optimistically
+        if let index = posts.firstIndex(where: { $0.id == postId }) {
+            let originalPost = posts[index]
+            let wasLiked = originalPost.isLiked
+            let updatedPost = Post(
+                id: originalPost.id,
+                text: originalPost.text,
+                createdAt: originalPost.createdAt,
+                author: originalPost.author,
+                imageURLs: originalPost.imageURLs,
+                videoURL: originalPost.videoURL,
+                audioURL: originalPost.audioURL,
+                likeCount: wasLiked ? max(0, originalPost.likeCount - 1) : originalPost.likeCount + 1,
+                replyCount: originalPost.replyCount,
+                isLiked: !wasLiked,
+                parentPostId: originalPost.parentPostId,
+                parentPost: originalPost.parentPost,
+                leaderboardEntry: originalPost.leaderboardEntry,
+                resharedPostId: originalPost.resharedPostId,
+                spotifyLink: originalPost.spotifyLink,
+                poll: originalPost.poll,
+                backgroundMusic: originalPost.backgroundMusic
+            )
+            posts[index] = updatedPost
+        }
+        
+        // Also update in likedPosts if present
+        if let index = likedPosts.firstIndex(where: { $0.id == postId }) {
+            let originalPost = likedPosts[index]
+            let wasLiked = originalPost.isLiked
+            let updatedPost = Post(
+                id: originalPost.id,
+                text: originalPost.text,
+                createdAt: originalPost.createdAt,
+                author: originalPost.author,
+                imageURLs: originalPost.imageURLs,
+                videoURL: originalPost.videoURL,
+                audioURL: originalPost.audioURL,
+                likeCount: wasLiked ? max(0, originalPost.likeCount - 1) : originalPost.likeCount + 1,
+                replyCount: originalPost.replyCount,
+                isLiked: !wasLiked,
+                parentPostId: originalPost.parentPostId,
+                parentPost: originalPost.parentPost,
+                leaderboardEntry: originalPost.leaderboardEntry,
+                resharedPostId: originalPost.resharedPostId,
+                spotifyLink: originalPost.spotifyLink,
+                poll: originalPost.poll,
+                backgroundMusic: originalPost.backgroundMusic
+            )
+            likedPosts[index] = updatedPost
+        }
+        
+        // Call service to update on server
+        do {
+            try await feed.toggleLike(postId: postId)
+        } catch {
+            // Revert on error
+            await MainActor.run {
+                self.posts = originalPosts
+                self.likedPosts = originalLikedPosts
+            }
+        }
+    }
+    
+    func deletePost(postId: String) async {
+        do {
+            try await feed.deletePost(postId: postId)
+            // Remove from local arrays
+            posts.removeAll { $0.id == postId }
+            likedPosts.removeAll { $0.id == postId }
+        } catch {
+            await MainActor.run {
+                self.errorMessage = error.localizedDescription
+            }
+        }
+    }
 }

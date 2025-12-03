@@ -147,6 +147,8 @@ struct FullScreenMediaView: View {
         ZStack {
             if let player = player {
                 VideoPlayer(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.all)
                     .onAppear {
                         player.isMuted = isMuted
                         player.play()

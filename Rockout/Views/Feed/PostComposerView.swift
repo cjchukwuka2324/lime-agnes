@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AVKit
+import PhotosUI
 
 struct PostComposerView: View {
     @Environment(\.dismiss) private var dismiss
@@ -27,6 +28,7 @@ struct PostComposerView: View {
     @State private var showImageCrop = false
     @State private var imageToCrop: UIImage?
     @State private var showVideoPicker = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var spotifyLink: SpotifyLink?
     @State private var poll: Poll?
     @State private var backgroundMusic: BackgroundMusic?
@@ -88,9 +90,12 @@ struct PostComposerView: View {
                     .disabled(!canPost || isPosting || isUploadingMedia || isRecording)
                 }
             }
-            .sheet(isPresented: $showImagePicker) {
-                MultiImagePicker(selectedImages: $selectedImages)
-            }
+            .photosPicker(
+                isPresented: $showImagePicker,
+                selection: $selectedPhotoItems,
+                maxSelectionCount: 4,
+                matching: .images
+            )
             .sheet(isPresented: $showImageCrop) {
                 if let image = imageToCrop {
                     ImageCropView(image: Binding(
@@ -133,6 +138,11 @@ struct PostComposerView: View {
                     Task {
                         await validateVideoDuration(videoURL)
                     }
+                }
+            }
+            .onChange(of: selectedPhotoItems) { _, newItems in
+                Task {
+                    await loadImagesFromPicker(newItems)
                 }
             }
         }
@@ -360,8 +370,8 @@ struct PostComposerView: View {
                 Label("Take Photo/Video", systemImage: "camera")
             }
             
-            Button {
-                showImagePicker = true
+        Button {
+            showImagePicker = true
             } label: {
                 Label("Choose from Gallery", systemImage: "photo.on.rectangle")
             }
@@ -500,36 +510,36 @@ struct PostComposerView: View {
     }
     
     private var pollPreviewHeader: some View {
-        HStack {
-            Text("Poll")
-                .font(.caption.weight(.medium))
-                .foregroundColor(.white.opacity(0.7))
-            Spacer()
-            Button {
-                self.poll = nil
-            } label: {
-                Image(systemName: "xmark.circle.fill")
+            HStack {
+                Text("Poll")
+                    .font(.caption.weight(.medium))
                     .foregroundColor(.white.opacity(0.7))
+                Spacer()
+                Button {
+                    self.poll = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white.opacity(0.7))
             }
-        }
-    }
-    
-    private func pollPreviewContent(poll: Poll) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(poll.question)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(.white)
+                }
+            }
             
-            ForEach(Array(poll.options.enumerated()), id: \.element.id) { index, option in
+    private func pollPreviewContent(poll: Poll) -> some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(poll.question)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                
+                ForEach(Array(poll.options.enumerated()), id: \.element.id) { index, option in
                 pollOptionRow(option: option, pollType: poll.type)
+                }
             }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.1))
+            )
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.1))
-        )
-    }
     
     private func pollOptionRow(option: PollOption, pollType: String) -> some View {
         HStack {
@@ -718,6 +728,28 @@ struct PostComposerView: View {
             await MainActor.run {
                 errorMessage = "Failed to validate video: \(error.localizedDescription)"
                 selectedVideo = nil
+            }
+        }
+    }
+    
+    private func loadImagesFromPicker(_ items: [PhotosPickerItem]) async {
+        // Clear previous images when new selection is made
+        await MainActor.run {
+            selectedImages.removeAll()
+        }
+        
+        for item in items {
+            do {
+                if let data = try await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await MainActor.run {
+                        if selectedImages.count < 4 {
+                            selectedImages.append(image)
+                        }
+                    }
+                }
+            } catch {
+                print("Failed to load image: \(error.localizedDescription)")
             }
         }
     }

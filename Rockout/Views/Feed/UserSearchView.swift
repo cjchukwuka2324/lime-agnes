@@ -124,17 +124,23 @@ struct UserSearchView: View {
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 16) {
-                                ForEach(searchResults) { user in
+                                ForEach(searchResults.indices, id: \.self) { index in
                                     NavigationLink {
-                                        UserProfileDetailView(userId: user.id)
+                                        UserProfileDetailView(userId: searchResults[index].id)
                                     } label: {
-                                        UserProfileCardView(user: user)
+                                        UserProfileCardView(
+                                            user: searchResults[index],
+                                            onFollowChanged: { isFollowing in
+                                                // Update the search result when follow status changes
+                                                searchResults[index].isFollowing = isFollowing
+                                            }
+                                        )
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                     .padding(.horizontal, 20)
                                     .onAppear {
                                         // Load more when we reach the last item
-                                        if user == searchResults.last && hasMorePages && !isLoadingMore {
+                                        if index == searchResults.count - 1 && hasMorePages && !isLoadingMore {
                                             Task {
                                                 await searchUsers(query: searchText, resetPagination: false)
                                             }
@@ -245,13 +251,15 @@ struct UserProfileCard: Identifiable, Equatable {
 
 struct UserProfileCardView: View {
     let user: UserProfileCard
+    let onFollowChanged: ((Bool) -> Void)?
     @State private var isFollowing: Bool
     @State private var isUpdatingFollow = false
     
     private let followService = FollowService.shared
     
-    init(user: UserProfileCard) {
+    init(user: UserProfileCard, onFollowChanged: ((Bool) -> Void)? = nil) {
         self.user = user
+        self.onFollowChanged = onFollowChanged
         self._isFollowing = State(initialValue: user.isFollowing)
     }
     
@@ -314,6 +322,14 @@ struct UserProfileCardView: View {
         }
         .padding(16)
         .glassMorphism()
+        .onAppear {
+            // Sync internal state with user object when view appears
+            isFollowing = user.isFollowing
+        }
+        .onChange(of: user.isFollowing) { _, newValue in
+            // Update internal state when user object changes
+            isFollowing = newValue
+        }
     }
     
     private func toggleFollow() async {
@@ -324,9 +340,11 @@ struct UserProfileCardView: View {
             if isFollowing {
                 try await followService.unfollow(userId: user.id)
                 isFollowing = false
+                onFollowChanged?(false)
             } else {
                 try await followService.follow(userId: user.id)
                 isFollowing = true
+                onFollowChanged?(true)
             }
         } catch {
             print("Failed to toggle follow: \(error)")

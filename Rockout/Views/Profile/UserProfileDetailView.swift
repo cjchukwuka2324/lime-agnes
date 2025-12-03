@@ -407,7 +407,24 @@ struct UserProfileDetailView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     ForEach(viewModel.posts) { post in
-                        FeedCardView(post: post)
+                        FeedCardView(
+                            post: post,
+                            onLike: { postId in
+                                Task {
+                                    await viewModel.toggleLike(postId: postId)
+                                }
+                            },
+                            onReply: { parentPost in
+                                // Navigate to post detail for replies
+                            },
+                            onDelete: { postId in
+                                Task {
+                                    await viewModel.deletePost(postId: postId)
+                                }
+                            },
+                            showInlineReplies: true,
+                            service: SupabaseFeedService.shared
+                        )
                     }
                 }
                 .padding()
@@ -423,7 +440,19 @@ struct UserProfileDetailView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     ForEach(viewModel.likedPosts) { post in
-                        FeedCardView(post: post)
+                        FeedCardView(
+                            post: post,
+                            onLike: { postId in
+                                Task {
+                                    await viewModel.toggleLike(postId: postId)
+                                }
+                            },
+                            onReply: { parentPost in
+                                // Navigate to post detail for replies
+                            },
+                            showInlineReplies: true,
+                            service: SupabaseFeedService.shared
+                        )
                     }
                 }
                 .padding()
@@ -441,7 +470,19 @@ struct UserProfileDetailView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     ForEach(replies) { post in
-                        FeedCardView(post: post)
+                        FeedCardView(
+                            post: post,
+                            onLike: { postId in
+                                Task {
+                                    await viewModel.toggleLike(postId: postId)
+                                }
+                            },
+                            onReply: { parentPost in
+                                // Navigate to post detail for replies
+                            },
+                            showInlineReplies: true,
+                            service: SupabaseFeedService.shared
+                        )
                     }
                 }
                 .padding()

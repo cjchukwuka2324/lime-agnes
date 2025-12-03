@@ -26,7 +26,7 @@ struct HashtagTextView: View {
         let parts = parseTextWithHashtags(text)
         
         // Use a flow layout for text parts
-        FlowLayout(spacing: 0) {
+        HashtagFlowLayout(spacing: 0) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 if part.isHashtag {
                     Text(part.text)
@@ -107,7 +107,7 @@ struct HashtagTextView: View {
 }
 
 /// A simple flow layout that wraps content naturally like text
-struct FlowLayout: Layout {
+private struct HashtagFlowLayout: Layout {
     var spacing: CGFloat = 0
     
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -183,4 +183,5 @@ struct FlowLayout: Layout {
         .padding()
     }
 }
+
 

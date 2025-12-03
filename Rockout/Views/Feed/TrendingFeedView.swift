@@ -312,9 +312,9 @@ struct TrendingHashtagCard: View {
     
     var body: some View {
         HStack(spacing: 16) {
-            // Hashtag Icon
+            // Folder Icon
             ZStack {
-                Circle()
+                RoundedRectangle(cornerRadius: 12)
                     .fill(
                         LinearGradient(
                             colors: [Color(hex: "#1ED760"), Color(hex: "#1DB954")],
@@ -322,11 +322,16 @@ struct TrendingHashtagCard: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 50, height: 50)
+                    .frame(width: 60, height: 60)
                 
-                Text("#")
-                    .font(.title2.bold())
-                    .foregroundColor(.white)
+                VStack(spacing: 2) {
+                    Image(systemName: "folder.fill")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                    Text("#")
+                        .font(.caption.bold())
+                        .foregroundColor(.white)
+                }
             }
             
             // Hashtag Info
@@ -340,7 +345,7 @@ struct TrendingHashtagCard: View {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.text.fill")
                             .font(.caption2)
-                        Text("\(hashtag.postCount)")
+                        Text("\(hashtag.postCount) posts")
                             .font(.caption)
                     }
                     .foregroundColor(.white.opacity(0.7))
@@ -356,20 +361,12 @@ struct TrendingHashtagCard: View {
                             .font(.caption)
                     }
                     .foregroundColor(Color(hex: "#1ED760"))
-                    
-                    Text("•")
-                        .foregroundColor(.white.opacity(0.5))
-                    
-                    // Recency
-                    Text(timeAgo(from: hashtag.latestPostAt))
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
                 }
             }
             
             Spacer()
             
-            // Chevron
+            // Folder open indicator
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.5))
@@ -377,13 +374,20 @@ struct TrendingHashtagCard: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.3), Color.white.opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
                 )
         )
-        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
     }
     
     // MARK: - Helper: Time Ago

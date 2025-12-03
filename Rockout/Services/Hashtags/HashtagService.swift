@@ -243,6 +243,31 @@ final class SupabaseHashtagService: HashtagService {
         let videoURL = row.video_url.flatMap { URL(string: $0) }
         let audioURL = row.audio_url.flatMap { URL(string: $0) }
         
+        // Decode Spotify link
+        let spotifyLink: SpotifyLink? = {
+            guard let url = row.spotify_link_url,
+                  let type = row.spotify_link_type,
+                  let data = row.spotify_link_data else {
+                return nil
+            }
+            
+            let name = (data["name"]?.value as? String) ?? ""
+            let artist = data["artist"]?.value as? String
+            let owner = data["owner"]?.value as? String
+            let imageURLString = data["imageURL"]?.value as? String
+            let imageURL = imageURLString.flatMap { URL(string: $0) }
+            
+            return SpotifyLink(
+                id: (data["id"]?.value as? String) ?? "",
+                url: url,
+                type: type,
+                name: name,
+                artist: artist,
+                owner: owner,
+                imageURL: imageURL
+            )
+        }()
+        
         // Create Post
         return Post(
             id: row.id.uuidString,
@@ -259,7 +284,7 @@ final class SupabaseHashtagService: HashtagService {
             parentPost: nil,
             leaderboardEntry: nil,
             resharedPostId: row.reshared_post_id?.uuidString,
-            spotifyLink: nil,
+            spotifyLink: spotifyLink,
             poll: nil,
             backgroundMusic: nil
         )

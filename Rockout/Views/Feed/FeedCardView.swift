@@ -302,11 +302,14 @@ struct FeedCardView: View {
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(Color.white.opacity(0.1), lineWidth: 1)
                 )
-                .onTapGesture(count: 2) {
-                    // Double tap to like
-                    handleDoubleTapLike()
-                }
-                .onTapGesture(count: 1) {
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded {
+                            // Double tap to like
+                            handleDoubleTapLike()
+                        }
+                )
+                .onTapGesture {
                     // Single tap to open full screen
                     showFullScreenMedia = true
                 }

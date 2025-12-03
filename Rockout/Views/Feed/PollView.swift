@@ -34,6 +34,13 @@ struct PollView: View {
                     .foregroundColor(.white.opacity(0.6))
                     .padding(.top, 4)
             }
+            
+            if !poll.userVoteIndices.isEmpty {
+                Text("Vote submitted • Votes are final")
+                    .font(.caption)
+                    .foregroundColor(Color(hex: "#1ED760").opacity(0.8))
+                    .padding(.top, 4)
+            }
         }
         .padding()
         .background(
@@ -62,10 +69,14 @@ struct PollView: View {
     private func pollOptionView(option: PollOption, index: Int) -> some View {
         let isSelected = poll.userVoteIndices.contains(index)
         let percentage = poll.totalVotes > 0 ? Double(option.voteCount) / Double(poll.totalVotes) : 0.0
+        let hasVoted = !poll.userVoteIndices.isEmpty
+        let isDisabled = isVoting || (isOwnPost && poll.userVoteIndices.isEmpty) || hasVoted
         
         return Button {
-            Task {
-                await voteOnOption(index: index)
+            if !hasVoted {
+                Task {
+                    await voteOnOption(index: index)
+                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -125,31 +136,28 @@ struct PollView: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(isVoting || (isOwnPost && poll.userVoteIndices.isEmpty))
+        .disabled(isDisabled)
+        .opacity(hasVoted && !isSelected ? 0.6 : 1.0)
     }
     
     private func voteOnOption(index: Int) async {
+        // Prevent voting if user has already voted (votes are final)
+        guard poll.userVoteIndices.isEmpty else {
+            return
+        }
+        
         isVoting = true
         errorMessage = nil
         defer { isVoting = false }
         
-        var newVoteIndices = poll.userVoteIndices
+        var newVoteIndices: Set<Int>
         
         if poll.type == "single" {
-            // Single choice: replace existing vote
-            if newVoteIndices.contains(index) {
-                // Deselect if already selected
-                newVoteIndices = []
-            } else {
-                newVoteIndices = [index]
-            }
+            // Single choice: select this option
+            newVoteIndices = [index]
         } else {
-            // Multiple choice: toggle option
-            if newVoteIndices.contains(index) {
-                newVoteIndices.remove(index)
-            } else {
-                newVoteIndices.insert(index)
-            }
+            // Multiple choice: select this option
+            newVoteIndices = [index]
         }
         
         do {

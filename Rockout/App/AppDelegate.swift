@@ -1,10 +1,61 @@
 import UIKit
 import SwiftUI
+import UserNotifications
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         print("🚀 App launched")
+        
+        // Request notification permissions
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("❌ Failed to request notification authorization: \(error.localizedDescription)")
+            } else if granted {
+                print("✅ Notification authorization granted")
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            } else {
+                print("⚠️ Notification authorization denied")
+            }
+        }
+        
         return true
+    }
+    
+    // MARK: - Push Notification Registration
+    
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        print("📱 Device token received: \(tokenString)")
+        
+        Task {
+            await DeviceTokenService.shared.registerDeviceToken(tokenString)
+        }
+    }
+    
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
+    }
+    
+    // MARK: - Notification Handling
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        // Show notification even when app is in foreground
+        completionHandler([.banner, .sound, .badge])
+    }
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
+        print("📬 Notification tapped: \(userInfo)")
+        
+        // Handle notification tap - navigate to relevant screen
+        if let postId = userInfo["post_id"] as? String {
+            NotificationCenter.default.post(name: .navigateToPost, object: nil, userInfo: ["post_id": postId])
+        }
+        
+        completionHandler()
     }
     
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {

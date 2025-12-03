@@ -26,14 +26,7 @@ struct FeedView: View {
     var body: some View {
         NavigationStack {
             mainContent
-                .navigationTitle("GreenRoom")
-                .navigationBarTitleDisplayMode(.large)
-                .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .toolbar {
-                    toolbarContent
-                }
-                .toolbarBackground(.visible, for: .navigationBar)
+                .navigationBarHidden(true)
                 .sheet(isPresented: $showComposer) {
                     PostComposerView {
                         Task {
@@ -174,11 +167,8 @@ struct FeedView: View {
     }
     
     private var feedContent: some View {
-        VStack(spacing: 0) {
-            // Fixed feed type picker at top
-            feedTypePicker
-            
-            // Scrollable content below
+        ZStack(alignment: .top) {
+            // Scrollable content that flows from top
             ZStack(alignment: .bottomTrailing) {
                 // Show TrendingFeedView for trending tab
                 if selectedFeedType == .trending {
@@ -207,6 +197,51 @@ struct FeedView: View {
                 if selectedFeedType != .trending {
                     floatingActionButton
                 }
+            }
+            .padding(.top, 100) // Space for fixed title and toolbar
+            
+            // Fixed title and toolbar at top - always visible
+            VStack(spacing: 0) {
+                // Fixed GreenRoom title
+                HStack {
+                    Text("GreenRoom")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.leading, 20)
+                        .padding(.top, 8)
+                    Spacer()
+                    // Toolbar buttons
+                    HStack(spacing: 16) {
+                        notificationsButton
+                        searchButton
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.top, 8)
+                }
+                .frame(height: 44)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: "#050505").opacity(0.95),
+                            Color(hex: "#0C7C38").opacity(0.95)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                
+                // Feed type picker
+                feedTypePicker
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(hex: "#0C7C38").opacity(0.95),
+                                Color(hex: "#050505").opacity(0.95)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
             }
         }
     }
