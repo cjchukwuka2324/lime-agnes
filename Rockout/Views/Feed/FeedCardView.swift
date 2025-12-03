@@ -75,7 +75,7 @@ struct FeedCardView: View {
                 }
             }
         }
-        .sheet(isPresented: $showFullScreenMedia) {
+        .fullScreenCover(isPresented: $showFullScreenMedia) {
             FullScreenMediaView(
                 imageURLs: post.imageURLs,
                 videoURL: post.videoURL,
@@ -293,27 +293,30 @@ struct FeedCardView: View {
         }
         
         if let videoURL = post.videoURL {
-            VideoPlayerView(videoURL: videoURL)
-                .frame(maxWidth: .infinity)
-                .aspectRatio(16/9, contentMode: .fill)
-                .frame(maxHeight: 450)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                )
-                .simultaneousGesture(
-                    TapGesture(count: 2)
-                        .onEnded {
-                            // Double tap to like
-                            handleDoubleTapLike()
-                        }
-                )
-                .onTapGesture {
-                    // Single tap to open full screen
-                    showFullScreenMedia = true
-                }
-                .padding(.bottom, 16)
+            VideoPlayerView(videoURL: videoURL) {
+                // Fullscreen button action
+                showFullScreenMedia = true
+            }
+            .frame(maxWidth: .infinity)
+            .aspectRatio(16/9, contentMode: .fill)
+            .frame(maxHeight: 450)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .simultaneousGesture(
+                TapGesture(count: 2)
+                    .onEnded {
+                        // Double tap to like
+                        handleDoubleTapLike()
+                    }
+            )
+            .onTapGesture {
+                // Single tap to open full screen (still works for tap anywhere)
+                showFullScreenMedia = true
+            }
+            .padding(.bottom, 16)
         }
         
         if let audioURL = post.audioURL {

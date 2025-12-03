@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import UIKit
 
 struct FullScreenMediaView: View {
     let imageURLs: [URL]
@@ -49,6 +50,13 @@ struct FullScreenMediaView: View {
                     .padding()
                 }
                 Spacer()
+            }
+        }
+        .onAppear {
+            // Initialize player when view appears if we have a video
+            if let videoURL = videoURL, player == nil {
+                player = AVPlayer(url: videoURL)
+                player?.isMuted = true
             }
         }
     }
@@ -145,17 +153,9 @@ struct FullScreenMediaView: View {
     
     private func videoPlayerView(videoURL: URL) -> some View {
         ZStack {
-            if let player = player {
-                VideoPlayer(player: player)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if player != nil {
+                FullScreenVideoPlayer(player: player!, isMuted: $isMuted)
                     .ignoresSafeArea(.all)
-                    .onAppear {
-                        player.isMuted = isMuted
-                        player.play()
-                    }
-                    .onDisappear {
-                        player.pause()
-                    }
             } else {
                 ProgressView()
                     .tint(.white)
@@ -184,12 +184,38 @@ struct FullScreenMediaView: View {
             }
         }
         .onAppear {
-            player = AVPlayer(url: videoURL)
-            player?.isMuted = true
+            if player == nil {
+                player = AVPlayer(url: videoURL)
+                player?.isMuted = true
+                // Start playing immediately
+                DispatchQueue.main.async {
+                    player?.play()
+                }
+            }
         }
         .onDisappear {
             player?.pause()
             player = nil
         }
+    }
+}
+
+// MARK: - Full Screen Video Player Controller
+
+struct FullScreenVideoPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+    @Binding var isMuted: Bool
+    
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.videoGravity = .resizeAspectFill
+        controller.allowsPictureInPicturePlayback = false
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        uiViewController.player?.isMuted = isMuted
     }
 }

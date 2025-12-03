@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import AVKit
 import PhotosUI
+import Photos
 
 struct PostComposerView: View {
     @Environment(\.dismiss) private var dismiss
@@ -94,7 +95,7 @@ struct PostComposerView: View {
                 isPresented: $showImagePicker,
                 selection: $selectedPhotoItems,
                 maxSelectionCount: 4,
-                matching: .images
+                matching: .any(of: [.images, .videos])
             )
             .sheet(isPresented: $showImageCrop) {
                 if let image = imageToCrop {
@@ -733,23 +734,104 @@ struct PostComposerView: View {
     }
     
     private func loadImagesFromPicker(_ items: [PhotosPickerItem]) async {
-        // Clear previous images when new selection is made
+        // Clear previous media when new selection is made
         await MainActor.run {
             selectedImages.removeAll()
+            selectedVideo = nil
         }
         
         for item in items {
             do {
-                if let data = try await item.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    await MainActor.run {
-                        if selectedImages.count < 4 {
-                            selectedImages.append(image)
+                // Check supported content types to determine if it's a video
+                let supportedTypes = item.supportedContentTypes
+                let isVideo = supportedTypes.contains { type in
+                    type.conforms(to: .movie) || type.identifier == "public.movie" || type.identifier.contains("video")
+                }
+                
+                if isVideo {
+                    // It's a video - try to load as file representation
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        // Save video data to temporary file
+                        let tempDir = FileManager.default.temporaryDirectory
+                        let videoURL = tempDir.appendingPathComponent("\(UUID().uuidString).mov")
+                        
+                        do {
+                            try data.write(to: videoURL)
+                            await MainActor.run {
+                                // Only allow one video, and clear images if video is selected
+                                selectedImages.removeAll()
+                                selectedVideo = videoURL
+                                // Validate video duration
+                                Task {
+                                    await validateVideoDuration(videoURL)
+                                }
+                            }
+                        } catch {
+                            print("Failed to save video: \(error.localizedDescription)")
+                        }
+                    } else {
+                        // Fallback: try using PHAsset if available
+                        if let identifier = item.itemIdentifier {
+                            let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+                            if let asset = fetchResult.firstObject, asset.mediaType == .video {
+                                let options = PHVideoRequestOptions()
+                                options.version = .current
+                                options.deliveryMode = .highQualityFormat
+                                options.isNetworkAccessAllowed = true
+                                
+                                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                                    PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, errorInfo in
+                                        if let errorInfo = errorInfo {
+                                            print("Error loading video: \(errorInfo)")
+                                            continuation.resume()
+                                            return
+                                        }
+                                        
+                                        if let urlAsset = avAsset as? AVURLAsset {
+                                            let sourceURL = urlAsset.url
+                                            // Copy to temporary location
+                                            let tempDir = FileManager.default.temporaryDirectory
+                                            let videoURL = tempDir.appendingPathComponent("\(UUID().uuidString).mov")
+                                            
+                                            do {
+                                                if FileManager.default.fileExists(atPath: videoURL.path) {
+                                                    try FileManager.default.removeItem(at: videoURL)
+                                                }
+                                                try FileManager.default.copyItem(at: sourceURL, to: videoURL)
+                                                
+                                                Task { @MainActor in
+                                                    // Only allow one video, and clear images if video is selected
+                                                    selectedImages.removeAll()
+                                                    selectedVideo = videoURL
+                                                    // Validate video duration
+                                                    Task {
+                                                        await validateVideoDuration(videoURL)
+                                                    }
+                                                }
+                                            } catch {
+                                                print("Failed to copy video: \(error.localizedDescription)")
+                                            }
+                                        }
+                                        continuation.resume()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Try to load as image
+                    if let data = try await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        await MainActor.run {
+                            // Only add images if no video is selected
+                            if selectedVideo == nil && selectedImages.count < 4 {
+                                selectedImages.append(image)
+                            }
                         }
                     }
                 }
             } catch {
-                print("Failed to load image: \(error.localizedDescription)")
+                print("Failed to load media: \(error.localizedDescription)")
             }
         }
     }

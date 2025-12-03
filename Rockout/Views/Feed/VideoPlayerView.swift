@@ -3,9 +3,15 @@ import AVKit
 
 struct VideoPlayerView: View {
     let videoURL: URL
+    let onFullscreen: (() -> Void)?
     @State private var player: AVPlayer?
     @State private var isMuted: Bool = true
     @State private var isPlaying: Bool = false
+    
+    init(videoURL: URL, onFullscreen: (() -> Void)? = nil) {
+        self.videoURL = videoURL
+        self.onFullscreen = onFullscreen
+    }
     
     var body: some View {
         ZStack {
@@ -36,10 +42,11 @@ struct VideoPlayerView: View {
                     )
             }
             
-            // Mute/Unmute button
+            // Control buttons overlay
             VStack {
                 HStack {
                     Spacer()
+                    // Mute/Unmute button
                     Button {
                         isMuted.toggle()
                         player?.isMuted = isMuted
@@ -56,6 +63,27 @@ struct VideoPlayerView: View {
                     .padding()
                 }
                 Spacer()
+                
+                // Bottom controls
+                HStack {
+                    Spacer()
+                    // Fullscreen button
+                    if let onFullscreen = onFullscreen {
+                        Button {
+                            onFullscreen()
+                        } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(
+                                    Circle()
+                                        .fill(Color.black.opacity(0.5))
+                                )
+                        }
+                        .padding()
+                    }
+                }
             }
         }
         .onAppear {
