@@ -70,6 +70,8 @@ struct StudioSessionsView: View {
         }
     }
 
+    @StateObject private var playerVM = AudioPlayerViewModel.shared
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -157,7 +159,7 @@ struct StudioSessionsView: View {
                     }
                 }
             }
-            .navigationTitle("Studio Sessions")
+            .navigationTitle("StudioSessions")
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -220,14 +222,15 @@ struct StudioSessionsView: View {
                                 // Wait a moment for sheet to dismiss
                                 try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
                                 
-                                if isCollaboration {
-                                    await viewModel.loadCollaborativeAlbums()
-                                    await MainActor.run {
+                                // Reload both lists to ensure proper state (handles upgrades from view-only to collaboration)
+                                await viewModel.loadSharedAlbums()
+                                await viewModel.loadCollaborativeAlbums()
+                                
+                                await MainActor.run {
+                                    // Navigate to the appropriate tab
+                                    if isCollaboration {
                                         selectedTab = .collaborations
-                                    }
-                                } else {
-                                    await viewModel.loadSharedAlbums()
-                                    await MainActor.run {
+                                    } else {
                                         selectedTab = .sharedWithYou
                                     }
                                 }

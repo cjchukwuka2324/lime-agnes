@@ -3,6 +3,7 @@ import SwiftUI
 struct MainTabView: View {
     @StateObject private var spotifyAuth = SpotifyAuthService.shared
     @EnvironmentObject var shareHandler: SharedAlbumHandler
+    @StateObject private var playerVM = AudioPlayerViewModel.shared
     @State private var selectedTab = 0
     @State private var edgeDragStart: CGFloat?
     
@@ -10,7 +11,7 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             FeedView()
                 .tabItem {
-                    Label("Feed", systemImage: "house.fill")
+                    Label("GreenRoom", systemImage: "house.fill")
                 }
                 .tag(0)
 
@@ -24,7 +25,7 @@ struct MainTabView: View {
             StudioSessionsView()
                 .environmentObject(shareHandler)
                 .tabItem {
-                    Label("StudioSessions", systemImage: "mic.and.signal.meter.fill")
+                    Label("StudioSessions", systemImage: "rectangle.3.group.fill")
                 }
                 .tag(2)
 
@@ -93,6 +94,16 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .navigateToFeed)) { _ in
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 selectedTab = 0
+            }
+        }
+        .overlay(alignment: .bottom) {
+            // Bottom Player Bar - shows on all tabs when a track is playing
+            if playerVM.currentTrack != nil {
+                VStack(spacing: 0) {
+                    BottomPlayerBar(playerVM: playerVM)
+                        .background(Color.black)
+                }
+                .ignoresSafeArea(edges: .bottom)
             }
         }
     }

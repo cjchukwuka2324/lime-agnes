@@ -15,6 +15,7 @@ struct AlbumDetailView: View {
     @State private var showDeleteOptions = false
     @State private var currentAlbum: StudioAlbumRecord
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var playerVM = AudioPlayerViewModel.shared
 
     private let trackService = TrackService.shared
     private let albumService = AlbumService.shared
@@ -55,6 +56,7 @@ struct AlbumDetailView: View {
                     // Tracks List
                     tracksListView
                         .padding(.horizontal, 20)
+                        .padding(.bottom, 100) // Space for bottom player bar
                 }
             }
             .scrollContentBackground(.hidden)
@@ -435,43 +437,80 @@ struct TrackRow: View {
     let album: StudioAlbumRecord
     let onDelete: () -> Void
     
+    @StateObject private var playerVM = AudioPlayerViewModel.shared
     @State private var showDeleteConfirmation = false
+    
+    private var isCurrentlyPlaying: Bool {
+        playerVM.currentTrack?.id == track.id && playerVM.isPlaying
+    }
     
     var body: some View {
         HStack(spacing: 16) {
-            NavigationLink {
-                TrackDetailView(track: track, album: album)
-            } label: {
-                HStack(spacing: 16) {
-                    // Track Number
-                    Text("\(trackNumber)")
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.6))
-                        .frame(width: 30, alignment: .trailing)
-                    
-                    // Track Info
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(track.title)
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                        
-                        if let duration = track.duration, duration > 0 {
-                            Text(formatTime(duration))
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.6))
+            // Album Cover Art (same as album)
+            Group {
+                if let urlString = album.cover_art_url,
+                   let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            albumPlaceholder
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            albumPlaceholder
+                        @unknown default:
+                            albumPlaceholder
                         }
                     }
-                    
-                    Spacer()
-                    
-                    // Play Icon
-                    Image(systemName: "play.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.white.opacity(0.6))
+                } else {
+                    albumPlaceholder
                 }
             }
-            .buttonStyle(PlainButtonStyle())
+            .frame(width: 50, height: 50)
+            .cornerRadius(8)
+            
+            // Track Info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(track.title)
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                
+                HStack(spacing: 8) {
+                    if let duration = track.duration, duration > 0 {
+                        Text(formatTime(duration))
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    
+                    if isCurrentlyPlaying {
+                        HStack(spacing: 4) {
+                            Image(systemName: "waveform")
+                                .font(.caption2)
+                            Text("Now Playing")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.green)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            // Play/Pause Button
+            Button {
+                if isCurrentlyPlaying {
+                    playerVM.pause()
+                } else {
+                    // Load track - it will auto-play when ready
+                    playerVM.loadTrack(track, album: album)
+                }
+            } label: {
+                Image(systemName: isCurrentlyPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(isCurrentlyPlaying ? .green : .white.opacity(0.6))
+            }
             
             // Delete Button
             Button {
@@ -482,9 +521,17 @@ struct TrackRow: View {
                     .font(.body)
             }
         }
+        .contentShape(Rectangle()) // Make entire row tappable
+        .onTapGesture {
+            // Play on tap anywhere on the row (except buttons)
+            if !isCurrentlyPlaying {
+                // Load track - it will auto-play when ready
+                playerVM.loadTrack(track, album: album)
+            }
+        }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
-        .background(Color.white.opacity(0.05))
+        .background(isCurrentlyPlaying ? Color.white.opacity(0.1) : Color.white.opacity(0.05))
         .cornerRadius(12)
         .alert("Delete Track", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -493,6 +540,23 @@ struct TrackRow: View {
             }
         } message: {
             Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
+        }
+    }
+    
+    private var albumPlaceholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.2, green: 0.2, blue: 0.3), Color(red: 0.1, green: 0.1, blue: 0.2)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            
+            Image(systemName: "music.note")
+                .font(.system(size: 20))
+                .foregroundColor(.white.opacity(0.3))
         }
     }
     

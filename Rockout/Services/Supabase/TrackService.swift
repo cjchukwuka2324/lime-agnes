@@ -32,13 +32,37 @@ final class TrackService {
         let filename = "\(UUID().uuidString).m4a"
         let path = "tracks/\(album.id.uuidString)/\(filename)"
 
-        try await supabase.storage
-            .from("studio")
-            .upload(path: path, file: audioData)
+        print("📤 Uploading audio file to studio bucket, path: \(path), size: \(audioData.count) bytes")
+        do {
+            try await supabase.storage
+                .from("studio")
+                .upload(path: path, file: audioData)
+            print("✅ Audio file uploaded successfully")
+        } catch {
+            print("❌ Error uploading audio file: \(error.localizedDescription)")
+            throw error
+        }
+
+        // Verify the file exists by trying to get its info
+        do {
+            let files = try await supabase.storage
+                .from("studio")
+                .list(path: "tracks/\(album.id.uuidString)")
+            
+            let uploadedFile = files.first { $0.name == filename }
+            if uploadedFile == nil {
+                print("⚠️ Warning: Uploaded file not found in listing. This might be an RLS issue.")
+            } else {
+                print("✅ Verified file exists in storage: \(filename)")
+            }
+        } catch {
+            print("⚠️ Could not verify file existence (may be RLS issue): \(error.localizedDescription)")
+        }
 
         let audioUrl = try supabase.storage
             .from("studio")
             .getPublicURL(path: path)
+        print("✅ Generated public URL: \(audioUrl.absoluteString)")
 
         // Determine the track number
         let finalTrackNumber: Int

@@ -26,13 +26,14 @@ struct FeedView: View {
     var body: some View {
         NavigationStack {
             mainContent
-                .navigationTitle("Feed")
+                .navigationTitle("GreenRoom")
                 .navigationBarTitleDisplayMode(.large)
                 .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     toolbarContent
                 }
+                .toolbarBackground(.visible, for: .navigationBar)
                 .sheet(isPresented: $showComposer) {
                     PostComposerView {
                         Task {
@@ -70,6 +71,11 @@ struct FeedView: View {
                         await viewModel.load(feedType: selectedFeedType)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .navigateToPost)) { notification in
+                    if let postId = notification.userInfo?["post_id"] as? String {
+                        selectedPostId = PostIdWrapper(id: postId)
+                    }
+                }
                 .task {
                     await notificationsViewModel.refreshUnreadCount()
                 }
@@ -97,8 +103,19 @@ struct FeedView: View {
     
     private var mainContent: some View {
         ZStack {
-            AnimatedGradientBackground()
-                .ignoresSafeArea()
+            // Solid gradient background (no animation)
+            LinearGradient(
+                colors: [
+                    Color(hex: "#050505"),
+                    Color(hex: "#0C7C38"),
+                    Color(hex: "#1DB954"),
+                    Color(hex: "#1ED760"),
+                    Color(hex: "#050505")
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
             
             if viewModel.isLoading {
                 loadingView
@@ -234,8 +251,11 @@ struct FeedView: View {
                     }
                 }
             }
-            .padding(.vertical, 16)
-            .padding(.bottom, 120)
+            .padding(.top, 16)
+            .padding(.bottom, 100)
+        }
+        .refreshable {
+            await viewModel.refresh(feedType: selectedFeedType)
         }
     }
     
@@ -301,10 +321,6 @@ struct FeedView: View {
             notificationsButton
             searchButton
         }
-        
-        ToolbarItem(placement: .navigationBarLeading) {
-            refreshButton
-        }
     }
     
     private var notificationsButton: some View {
@@ -321,17 +337,6 @@ struct FeedView: View {
         } label: {
             Image(systemName: "magnifyingglass")
                 .font(.title3)
-                .foregroundColor(.white)
-        }
-    }
-    
-    private var refreshButton: some View {
-        Button {
-            Task {
-                await viewModel.load(feedType: selectedFeedType)
-            }
-        } label: {
-            Image(systemName: "arrow.clockwise")
                 .foregroundColor(.white)
         }
     }
