@@ -236,6 +236,15 @@ struct AudioPlayerView: View {
     // MARK: - Main Controls View
     private var mainControlsView: some View {
         HStack(spacing: 40) {
+            // Previous Track
+            Button {
+                playerVM.previousTrack()
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(.white)
+            }
+            
             // Rewind 15s
             Button {
                 playerVM.seek(to: max(0, playerVM.currentTime - 15))
@@ -271,6 +280,15 @@ struct AudioPlayerView: View {
                 playerVM.seek(to: min(playerVM.duration, playerVM.currentTime + 15))
             } label: {
                 Image(systemName: "goforward.15")
+                    .font(.system(size: 28))
+                    .foregroundColor(.white)
+            }
+            
+            // Next Track
+            Button {
+                playerVM.nextTrack()
+            } label: {
+                Image(systemName: "forward.fill")
                     .font(.system(size: 28))
                     .foregroundColor(.white)
             }

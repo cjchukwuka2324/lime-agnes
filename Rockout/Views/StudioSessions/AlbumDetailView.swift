@@ -294,6 +294,7 @@ struct AlbumDetailView: View {
                         track: track,
                         trackNumber: track.track_number ?? (index + 1),
                         album: currentAlbum,
+                        tracks: tracks,
                         onDelete: {
                             Task {
                                 await deleteTrack(track)
@@ -435,6 +436,7 @@ struct TrackRow: View {
     let track: StudioTrackRecord
     let trackNumber: Int
     let album: StudioAlbumRecord
+    let tracks: [StudioTrackRecord]
     let onDelete: () -> Void
     
     @StateObject private var playerVM = AudioPlayerViewModel.shared
@@ -504,7 +506,7 @@ struct TrackRow: View {
                     playerVM.pause()
                 } else {
                     // Load track - it will auto-play when ready
-                    playerVM.loadTrack(track, album: album)
+                    playerVM.loadTrack(track, album: album, tracks: tracks)
                 }
             } label: {
                 Image(systemName: isCurrentlyPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -526,7 +528,7 @@ struct TrackRow: View {
             // Play on tap anywhere on the row (except buttons)
             if !isCurrentlyPlaying {
                 // Load track - it will auto-play when ready
-                playerVM.loadTrack(track, album: album)
+                playerVM.loadTrack(track, album: album, tracks: tracks)
             }
         }
         .padding(.vertical, 12)
