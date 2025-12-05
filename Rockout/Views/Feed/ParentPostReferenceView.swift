@@ -14,24 +14,53 @@ struct ParentPostReferenceView: View {
             onTap?()
         } label: {
             HStack(spacing: 8) {
-            // Small avatar
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.2),
-                            Color.white.opacity(0.1)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 24, height: 24)
-                .overlay(
-                    Text(parentPost.author.avatarInitials)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundColor(.white)
-                )
+            // Small avatar with profile picture
+            Group {
+                if let profilePictureURL = parentPost.author.profilePictureURL {
+                    AsyncImage(url: profilePictureURL) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.2),
+                                        Color.white.opacity(0.1)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .overlay(
+                                Text(parentPost.author.avatarInitials)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundColor(.white)
+                            )
+                    }
+                    .frame(width: 24, height: 24)
+                    .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.2),
+                                    Color.white.opacity(0.1)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 24, height: 24)
+                        .overlay(
+                            Text(parentPost.author.avatarInitials)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundColor(.white)
+                        )
+                }
+            }
             
             // Author name
             Text(parentPost.author.displayName)

@@ -28,9 +28,15 @@ struct FeedView: View {
             mainContent
                 .navigationBarHidden(true)
                 .sheet(isPresented: $showComposer) {
-                    PostComposerView {
+                    PostComposerView { createdPostId in
                         Task {
                             await viewModel.refresh(feedType: selectedFeedType)
+                        }
+                        // Optionally navigate to created post
+                        if let postId = createdPostId {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                selectedPostId = PostIdWrapper(id: postId)
+                            }
                         }
                     }
                 }

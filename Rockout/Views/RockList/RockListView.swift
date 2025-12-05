@@ -11,11 +11,19 @@ struct RockListView: View {
     @State private var showPostComposer = false
     @State private var composerLeaderboardEntry: LeaderboardEntrySummary?
     @State private var composerPrefilledText: String?
+    @State private var selectedPostId: PostIdWrapper? = nil
+    
+    // Helper struct for post navigation
+    private struct PostIdWrapper: Identifiable, Hashable {
+        let id: String
+    }
     @State private var showInstagramHandlePrompt = false
     @State private var instagramHandleInput = ""
     @State private var currentInstagramHandle: String?
     @State private var shareImage: UIImage?
     @State private var isGeneratingRankCardImage = false
+    @State private var showScoreBreakdown = false
+    @State private var selectedBreakdownEntry: RockListEntry?
     
     init(artistId: String) {
         self.artistId = artistId
@@ -65,7 +73,7 @@ struct RockListView: View {
                             // Filters
                             filterSection
                             
-                            // Current User Rank Card with Share Button
+                            // Current User Rank Card
                             if let currentUser = rockList.currentUserEntry {
                                 currentUserRankCard(currentUser, artist: rockList.artist)
                             } else {
@@ -118,14 +126,34 @@ struct RockListView: View {
                 PostComposerView(
                     leaderboardEntry: composerLeaderboardEntry,
                     prefilledText: composerPrefilledText
-                ) {
+                ) { createdPostId in
                     // Post created - navigate to Feed tab
                     NotificationCenter.default.post(name: .navigateToFeed, object: nil)
                     NotificationCenter.default.post(name: .feedDidUpdate, object: nil)
+                    
+                    // Navigate to the created post if we have an ID
+                    if let postId = createdPostId {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            selectedPostId = PostIdWrapper(id: postId)
+                        }
+                    }
                 }
             }
             .sheet(isPresented: $showInstagramHandlePrompt) {
                 instagramHandlePromptSheet
+            }
+            .sheet(isPresented: $showScoreBreakdown) {
+                if let entry = selectedBreakdownEntry,
+                   let artist = viewModel.rockList?.artist {
+                    ScoreBreakdownView(
+                        userId: entry.userId,
+                        userName: entry.displayName,
+                        artistId: entry.artistId,
+                        artistName: artist.name,
+                        rank: entry.rank,
+                        currentScore: entry.activeScore
+                    )
+                }
             }
             .onChange(of: showInstagramHandlePrompt) { isPresented in
                 if isPresented {
@@ -435,10 +463,10 @@ struct RockListView: View {
                     Spacer()
                     
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text("Score")
+                        Text("Listener Score")
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.8))
-                        Text(formatScore(entry.score))
+                        Text(formatListenerScore(entry.activeScore))
                             .font(.title2.bold())
                             .foregroundColor(.white)
                     }
@@ -532,6 +560,12 @@ struct RockListView: View {
             }
             .padding(20)
             .glassMorphism()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedBreakdownEntry = entry
+            showScoreBreakdown = true
+        }
     }
     
     // MARK: - Not Ranked Card
@@ -651,13 +685,19 @@ struct RockListView: View {
                     .foregroundColor(.white)
             }
             
-            if let artistName = viewModel.rockList?.artist.name {
-                Text("Your comment will appear in the Feed timeline and reference the \(artistName) RockList leaderboard")
+            if let artistName = viewModel.rockList?.artist.name,
+               let rank = viewModel.rockList?.currentUserEntry?.rank {
+                Text("Your comment will appear in GreenRoom and reference your #\(rank) rank for \(artistName)")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            } else if let artistName = viewModel.rockList?.artist.name {
+                Text("Your comment will appear in GreenRoom and reference the \(artistName) RockList leaderboard")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
             } else {
-                Text("Your comment will appear in the Feed timeline and reference this artist's RockList leaderboard")
+                Text("Your comment will appear in GreenRoom and reference this artist's RockList leaderboard")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -686,6 +726,12 @@ struct RockListView: View {
                 Button {
                     Task {
                         await viewModel.postComment()
+                        // After posting comment, navigate to the created post
+                        if let postId = viewModel.createdPostId {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                selectedPostId = PostIdWrapper(id: postId)
+                            }
+                        }
                     }
                 } label: {
                     if viewModel.isPostingComment {
@@ -736,73 +782,80 @@ struct RockListView: View {
     @ViewBuilder
     private func rockListRow(_ entry: RockListEntry, isCurrentUser: Bool, artist: ArtistSummary?) -> some View {
         VStack(spacing: 12) {
-            HStack(spacing: 16) {
-                // Rank
-                ZStack {
-                    Circle()
-                        .fill(
-                            isCurrentUser ?
-                            LinearGradient(
-                                colors: [
-                                    Color(hex: "#1ED760").opacity(0.3),
-                                    Color(hex: "#1DB954").opacity(0.2)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ) :
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.15),
-                                    Color.white.opacity(0.05)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+            Button {
+                selectedBreakdownEntry = entry
+                showScoreBreakdown = true
+            } label: {
+                HStack(spacing: 16) {
+                    // Rank
+                    ZStack {
+                        Circle()
+                            .fill(
+                                isCurrentUser ?
+                                LinearGradient(
+                                    colors: [
+                                        Color(hex: "#1ED760").opacity(0.3),
+                                        Color(hex: "#1DB954").opacity(0.2)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ) :
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.15),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: 44, height: 44)
+                            .frame(width: 44, height: 44)
+                        
+                        Text("#\(entry.rank)")
+                            .font(.headline.weight(.bold))
+                            .foregroundColor(isCurrentUser ? Color(hex: "#1ED760") : .white)
+                    }
                     
-                    Text("#\(entry.rank)")
-                        .font(.headline.weight(.bold))
-                        .foregroundColor(isCurrentUser ? Color(hex: "#1ED760") : .white)
-                }
-                
-                // User Info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(entry.displayName)
-                        .font(.body.weight(isCurrentUser ? .semibold : .regular))
-                        .foregroundColor(.white)
-                    
-                    if isCurrentUser {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.caption2)
-                            Text("You")
-                                .font(.caption)
+                    // User Info
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.displayName)
+                            .font(.body.weight(isCurrentUser ? .semibold : .regular))
+                            .foregroundColor(.white)
+                        
+                        if isCurrentUser {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.caption2)
+                                Text("You")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(Color(hex: "#1ED760"))
                         }
-                        .foregroundColor(Color(hex: "#1ED760"))
+                    }
+                    
+                    Spacer()
+                    
+                    // Listener Score
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(formatListenerScore(entry.activeScore))
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Text("/ 100")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.6))
                     }
                 }
-                
-                Spacer()
-                
-                // Score
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(formatScore(entry.score))
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    Text("pts")
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.6))
-                }
             }
+            .buttonStyle(.plain)
             
-            // Action Buttons
-            if let artist = artist {
+            // Action Buttons - Only show comment for other users (not current user)
+            if !isCurrentUser, let artist = artist {
                 HStack(spacing: 12) {
                     Button {
                         let leaderboardEntry = leaderboardEntrySummary(from: entry, artist: artist)
                         composerLeaderboardEntry = leaderboardEntry
-                        composerPrefilledText = nil
+                        // Prefill text with rank reference
+                        composerPrefilledText = "Commenting on \(entry.displayName)'s #\(entry.rank) rank for \(artist.name)"
                         showPostComposer = true
                     } label: {
                         HStack(spacing: 6) {
@@ -817,28 +870,6 @@ struct RockListView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.white.opacity(0.15))
-                        )
-                    }
-                    
-                    Button {
-                        let leaderboardEntry = leaderboardEntrySummary(from: entry, artist: artist)
-                        let percentile = calculatePercentile(rank: entry.rank, totalUsers: 100) // Approximate
-                        composerLeaderboardEntry = leaderboardEntry
-                        composerPrefilledText = "Top \(percentile)% for \(artist.name) this month."
-                        showPostComposer = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.caption)
-                            Text("Share")
-                                .font(.caption.weight(.medium))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(hex: "#1ED760").opacity(0.3))
                         )
                     }
                 }
@@ -975,7 +1006,18 @@ struct RockListView: View {
     
     private func formatScore(_ score: Double) -> String {
         guard score.isFinite && !score.isNaN else { return "0" }
+        // If score is 0-100, it's likely a listener score - format as percentage
+        if score >= 0 && score <= 100 {
+            return String(format: "%.1f", score)
+        }
+        // Otherwise, format as integer (legacy score in seconds/milliseconds)
         return String(format: "%.0f", score)
+    }
+    
+    private func formatListenerScore(_ score: Double) -> String {
+        guard score.isFinite && !score.isNaN else { return "0.0" }
+        // Listener score is always 0-100, format with one decimal place
+        return String(format: "%.1f", score)
     }
     
     // MARK: - Instagram Handle Management
@@ -1262,6 +1304,11 @@ struct RankCardShareableView: View {
     
     private func formatScore(_ score: Double) -> String {
         guard score.isFinite && !score.isNaN else { return "0" }
+        // If score is 0-100, it's likely a listener score - format as percentage
+        if score >= 0 && score <= 100 {
+            return String(format: "%.1f", score)
+        }
+        // Otherwise, format with K/M suffixes for large numbers
         if score >= 1000000 {
             return String(format: "%.1fM", score / 1000000)
         } else if score >= 1000 {
@@ -1269,6 +1316,12 @@ struct RankCardShareableView: View {
         } else {
             return String(format: "%.0f", score)
         }
+    }
+    
+    private func formatListenerScore(_ score: Double) -> String {
+        guard score.isFinite && !score.isNaN else { return "0.0" }
+        // Listener score is always 0-100, format with one decimal place
+        return String(format: "%.1f", score)
     }
 }
 

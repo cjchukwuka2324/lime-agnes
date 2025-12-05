@@ -2,6 +2,24 @@
 
 This document describes the Supabase Postgres RPC functions required for the RockOut RockList feature.
 
+## Architecture Overview
+
+### Data Flow
+1. **Spotify API** → iOS app fetches listening data (recently played, top tracks/artists)
+2. **RockListDataService** → Normalizes Spotify data into `RockListPlayEvent` format
+3. **rocklist_ingest_plays() RPC** → Processes play events and stores in database
+4. **rocklist_stats table** → Aggregates listening statistics per (user, artist, region)
+5. **Listener Score Calculation** → Computes unified score (0-100) using weighted formula
+6. **Leaderboard Queries** → Returns ranked users sorted by listener_score
+7. **iOS UI** → Displays RockList with rankings and scores
+
+### Key Components
+- **Ingestion**: `rocklist_ingest_plays()` processes play events from Spotify
+- **Storage**: `rocklist_stats` table stores aggregated stats, `rocklist_play_events` stores detailed events
+- **Scoring**: `calculate_listener_score()` computes unified Listener Score (0-100)
+- **Ranking**: `get_rocklist_for_artist()` returns leaderboard sorted by listener_score
+- **Scheduling**: Edge Function recalculates scores periodically (every 15 minutes)
+
 ## Database Schema
 
 ### Table: `rocklist_stats`
@@ -65,7 +83,58 @@ CREATE INDEX idx_user_follows_followed ON user_follows(followed_id);
 
 ## RPC Functions
 
-### 1. `get_rocklist_for_artist`
+### 1. `rocklist_ingest_plays`
+
+Ingests play events from Spotify and updates the `rocklist_stats` table. This is the core function that processes listening data.
+
+**Input Parameters:**
+- `p_events JSONB` - Array of play events, each containing:
+  - `artistId` (or `artist_id`) TEXT - Spotify artist ID
+  - `artistName` (or `artist_name`) TEXT - Artist name
+  - `trackId` (or `track_id`) TEXT - Spotify track ID
+  - `trackName` (or `track_name`) TEXT - Track name
+  - `playedAt` TEXT - ISO8601 timestamp string
+  - `durationMs` INTEGER - Duration in milliseconds
+  - `region` TEXT - Region code (defaults to "GLOBAL")
+
+**Output:**
+- Returns JSONB with:
+  - `success` BOOLEAN - Whether ingestion succeeded
+  - `processed` INTEGER - Number of events processed
+  - `errors` INTEGER - Number of errors encountered
+  - `error_details` TEXT[] - Array of error messages
+  - `last_ingested_played_at` TIMESTAMPTZ - Latest playedAt timestamp
+
+**Behavior:**
+- Processes each event in the array
+- Upserts artist records into `artists` table
+- Upserts/updates stats in `rocklist_stats` table:
+  - Aggregates `play_count` (increments by 1)
+  - Aggregates `total_ms_played` (adds durationMs)
+  - Updates `last_played_at` to most recent timestamp
+  - Calculates `score` as `total_ms_played` (milliseconds)
+- Updates user's `last_ingested_played_at` in `profiles` table
+- Handles errors gracefully, continuing with remaining events
+
+**SQL Implementation:**
+
+See `sql/rocklist_ingest_plays.sql` for full implementation.
+
+### 2. `get_rocklist_user_state`
+
+Returns the current user's last ingestion timestamp.
+
+**Input Parameters:**
+- None (uses `auth.uid()` to identify current user)
+
+**Output Columns:**
+- `last_ingested_played_at TIMESTAMPTZ` - Last ingested timestamp, or NULL if never ingested
+
+**SQL Implementation:**
+
+See `sql/get_rocklist_user_state.sql` for full implementation.
+
+### 3. `get_rocklist_for_artist`
 
 Returns the RockList for a specific artist with filtering by time range and region.
 
@@ -165,7 +234,7 @@ END;
 $$;
 ```
 
-### 2. `get_my_rocklist_summary`
+### 4. `get_my_rocklist_summary`
 
 Returns the current user's rank for all artists they have stats for.
 
@@ -245,7 +314,7 @@ END;
 $$;
 ```
 
-### 3. `post_rocklist_comment`
+### 5. `post_rocklist_comment`
 
 Inserts a comment for a RockList artist.
 
@@ -306,7 +375,7 @@ END;
 $$;
 ```
 
-### 4. `get_rocklist_comments_for_artist`
+### 6. `get_rocklist_comments_for_artist`
 
 Returns comments for a specific artist's RockList.
 
@@ -365,7 +434,7 @@ END;
 $$;
 ```
 
-### 5. `get_following_feed`
+### 7. `get_following_feed`
 
 Returns comments from users the current user follows, across RockList and StudioSessions.
 
@@ -457,9 +526,12 @@ User profile information (if not already exists).
 CREATE TABLE profiles (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id),
     display_name TEXT,
+    last_ingested_played_at TIMESTAMPTZ, -- Tracks last RockList ingestion timestamp
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX idx_profiles_last_ingested ON profiles(last_ingested_played_at);
 ```
 
 ## Notes

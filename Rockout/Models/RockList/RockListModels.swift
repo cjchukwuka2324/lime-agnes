@@ -8,11 +8,17 @@ struct RockListEntry: Decodable, Identifiable {
     let artistImageURL: String?
     let userId: UUID
     let displayName: String
-    let score: Double
+    let score: Double  // Legacy score (kept for backward compatibility)
+    let listenerScore: Double?  // New unified Listener Score (0-100)
     let rank: Int
     let isCurrentUser: Bool
     
     var id: UUID { userId }
+    
+    // Computed property to get the active score (prefer listenerScore, fallback to score)
+    var activeScore: Double {
+        listenerScore ?? score
+    }
     
     enum CodingKeys: String, CodingKey {
         case artistId = "artist_id"
@@ -21,6 +27,7 @@ struct RockListEntry: Decodable, Identifiable {
         case userId = "user_id"
         case displayName = "display_name"
         case score
+        case listenerScore = "listener_score"
         case rank
         case isCurrentUser = "is_current_user"
     }
@@ -42,9 +49,15 @@ struct MyRockListRank: Decodable, Identifiable {
     let artistName: String
     let artistImageURL: String?
     let myRank: Int?
-    let myScore: Double?
+    let myScore: Double?  // Legacy score (kept for backward compatibility)
+    let myListenerScore: Double?  // New unified Listener Score (0-100)
     
     var id: String { artistId }
+    
+    // Computed property to get the active score (prefer listenerScore, fallback to score)
+    var activeScore: Double? {
+        myListenerScore ?? myScore
+    }
     
     enum CodingKeys: String, CodingKey {
         case artistId = "artist_id"
@@ -52,6 +65,7 @@ struct MyRockListRank: Decodable, Identifiable {
         case artistImageURL = "artist_image_url"
         case myRank = "my_rank"
         case myScore = "my_score"
+        case myListenerScore = "my_listener_score"
     }
 }
 

@@ -131,7 +131,7 @@ struct PostDetailView: View {
                 PostComposerView(
                     service: service,
                     parentPost: rootPost
-                ) {
+                ) { createdPostId in
                     Task {
                         await viewModel.refresh()
                     }

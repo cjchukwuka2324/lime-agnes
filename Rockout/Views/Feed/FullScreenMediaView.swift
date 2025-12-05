@@ -27,29 +27,31 @@ struct FullScreenMediaView: View {
             Color.black.ignoresSafeArea()
             
             if let videoURL = videoURL {
-                // Video player
+                // Video player with built-in controls
                 videoPlayerView(videoURL: videoURL)
             } else if !imageURLs.isEmpty {
                 // Image carousel
                 imageCarouselView
             }
             
-            // Close button
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.white)
-                            .background(Color.black.opacity(0.5))
-                            .clipShape(Circle())
+            // Close button (only show for images, video player has its own controls)
+            if videoURL == nil {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title)
+                                .foregroundColor(.white)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding()
                     }
-                    .padding()
+                    Spacer()
                 }
-                Spacer()
             }
         }
         .onAppear {
@@ -152,41 +154,19 @@ struct FullScreenMediaView: View {
     }
     
     private func videoPlayerView(videoURL: URL) -> some View {
-        ZStack {
-            if player != nil {
-                FullScreenVideoPlayer(player: player!, isMuted: $isMuted)
-                    .ignoresSafeArea(.all)
+        Group {
+            if let player = player {
+                FullScreenVideoPlayer(player: player, isMuted: $isMuted)
+                .ignoresSafeArea(.all)
             } else {
                 ProgressView()
                     .tint(.white)
-            }
-            
-            // Mute/Unmute button
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        isMuted.toggle()
-                        player?.isMuted = isMuted
-                    } label: {
-                        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(
-                                Circle()
-                                    .fill(Color.black.opacity(0.5))
-                            )
-                    }
-                    .padding()
-                }
-                Spacer()
             }
         }
         .onAppear {
             if player == nil {
                 player = AVPlayer(url: videoURL)
-                player?.isMuted = true
+                player?.isMuted = isMuted
                 // Start playing immediately
                 DispatchQueue.main.async {
                     player?.play()
@@ -209,13 +189,25 @@ struct FullScreenVideoPlayer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
-        controller.showsPlaybackControls = true
-        controller.videoGravity = .resizeAspectFill
+        controller.showsPlaybackControls = true // Built-in play/pause/scrub/fullscreen/close controls
+        controller.videoGravity = .resizeAspect
         controller.allowsPictureInPicturePlayback = false
+        
+        // Note: AVPlayerViewController has built-in close button (X) in its controls
+        // The dismiss is handled automatically by SwiftUI when presented as fullScreenCover
+        // No custom close button needed
+        
         return controller
     }
     
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         uiViewController.player?.isMuted = isMuted
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator: NSObject {
     }
 }

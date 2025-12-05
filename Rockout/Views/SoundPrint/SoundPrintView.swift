@@ -276,6 +276,11 @@ struct SoundPrintView: View {
                 icon: "music.mic",
                 color: Color(red: 0.12, green: 0.72, blue: 0.33)
             )
+            .onTapGesture {
+                withAnimation(.spring(response: 0.3)) {
+                    selectedTab = 1 // Navigate to Artists tab
+                }
+            }
             StatCard(
                 title: "Top Tracks",
                 value: "\(topTracks.count)",
@@ -335,11 +340,25 @@ struct SoundPrintView: View {
     
     private var topArtistsPreviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Top Artists")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white)
+            HStack {
+                Text("Top Artists")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                Button {
+                    withAnimation(.spring(response: 0.3)) {
+                        selectedTab = 1 // Navigate to Artists tab
+                    }
+                } label: {
+                    Text("See All")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(red: 0.12, green: 0.72, blue: 0.33))
+                }
+            }
             
-            ForEach(Array(topArtists.prefix(3).enumerated()), id: \.element.id) { index, artist in
+            ForEach(Array(topArtists.prefix(5).enumerated()), id: \.element.id) { index, artist in
                 NavigationLink {
                     RockListView(artistId: artist.id)
                 } label: {
@@ -483,6 +502,11 @@ struct SoundPrintView: View {
                 self.personality = pers
             }
             
+            // Load RockList data for all artists (non-blocking)
+            Task {
+                await ensureRockListDataForArtists(artists)
+            }
+            
             // Load extended data (non-blocking)
             _ = try? await statsTask
             _ = try? await featuresTask
@@ -499,6 +523,64 @@ struct SoundPrintView: View {
                 self.errorMessage = error.localizedDescription
                 self.isLoading = false
             }
+        }
+    }
+    
+    // MARK: - RockList Data Loading
+    
+    private func ensureRockListDataForArtists(_ artists: [SpotifyArtist]) async {
+        // Only proceed if Spotify is authorized
+        guard authService.isAuthorized() else {
+            print("ℹ️ SoundPrint: Spotify not authorized, skipping RockList data ingestion")
+            return
+        }
+        
+        let rockListDataService = RockListDataService.shared
+        
+        // Ensure RockList data ingestion happens once (not per artist)
+        // The ingestion process is global and will process all artists
+        do {
+            // Check if we need to perform initial ingestion
+            print("🔍 SoundPrint: Checking RockList ingestion status...")
+            let lastIngested = try? await rockListDataService.getLastIngestedTimestamp()
+            
+            if lastIngested == nil {
+                // Perform initial bootstrap ingestion for all artists
+                print("🚀 SoundPrint: No previous ingestion found. Starting initial RockList data ingestion...")
+                print("📊 SoundPrint: Will ingest data for \(artists.count) artists")
+                try await rockListDataService.performInitialBootstrapIngestion()
+                print("✅ SoundPrint: Initial RockList data ingestion completed successfully")
+                print("ℹ️ SoundPrint: Backend will process ingested data to calculate RockList rankings")
+                print("⏳ SoundPrint: RockList data may take a few moments to be available")
+            } else {
+                // Perform incremental ingestion for recent plays
+                print("🔄 SoundPrint: Previous ingestion found at \(lastIngested?.description ?? "unknown"). Performing incremental update...")
+                try await rockListDataService.performIncrementalIngestion(lastIngestedAt: lastIngested)
+                print("✅ SoundPrint: Incremental RockList data ingestion completed successfully")
+            }
+        } catch {
+            // Handle different types of errors gracefully
+            if let nsError = error as NSError? {
+                if nsError.domain == "SpotifyAPI" && nsError.code == 403 {
+                    // 403 Forbidden - user needs to reauthorize with new scope
+                    print("ℹ️ SoundPrint: Spotify access denied. User may need to reconnect Spotify in Profile settings to grant 'recently played' permission.")
+                } else if nsError.domain == "SpotifyAPI" && nsError.code == 401 {
+                    // 401 Unauthorized - token expired or invalid
+                    print("ℹ️ SoundPrint: Spotify authentication expired. User may need to reconnect Spotify.")
+                } else {
+                    // Other errors - log detailed information
+                    print("⚠️ SoundPrint: Failed to ensure RockList data ingestion")
+                    print("⚠️ Error: \(error.localizedDescription)")
+                    print("⚠️ Error domain: \(nsError.domain), code: \(nsError.code)")
+                    if !nsError.userInfo.isEmpty {
+                        print("⚠️ Error userInfo: \(nsError.userInfo)")
+                    }
+                }
+            } else {
+                // Unknown error type
+                print("⚠️ SoundPrint: Failed to ensure RockList data ingestion: \(error.localizedDescription)")
+            }
+            // Don't fail the entire load - RockList data calculation is non-critical
         }
     }
     

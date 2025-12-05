@@ -34,6 +34,12 @@ final class RockListService {
         let p_end_timestamp: String
     }
     
+    private struct GetScoreBreakdownParams: Encodable {
+        let p_user_id: String
+        let p_artist_id: String
+        let p_region: String?
+    }
+    
     // MARK: - Date Formatter
     
     private var dateFormatter: ISO8601DateFormatter {
@@ -189,6 +195,46 @@ final class RockListService {
         )
         
         return comments
+    }
+    
+    // MARK: - Get Score Breakdown
+    
+    func getScoreBreakdown(
+        userId: UUID,
+        artistId: String,
+        region: String? = nil
+    ) async throws -> ListenerScoreBreakdown {
+        
+        let params = GetScoreBreakdownParams(
+            p_user_id: userId.uuidString,
+            p_artist_id: artistId,
+            p_region: region ?? "GLOBAL"
+        )
+        
+        let response = try await supabase
+            .rpc("get_listener_score_breakdown", params: params)
+            .execute()
+        
+        // The function returns JSONB, so we need to decode it
+        let jsonData = response.data
+        
+        // Check for error in response
+        if let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+           let error = json["error"] as? String {
+            throw NSError(
+                domain: "RockListService",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: error]
+            )
+        }
+        
+        // Decode the breakdown
+        let breakdown = try JSONDecoder().decode(
+            ListenerScoreBreakdown.self,
+            from: jsonData
+        )
+        
+        return breakdown
     }
 }
 

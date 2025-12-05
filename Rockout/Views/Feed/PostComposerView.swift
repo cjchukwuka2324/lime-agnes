@@ -11,7 +11,7 @@ struct PostComposerView: View {
     let leaderboardEntry: LeaderboardEntrySummary?
     let parentPost: Post?
     let prefilledText: String?
-    let onPostCreated: (() -> Void)?
+    let onPostCreated: ((String?) -> Void)? // Pass created post ID
     
     @State private var text: String
     @State private var isPosting = false
@@ -45,7 +45,7 @@ struct PostComposerView: View {
         leaderboardEntry: LeaderboardEntrySummary? = nil,
         parentPost: Post? = nil,
         prefilledText: String? = nil,
-        onPostCreated: (() -> Void)? = nil
+        onPostCreated: ((String?) -> Void)? = nil
     ) {
         self.service = service
         self.leaderboardEntry = leaderboardEntry
@@ -259,6 +259,8 @@ struct PostComposerView: View {
         }
     }
     
+    @State private var videoThumbnail: UIImage?
+    
     private func videoPreview(videoURL: URL) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -268,27 +270,69 @@ struct PostComposerView: View {
                 Spacer()
                 Button {
                     self.selectedVideo = nil
+                    self.videoThumbnail = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.white.opacity(0.7))
                 }
             }
             
-            HStack {
+            ZStack(alignment: .center) {
+                if let thumbnail = videoThumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 200)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.1))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 200)
+                        .overlay(
+                            ProgressView()
+                                .tint(.white)
+                        )
+                }
+                
+                // Play button overlay
                 Image(systemName: "play.circle.fill")
-                    .font(.largeTitle)
-                    .foregroundColor(.white.opacity(0.7))
-                Text(videoURL.lastPathComponent)
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
-                    .lineLimit(1)
+                    .font(.system(size: 50))
+                    .foregroundColor(.white.opacity(0.9))
+                    .background(
+                        Circle()
+                            .fill(Color.black.opacity(0.3))
+                    )
             }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.1))
-            )
+        }
+        .onAppear {
+            generateVideoThumbnail(from: videoURL)
+        }
+        .onChange(of: selectedVideo) { _, newVideoURL in
+            if let newVideoURL = newVideoURL {
+                generateVideoThumbnail(from: newVideoURL)
+            } else {
+                videoThumbnail = nil
+            }
+        }
+    }
+    
+    private func generateVideoThumbnail(from videoURL: URL) {
+        Task {
+            let asset = AVAsset(url: videoURL)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+            
+            do {
+                let cgImage = try await imageGenerator.image(at: CMTime.zero).image
+                let thumbnail = UIImage(cgImage: cgImage)
+                await MainActor.run {
+                    self.videoThumbnail = thumbnail
+                }
+            } catch {
+                print("Failed to generate video thumbnail: \(error.localizedDescription)")
+            }
         }
     }
     
@@ -862,8 +906,45 @@ struct PostComposerView: View {
             
             if let video = selectedVideo {
                 isUploadingMedia = true
-                videoURL = try await mediaService.uploadPostVideo(video)
-                isUploadingMedia = false
+                print("📹 Starting video upload for: \(video.lastPathComponent)")
+                print("📹 Video file exists: \(FileManager.default.fileExists(atPath: video.path))")
+                
+                // Ensure file exists and is accessible
+                guard FileManager.default.fileExists(atPath: video.path) else {
+                    isUploadingMedia = false
+                    let errorMsg = "Video file not found at path: \(video.path)"
+                    print("❌ \(errorMsg)")
+                    errorMessage = errorMsg
+                    throw NSError(domain: "PostComposerView", code: 404, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+                }
+                
+                // Check file size and show compression message if needed
+                if let attributes = try? FileManager.default.attributesOfItem(atPath: video.path),
+                   let fileSize = attributes[.size] as? Int64,
+                   fileSize > 10 * 1024 * 1024 { // 10MB
+                    print("📹 Video is large (\(fileSize / 1024 / 1024)MB), will compress before upload")
+                }
+                
+                do {
+                    videoURL = try await mediaService.uploadPostVideo(video)
+                    print("✅ Video uploaded successfully: \(videoURL?.absoluteString ?? "nil")")
+                    isUploadingMedia = false
+                } catch {
+                    isUploadingMedia = false
+                    print("❌ Video upload failed: \(error.localizedDescription)")
+                    if let nsError = error as NSError? {
+                        print("❌ Error domain: \(nsError.domain), code: \(nsError.code)")
+                        print("❌ Error userInfo: \(nsError.userInfo)")
+                    }
+                    
+                    // Provide user-friendly error message
+                    if let storageError = error as NSError?, storageError.domain.contains("Storage") {
+                        errorMessage = "Video is too large. Please try a shorter video or lower quality."
+                    } else {
+                        errorMessage = "Failed to upload video: \(error.localizedDescription)"
+                    }
+                    throw error
+                }
             }
             
             if let audio = audioRecordingURL {
@@ -880,8 +961,16 @@ struct PostComposerView: View {
                 print("🎵 PostComposerView.post(): backgroundMusic details: name=\(bgMusic.name), artist=\(bgMusic.artist), spotifyId=\(bgMusic.spotifyId)")
             }
             
+            print("📤 Posting with:")
+            print("📤 Text: \(postText.isEmpty ? "empty" : postText)")
+            print("📤 Images: \(imageURLs.count)")
+            print("📤 Video: \(videoURL?.absoluteString ?? "nil")")
+            print("📤 Audio: \(audioURL?.absoluteString ?? "nil")")
+            
+            let createdPostId: String?
             if let parentPost = parentPost {
-                _ = try await service.reply(
+                print("📤 Creating reply to post: \(parentPost.id)")
+                let reply = try await service.reply(
                     to: parentPost,
                     text: postText,
                     imageURLs: imageURLs,
@@ -891,12 +980,13 @@ struct PostComposerView: View {
                     poll: poll,
                     backgroundMusic: backgroundMusic
                 )
+                createdPostId = reply.id
+                print("✅ Reply created successfully with ID: \(reply.id)")
             } else {
-                print("📝 Creating post with spotifyLink: \(spotifyLink?.name ?? "nil")")
-                print("📝 spotifyLink details: id=\(spotifyLink?.id ?? "nil"), url=\(spotifyLink?.url ?? "nil"), type=\(spotifyLink?.type ?? "nil")")
-                print("🎵 Creating post with backgroundMusic: \(backgroundMusic?.name ?? "nil")")
-                print("🎵 backgroundMusic details: spotifyId=\(backgroundMusic?.spotifyId ?? "nil"), name=\(backgroundMusic?.name ?? "nil"), artist=\(backgroundMusic?.artist ?? "nil"), previewURL=\(backgroundMusic?.previewURL?.absoluteString ?? "nil")")
-                _ = try await service.createPost(
+                print("📝 Creating new post")
+                print("📝 spotifyLink: \(spotifyLink?.name ?? "nil")")
+                print("🎵 backgroundMusic: \(backgroundMusic?.name ?? "nil")")
+                let post = try await service.createPost(
                     text: postText,
                     imageURLs: imageURLs,
                     videoURL: videoURL,
@@ -906,6 +996,8 @@ struct PostComposerView: View {
                     poll: poll,
                     backgroundMusic: backgroundMusic
                 )
+                createdPostId = post.id
+                print("✅ Post created successfully with ID: \(post.id)")
             }
             // Reset form state
             text = ""
@@ -917,7 +1009,7 @@ struct PostComposerView: View {
             backgroundMusic = nil
             // Note: leaderboardEntry is a let constant, so it can't be reset
             
-            onPostCreated?()
+            onPostCreated?(createdPostId)
             
             // Post notification to refresh feed
             NotificationCenter.default.post(name: .feedDidUpdate, object: nil)
@@ -925,7 +1017,14 @@ struct PostComposerView: View {
             dismiss()
         } catch {
             isUploadingMedia = false
-            errorMessage = "Failed to post: \(error.localizedDescription)"
+            let errorDescription = error.localizedDescription
+            print("❌ Post failed with error: \(errorDescription)")
+            print("❌ Error type: \(type(of: error))")
+            if let nsError = error as NSError? {
+                print("❌ Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ Error userInfo: \(nsError.userInfo)")
+            }
+            errorMessage = "Failed to post: \(errorDescription)"
         }
     }
 }

@@ -453,5 +453,89 @@ final class RockListDataService {
             track.artists.contains { $0.id == artistId }
         }
     }
+    
+    // MARK: - Ensure RockList Data for Artist
+    
+    /// Ensures RockList data exists for a specific artist
+    /// This triggers data ingestion if needed
+    func ensureRockListData(for artistId: String) async throws {
+        // Check if we need to perform initial ingestion
+        let lastIngested = try? await getLastIngestedTimestamp()
+        
+        if lastIngested == nil {
+            // Perform initial bootstrap ingestion
+            try await performInitialBootstrapIngestion()
+        } else {
+            // Perform incremental ingestion for recent plays
+            try await performIncrementalIngestion()
+        }
+    }
+    
+    /// Ensures listening data is ingested for a specific artist
+    /// Checks top tracks across all time ranges to find the artist
+    /// Falls back to regular incremental ingestion if artist not found in top tracks
+    func ensureArtistDataIngested(artistId: String) async throws {
+        print("🔍 RockListDataService: Checking top tracks for artist \(artistId)...")
+        
+        let profile = try await spotifyAPI.getCurrentUserProfile()
+        let region = profile.country ?? "GLOBAL"
+        
+        var events: [RockListPlayEvent] = []
+        
+        // Check top tracks across all time ranges
+        do {
+            async let shortTerm = spotifyAPI.getTopTracks(timeRange: .shortTerm, limit: 50)
+            async let mediumTerm = spotifyAPI.getTopTracks(timeRange: .mediumTerm, limit: 50)
+            async let longTerm = spotifyAPI.getTopTracks(timeRange: .longTerm, limit: 50)
+            
+            let (shortTermTracks, mediumTermTracks, longTermTracks) = try await (shortTerm, mediumTerm, longTerm)
+            
+            // Filter tracks by the target artist
+            let allTracks = shortTermTracks.items + mediumTermTracks.items + longTermTracks.items
+            let artistTracks = allTracks.filter { track in
+                track.artists.contains { $0.id == artistId }
+            }
+            
+            if !artistTracks.isEmpty {
+                print("✅ RockListDataService: Found \(artistTracks.count) top tracks for artist")
+                
+                // Create play events for these tracks
+                // Use current date for virtual events, with slight variation to simulate listening over time
+                let now = Date()
+                for (index, track) in artistTracks.enumerated() {
+                    // Distribute events over the past few days to simulate natural listening
+                    let daysAgo = Double(index % 7) // Spread over a week
+                    let playedAt = now.addingTimeInterval(-daysAgo * 24 * 60 * 60)
+                    
+                    events.append(
+                        RockListPlayEvent(
+                            artistId: artistId,
+                            artistName: track.artists.first(where: { $0.id == artistId })?.name ?? track.artists.first?.name ?? "Unknown",
+                            trackId: track.id,
+                            trackName: track.name,
+                            playedAt: playedAt,
+                            durationMs: track.durationMs,
+                            region: region
+                        )
+                    )
+                }
+                
+                // Send events to backend
+                try await sendEventsToBackend(events)
+                print("✅ RockListDataService: Ingested \(events.count) play events for artist from top tracks")
+                return
+            } else {
+                print("ℹ️ RockListDataService: Artist not found in top tracks, falling back to incremental ingestion")
+            }
+        } catch {
+            // If top tracks fetch fails, log and fall through to incremental ingestion
+            print("⚠️ RockListDataService: Failed to fetch top tracks for artist: \(error.localizedDescription)")
+        }
+        
+        // Fallback: perform regular incremental ingestion
+        // This will capture the artist if they appear in recently played
+        let lastIngested = try? await getLastIngestedTimestamp()
+        try await performIncrementalIngestion(lastIngestedAt: lastIngested)
+    }
 }
 

@@ -1061,6 +1061,10 @@ final class SupabaseFeedService: FeedService {
         )
         
         print("📤 Calling create_post RPC with params:")
+        print("📤 p_text: \(params.p_text.isEmpty ? "empty" : params.p_text.prefix(50))")
+        print("📤 p_image_urls: \(params.p_image_urls.count) images")
+        print("📤 p_video_url: \(params.p_video_url ?? "nil")")
+        print("📤 p_audio_url: \(params.p_audio_url ?? "nil")")
         print("📤 p_spotify_link_url: \(params.p_spotify_link_url ?? "nil")")
         print("📤 p_spotify_link_type: \(params.p_spotify_link_type ?? "nil")")
         print("📤 p_spotify_link_data: \(params.p_spotify_link_data != nil ? "exists" : "nil")")
@@ -1401,17 +1405,20 @@ final class SupabaseFeedService: FeedService {
             ]
         }
         
+        // Inherit leaderboard entry from parent post if present (for replies to rank posts)
+        let parentLeaderboardEntry = parentPost.leaderboardEntry
+        
         let params = CreatePostParams(
             p_text: text,
             p_image_urls: imageURLStrings,
             p_video_url: videoURL?.absoluteString,
             p_audio_url: audioURL?.absoluteString,
             p_parent_post_id: parentPost.id,
-            p_leaderboard_entry_id: nil,
-            p_leaderboard_artist_name: nil,
-            p_leaderboard_rank: nil,
-            p_leaderboard_percentile_label: nil,
-            p_leaderboard_minutes_listened: nil,
+            p_leaderboard_entry_id: parentLeaderboardEntry?.id,
+            p_leaderboard_artist_name: parentLeaderboardEntry?.artistName,
+            p_leaderboard_rank: parentLeaderboardEntry?.rank,
+            p_leaderboard_percentile_label: parentLeaderboardEntry?.percentileLabel,
+            p_leaderboard_minutes_listened: parentLeaderboardEntry?.minutesListened,
             p_reshared_post_id: nil,
             p_spotify_link_url: spotifyLink?.url,
             p_spotify_link_type: spotifyLink?.type,
@@ -1638,7 +1645,7 @@ final class SupabaseFeedService: FeedService {
             )
         }()
         
-        // Handle leaderboard entry if present
+        // Handle leaderboard entry if present (inherited from parent for replies)
         let leaderboardEntry: LeaderboardEntrySummary? = {
             guard let entryId = postRow.leaderboard_entry_id,
                   let artistName = postRow.leaderboard_artist_name,
@@ -1650,10 +1657,28 @@ final class SupabaseFeedService: FeedService {
             
             let artistId = extractArtistId(from: entryId)
             
+            // Extract userId from entryId (format: "userId_artistId")
+            // For replies, this should be the rank owner's userId, not the reply author's
+            let rankOwnerUserId = entryId.components(separatedBy: "_").first ?? postRow.user_id.uuidString
+            
+            // Try to get rank owner's display name from social graph
+            // For now, if this is a reply, we'll need to fetch it or the backend should provide it
+            // Using a placeholder approach - ideally backend should provide rank_owner_display_name
+            let rankOwnerDisplayName: String
+            if postRow.parent_post_id != nil {
+                // This is a reply - try to get rank owner's name from social graph
+                // For now, we'll use a simplified approach: extract from entryId or use a placeholder
+                // The backend should ideally provide this in the response
+                rankOwnerDisplayName = rankOwnerUserId // Placeholder - should be fetched from backend
+            } else {
+                // This is a new post, not a reply - use post author's name
+                rankOwnerDisplayName = author.displayName
+            }
+            
             return LeaderboardEntrySummary(
                 id: entryId,
-                userId: postRow.user_id.uuidString,
-                userDisplayName: author.displayName,
+                userId: rankOwnerUserId,
+                userDisplayName: rankOwnerDisplayName,
                 artistId: artistId,
                 artistName: artistName,
                 artistImageURL: nil,
@@ -1681,7 +1706,7 @@ final class SupabaseFeedService: FeedService {
             isLiked: false,
             parentPostId: postRow.parent_post_id?.uuidString,
             parentPost: nil,
-            leaderboardEntry: nil,
+            leaderboardEntry: leaderboardEntry, // Include leaderboardEntry for replies to rank posts
             resharedPostId: nil,
             spotifyLink: spotifyLink,
             poll: poll,

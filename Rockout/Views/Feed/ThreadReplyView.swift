@@ -97,8 +97,9 @@ struct ThreadReplyView: View {
         .sheet(isPresented: $showReplyComposer) {
             NavigationStack {
                 PostComposerView(
-                    replyingTo: post,
-                    onPostCreated: {
+                    service: service,
+                    parentPost: post,
+                    onPostCreated: { createdPostId in
                         showReplyComposer = false
                     }
                 )
@@ -206,8 +207,9 @@ struct ThreadReplyView: View {
         .sheet(isPresented: $showReplyComposer) {
             NavigationStack {
                 PostComposerView(
-                    replyingTo: post,
-                    onPostCreated: {
+                    service: service,
+                    parentPost: post,
+                    onPostCreated: { createdPostId in
                         showReplyComposer = false
                     }
                 )
@@ -315,8 +317,9 @@ struct ThreadReplyView: View {
         .sheet(isPresented: $showReplyComposer) {
             NavigationStack {
                 PostComposerView(
-                    replyingTo: post,
-                    onPostCreated: {
+                    service: service,
+                    parentPost: post,
+                    onPostCreated: { createdPostId in
                         showReplyComposer = false
                     }
                 )
@@ -424,8 +427,9 @@ struct ThreadReplyView: View {
         .sheet(isPresented: $showReplyComposer) {
             NavigationStack {
                 PostComposerView(
-                    replyingTo: post,
-                    onPostCreated: {
+                    service: service,
+                    parentPost: post,
+                    onPostCreated: { createdPostId in
                         showReplyComposer = false
                     }
                 )

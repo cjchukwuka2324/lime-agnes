@@ -68,7 +68,7 @@ struct FeedCardView: View {
             PostComposerView(
                 service: service ?? SupabaseFeedService.shared,
                 parentPost: post
-            ) {
+            ) { createdPostId in
                 Task {
                     await loadReplies()
                     NotificationCenter.default.post(name: .feedDidUpdate, object: nil)
@@ -174,6 +174,8 @@ struct FeedCardView: View {
             onTapProfile?()
         } label: {
             Group {
+                // If this is a reply to a rank post, show rank owner's profile picture
+                // For now, use reply author's picture (this may need backend support)
                 if let pictureURL = post.author.profilePictureURL {
                     AsyncImage(url: pictureURL) { phase in
                         switch phase {
@@ -216,13 +218,40 @@ struct FeedCardView: View {
             )
     }
     
+    // Computed properties for display name and handle
+    private var displayName: String {
+        // If this is a reply to a rank post, show the rank owner's name instead of reply author
+        if let leaderboardEntry = post.leaderboardEntry,
+           isReply,
+           post.parentPostId != nil {
+            // Show rank owner's name for replies to rank posts
+            return leaderboardEntry.userDisplayName
+        } else {
+            // Show reply author's name for normal replies
+            return post.author.displayName
+        }
+    }
+    
+    private var displayHandle: String {
+        // If this is a reply to a rank post, show the rank owner's handle instead of reply author
+        if let leaderboardEntry = post.leaderboardEntry,
+           isReply,
+           post.parentPostId != nil {
+            // Show rank owner's handle for replies to rank posts
+            return "@\(leaderboardEntry.userDisplayName.lowercased().replacingOccurrences(of: " ", with: ""))"
+        } else {
+            // Show reply author's handle for normal replies
+            return post.author.handle
+        }
+    }
+    
     private var nameHandleButton: some View {
         Button {
             onTapProfile?()
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(post.author.displayName)
+                    Text(displayName)
                         .font(isReply ? .subheadline.weight(.bold) : .headline.weight(.bold))
                         .foregroundColor(.white)
                     
@@ -239,7 +268,7 @@ struct FeedCardView: View {
                     }
                 }
                 
-                Text(post.author.handle)
+                Text(displayHandle)
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.7))
             }
@@ -293,10 +322,11 @@ struct FeedCardView: View {
         }
         
         if let videoURL = post.videoURL {
-            VideoPlayerView(videoURL: videoURL) {
-                // Fullscreen button action
-                showFullScreenMedia = true
-            }
+            VideoPlayerView(videoURL: videoURL)
+                .onTapGesture {
+                    // Tap to open full screen (built-in fullscreen button also works)
+                    showFullScreenMedia = true
+                }
             .frame(maxWidth: .infinity)
             .aspectRatio(16/9, contentMode: .fill)
             .frame(maxHeight: 450)
