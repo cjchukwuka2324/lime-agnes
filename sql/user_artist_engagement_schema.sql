@@ -44,3 +44,7 @@ COMMENT ON COLUMN user_artist_engagement.album_saves IS 'Number of albums by thi
 COMMENT ON COLUMN user_artist_engagement.track_likes IS 'Number of tracks by this artist liked by user';
 COMMENT ON COLUMN user_artist_engagement.playlist_adds IS 'Number of times user added artist tracks to playlists';
 
+
+
+
+

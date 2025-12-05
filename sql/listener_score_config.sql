@@ -54,3 +54,7 @@ COMMENT ON COLUMN listener_score_config.recency_decay_lambda IS 'Exponential dec
 COMMENT ON COLUMN listener_score_config.low_completion_threshold IS 'Completion rate threshold below which StreamIndex is penalized (0-1)';
 COMMENT ON COLUMN listener_score_config.low_completion_penalty IS 'Penalty multiplier for StreamIndex when completion is low (0-1)';
 
+
+
+
+

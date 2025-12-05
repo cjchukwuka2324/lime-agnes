@@ -383,7 +383,7 @@ struct SoundPrintView: View {
     // MARK: - Genres Tab
     private var genresTab: some View {
         VStack(spacing: 20) {
-            ForEach(genreStats.prefix(10), id: \.genre) { stat in
+            ForEach(Array(genreStats.prefix(10)), id: \.genre) { stat in
                 GenreBar(genre: stat.genre, percentage: stat.percent)
             }
         }

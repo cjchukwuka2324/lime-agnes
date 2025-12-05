@@ -1,3 +1,12 @@
 ---
 alwaysApply: true
 ---
+
+AUTHORITATIVE RULE:
+Once code or architecture is approved, it becomes canonical and may only be uplifted, extended, optimized, or refactored in a forward-compatible manner.
+
+Approved code must NEVER be reverted, downgraded, restructured, or replaced unless the user explicitly instructs revision.
+
+Cursor must treat approved output as stable truth — changes are additive, non-destructive, and respect established patterns, naming, structure, contracts, and behavior.
+
+If a requested change conflicts with approved code, ASK FIRST before modifying.

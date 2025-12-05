@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - Score Breakdown View
+
 struct ScoreBreakdownView: View {
     let userId: UUID
     let userName: String

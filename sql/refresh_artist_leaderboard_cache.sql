@@ -59,3 +59,7 @@ $$;
 -- Grant execute permission
 GRANT EXECUTE ON FUNCTION refresh_artist_leaderboard_cache(TEXT, TEXT) TO authenticated;
 
+
+
+
+

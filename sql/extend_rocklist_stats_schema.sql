@@ -24,3 +24,7 @@ COMMENT ON COLUMN rocklist_stats.engagement_score IS 'Raw engagement score (albu
 COMMENT ON COLUMN rocklist_stats.listener_score IS 'Unified Listener Score (0-100) calculated from weighted formula';
 COMMENT ON COLUMN rocklist_stats.score_updated_at IS 'Timestamp when listener_score was last calculated';
 
+
+
+
+

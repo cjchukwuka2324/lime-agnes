@@ -13,3 +13,7 @@ ON artists(catalog_updated_at);
 COMMENT ON COLUMN artists.total_track_count IS 'Total number of tracks in artist catalog (cached from Spotify API)';
 COMMENT ON COLUMN artists.catalog_updated_at IS 'Timestamp when catalog size was last fetched from Spotify API';
 
+
+
+
+

@@ -34,3 +34,7 @@ COMMENT ON TABLE artist_leaderboard_cache IS 'Cached leaderboard data for fast q
 COMMENT ON COLUMN artist_leaderboard_cache.rank IS 'User rank for this artist (1 = top listener)';
 COMMENT ON COLUMN artist_leaderboard_cache.cached_at IS 'Timestamp when this cache entry was created';
 
+
+
+
+

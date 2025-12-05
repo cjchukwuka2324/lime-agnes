@@ -65,3 +65,7 @@ $$;
 -- Grant execute permission
 GRANT EXECUTE ON FUNCTION get_my_rocklist_summary(TIMESTAMPTZ, TIMESTAMPTZ, TEXT) TO authenticated;
 
+
+
+
+

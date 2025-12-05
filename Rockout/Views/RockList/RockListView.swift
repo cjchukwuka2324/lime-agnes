@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - Rock List View
+
 struct RockListView: View {
     let artistId: String
     
@@ -113,7 +115,7 @@ struct RockListView: View {
                 }
             }
             .sheet(isPresented: $showCustomDatePicker) {
-                customDatePickerSheet(isPresented: $showCustomDatePicker)
+                customDatePickerSheet
             }
             .sheet(isPresented: $showShareSheet) {
                 if let image = shareImage {
@@ -134,7 +136,7 @@ struct RockListView: View {
                     // Navigate to the created post if we have an ID
                     if let postId = createdPostId {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            selectedPostId = PostIdWrapper(id: postId)
+                            self.selectedPostId = PostIdWrapper(id: postId)
                         }
                     }
                 }
@@ -158,7 +160,7 @@ struct RockListView: View {
             .onChange(of: showInstagramHandlePrompt) { isPresented in
                 if isPresented {
                     // Pre-fill Instagram handle if it exists
-                    instagramHandleInput = currentInstagramHandle?.replacingOccurrences(of: "@", with: "") ?? ""
+                    self.instagramHandleInput = self.currentInstagramHandle?.replacingOccurrences(of: "@", with: "") ?? ""
                 }
             }
         }
@@ -560,12 +562,11 @@ struct RockListView: View {
             }
             .padding(20)
             .glassMorphism()
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            selectedBreakdownEntry = entry
-            showScoreBreakdown = true
-        }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                self.selectedBreakdownEntry = entry
+                self.showScoreBreakdown = true
+            }
     }
     
     // MARK: - Not Ranked Card
@@ -574,7 +575,7 @@ struct RockListView: View {
     private func notRankedCard(artist: ArtistSummary) -> some View {
         VStack(spacing: 20) {
             // Artist Image - Try Spotify API first, then fallback to backend URL
-            if let spotifyImageURL = self.viewModel.artistImageURL {
+            if let spotifyImageURL = viewModel.artistImageURL {
                 AsyncImage(url: spotifyImageURL) { image in
                     image
                         .resizable()
@@ -783,8 +784,8 @@ struct RockListView: View {
     private func rockListRow(_ entry: RockListEntry, isCurrentUser: Bool, artist: ArtistSummary?) -> some View {
         VStack(spacing: 12) {
             Button {
-                selectedBreakdownEntry = entry
-                showScoreBreakdown = true
+                self.selectedBreakdownEntry = entry
+                self.showScoreBreakdown = true
             } label: {
                 HStack(spacing: 16) {
                     // Rank
@@ -926,8 +927,7 @@ struct RockListView: View {
     
     // MARK: - Custom Date Picker
     
-    @ViewBuilder
-    private func customDatePickerSheet(isPresented: Binding<Bool>) -> some View {
+    private var customDatePickerSheet: some View {
         NavigationStack {
             Form {
                 Section(header: Text("Start Date")) {
@@ -943,7 +943,7 @@ struct RockListView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        isPresented.wrappedValue = false
+                        showCustomDatePicker = false
                     }
                 }
                 
@@ -951,7 +951,7 @@ struct RockListView: View {
                     Button("Apply") {
                         viewModel.selectedTimeFilter = .custom(start: customStartDate, end: customEndDate)
                         viewModel.load()
-                        isPresented.wrappedValue = false
+                        showCustomDatePicker = false
                     }
                 }
             }
@@ -1024,15 +1024,15 @@ struct RockListView: View {
     
     private func loadInstagramHandle() async {
         if let profile = try? await UserProfileService.shared.getCurrentUserProfile() {
-            currentInstagramHandle = profile.instagramHandle
+            self.currentInstagramHandle = profile.instagramHandle
         }
     }
     
     private func saveInstagramHandle(_ handle: String) async {
         do {
             try await UserProfileService.shared.updateInstagramHandle(handle)
-            await loadInstagramHandle()
-            showInstagramHandlePrompt = false
+            await self.loadInstagramHandle()
+            self.showInstagramHandlePrompt = false
         } catch {
             print("Failed to save Instagram handle: \(error)")
         }
@@ -1040,7 +1040,6 @@ struct RockListView: View {
     
     // MARK: - Instagram Handle Prompt Sheet
     
-    @ViewBuilder
     private var instagramHandlePromptSheet: some View {
         NavigationStack {
             ZStack {

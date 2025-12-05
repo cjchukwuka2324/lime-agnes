@@ -228,3 +228,7 @@ $$;
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION rocklist_ingest_plays(JSONB) TO authenticated;
 
+
+
+
+

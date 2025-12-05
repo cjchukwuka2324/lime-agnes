@@ -45,3 +45,7 @@ $$;
 -- Grant execute permission
 GRANT EXECUTE ON FUNCTION sync_artist_catalog_size(TEXT, INTEGER) TO authenticated;
 
+
+
+
+

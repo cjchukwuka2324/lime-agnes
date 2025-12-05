@@ -46,3 +46,7 @@ COMMENT ON TABLE rocklist_play_events IS 'Detailed play events for calculating c
 COMMENT ON COLUMN rocklist_play_events.played_duration_ms IS 'How long the user actually listened (may be less than track_duration_ms)';
 COMMENT ON COLUMN rocklist_play_events.track_duration_ms IS 'Total duration of the track';
 
+
+
+
+
