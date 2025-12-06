@@ -110,6 +110,7 @@
 		B961E43C2ECBDCAA000D8614 /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43B2ECBDCAA000D8614 /* PostgREST */; };
 		B961E43E2ECBDCAA000D8614 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43D2ECBDCAA000D8614 /* Realtime */; };
 		B961E4402ECBDCAA000D8614 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43F2ECBDCAA000D8614 /* Storage */; };
+		B96E4BA62EE4CE5E008FD807 /* ShareableLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BA52EE4CE5E008FD807 /* ShareableLink.swift */; };
 		B9716CBAAEA89CB340B87460 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B372ECCC71800368E8B /* LoginView.swift */; };
 		B9C25F1B2ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F192ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift */; };
 		B9C25F1C2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1A2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift */; };
@@ -286,6 +287,7 @@
 		B961E4212ECBD7F1000D8614 /* RockoutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockoutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B961E4252ECBD7F1000D8614 /* RockoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockoutUITests.swift; sourceTree = "<group>"; };
 		B961E4272ECBD7F1000D8614 /* RockoutUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockoutUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		B96E4BA52EE4CE5E008FD807 /* ShareableLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareableLink.swift; sourceTree = "<group>"; };
 		B97A6B1F2ECC9D0800368E8B /*  SoundPrintExportCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = " SoundPrintExportCard.swift"; sourceTree = "<group>"; };
 		B97A6B212ECC9FE400368E8B /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 		B97A6B232ECCA06800368E8B /* GenreStat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenreStat.swift; sourceTree = "<group>"; };
@@ -853,6 +855,7 @@
 		B9C25E5D2ED0A38A003AA60B /* StudioSessions */ = {
 			isa = PBXGroup;
 			children = (
+				B96E4BA52EE4CE5E008FD807 /* ShareableLink.swift */,
 			);
 			path = StudioSessions;
 			sourceTree = "<group>";
@@ -1542,6 +1545,7 @@
 				6C75365CE34AEEA230ACF44E /* SupabaseService.swift in Sources */,
 				D8BB79BF40E3A3116828EBCF /* StudioAlbumRecord.swift in Sources */,
 				74F3CC04AD7E89F54F553AF2 /* SpotifyAPI.swift in Sources */,
+				B96E4BA62EE4CE5E008FD807 /* ShareableLink.swift in Sources */,
 				6C5C5BE75FD2B7641280A1BD /* SpotifyModels.swift in Sources */,
 				EFDB7D960E357AC6A61B24BF /* AudioPlayerViewModel.swift in Sources */,
 				3ED93F13F8BCBE7D9FA885B3 /* StudioTrackRecord.swift in Sources */,

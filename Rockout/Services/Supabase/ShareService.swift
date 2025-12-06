@@ -8,12 +8,22 @@ final class ShareService {
     private let supabase = SupabaseService.shared.client
     
     // MARK: - Create Share Link for Album
-    func createShareLink(for albumId: UUID, isCollaboration: Bool = false) async throws -> String {
+    func createShareLink(for albumId: UUID, isCollaboration: Bool = false, expiresAt: Date? = nil) async throws -> String {
         let session = try await supabase.auth.session
         let userId = session.user.id.uuidString
         
         // Generate unique share token
         let shareToken = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        
+        // Format expiration date if provided
+        let expiresAtString: String?
+        if let expiresAt = expiresAt {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            expiresAtString = formatter.string(from: expiresAt)
+        } else {
+            expiresAtString = nil
+        }
         
         // Create shareable link
         struct ShareableLinkDTO: Encodable {
@@ -22,6 +32,7 @@ final class ShareService {
             let share_token: String
             let created_by: String
             let is_collaboration: Bool
+            let expires_at: String?
         }
         
         let linkDTO = ShareableLinkDTO(
@@ -29,7 +40,8 @@ final class ShareService {
             resource_id: albumId.uuidString,
             share_token: shareToken,
             created_by: userId,
-            is_collaboration: isCollaboration
+            is_collaboration: isCollaboration,
+            expires_at: expiresAtString
         )
         
         // Check if any share link already exists for this album
@@ -61,11 +73,13 @@ final class ShareService {
             struct UpdateDTO: Encodable {
                 let share_token: String
                 let is_collaboration: Bool
+                let expires_at: String?
             }
             
             let updateDTO = UpdateDTO(
                 share_token: shareToken,
-                is_collaboration: isCollaboration
+                is_collaboration: isCollaboration,
+                expires_at: expiresAtString
             )
             
             try await supabase
@@ -97,6 +111,7 @@ final class ShareService {
             let resource_id: UUID
             let created_by: UUID
             let is_collaboration: Bool?
+            let expires_at: String?
         }
         
         struct AlbumCheck: Codable {
@@ -106,7 +121,7 @@ final class ShareService {
         
         let shareLinkResponse = try await supabase
             .from("shareable_links")
-            .select("id, resource_id, created_by, is_collaboration")
+            .select("id, resource_id, created_by, is_collaboration, expires_at")
             .eq("share_token", value: shareToken)
             .eq("is_active", value: true)
             .limit(1)
@@ -116,6 +131,17 @@ final class ShareService {
         
         guard let shareLink = shareLinkArray.first else {
             throw NSError(domain: "ShareService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Share link not found or expired"])
+        }
+        
+        // Check if share link has expired
+        if let expiresAtString = shareLink.expires_at {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let expiresAt = formatter.date(from: expiresAtString) {
+                if expiresAt < Date() {
+                    throw NSError(domain: "ShareService", code: 410, userInfo: [NSLocalizedDescriptionKey: "This share link has expired"])
+                }
+            }
         }
         
         print("🔗 Found share link for album: \(shareLink.resource_id.uuidString)")
@@ -354,6 +380,111 @@ final class ShareService {
             print("⚠️ Failed to fetch share metadata: \(error.localizedDescription)")
             return nil
         }
+    }
+    
+    // MARK: - Revoke Share Link
+    /// Revokes a share link entirely by setting is_active to false and removing all shared_albums records
+    func revokeShareLink(shareToken: String) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id.uuidString
+        
+        // Verify the user owns this share link and get album ID
+        struct ShareLinkInfo: Codable {
+            let created_by: UUID
+            let resource_id: UUID
+        }
+        
+        let ownerResponse = try await supabase
+            .from("shareable_links")
+            .select("created_by, resource_id")
+            .eq("share_token", value: shareToken)
+            .single()
+            .execute()
+        
+        let linkInfo = try JSONDecoder().decode(ShareLinkInfo.self, from: ownerResponse.data)
+        
+        guard linkInfo.created_by.uuidString == userId else {
+            throw NSError(domain: "ShareService", code: 403, userInfo: [NSLocalizedDescriptionKey: "You don't have permission to revoke this share link"])
+        }
+        
+        // First, delete all shared_albums records for this album where current user is the owner
+        try await supabase
+            .from("shared_albums")
+            .delete()
+            .eq("album_id", value: linkInfo.resource_id.uuidString)
+            .eq("shared_by", value: userId)
+            .execute()
+        
+        // Then, revoke the share link
+        struct RevokeDTO: Encodable {
+            let is_active: Bool
+        }
+        
+        try await supabase
+            .from("shareable_links")
+            .update(RevokeDTO(is_active: false))
+            .eq("share_token", value: shareToken)
+            .execute()
+    }
+    
+    // MARK: - Revoke Access for Specific User
+    /// Revokes access for a specific user by removing their shared_albums record
+    func revokeAccessForUser(albumId: UUID, userIdToRevoke: UUID) async throws {
+        let session = try await supabase.auth.session
+        let currentUserId = session.user.id.uuidString
+        
+        // Verify the current user owns this album
+        struct AlbumOwner: Codable {
+            let artist_id: UUID
+        }
+        
+        let albumResponse = try await supabase
+            .from("albums")
+            .select("artist_id")
+            .eq("id", value: albumId.uuidString)
+            .single()
+            .execute()
+        
+        let album = try JSONDecoder().decode(AlbumOwner.self, from: albumResponse.data)
+        
+        guard album.artist_id.uuidString == currentUserId else {
+            throw NSError(domain: "ShareService", code: 403, userInfo: [NSLocalizedDescriptionKey: "You don't have permission to revoke access for this album"])
+        }
+        
+        // Delete the shared_albums record for this specific user
+        try await supabase
+            .from("shared_albums")
+            .delete()
+            .eq("album_id", value: albumId.uuidString)
+            .eq("shared_with", value: userIdToRevoke.uuidString)
+            .eq("shared_by", value: currentUserId)
+            .execute()
+    }
+    
+    // MARK: - Get All Users With Access
+    /// Fetches all users who have access to an album (both collaborators and view-only)
+    func getAllUsersWithAccess(for albumId: UUID) async throws -> [CollaboratorService.Collaborator] {
+        return try await CollaboratorService.shared.fetchCollaborators(for: albumId)
+    }
+    
+    // MARK: - Get Share Link Details
+    /// Fetches share link details for a given album
+    func getShareLinkDetails(for albumId: UUID) async throws -> ShareableLink? {
+        let session = try await supabase.auth.session
+        let userId = session.user.id.uuidString
+        
+        let response = try await supabase
+            .from("shareable_links")
+            .select()
+            .eq("resource_type", value: "album")
+            .eq("resource_id", value: albumId.uuidString)
+            .eq("created_by", value: userId)
+            .eq("is_active", value: true)
+            .limit(1)
+            .execute()
+        
+        let links = try JSONDecoder().decode([ShareableLink].self, from: response.data)
+        return links.first
     }
 }
 

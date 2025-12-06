@@ -7,7 +7,7 @@ final class CollaboratorService {
     
     private let supabase = SupabaseService.shared.client
     
-    struct Collaborator: Codable, Identifiable {
+    struct Collaborator: Identifiable {
         let id: UUID
         let user_id: UUID
         let username: String?
@@ -15,6 +15,7 @@ final class CollaboratorService {
         let email: String?
         let is_collaboration: Bool
         let accepted_at: String?
+        let profilePictureURL: URL?
     }
     
     // MARK: - Fetch Collaborators for Album
@@ -52,11 +53,12 @@ final class CollaboratorService {
                     let display_name: String?
                     let first_name: String?
                     let last_name: String?
+                    let profile_picture_url: String?
                 }
                 
                 let profileResponse = try await supabase
                     .from("profiles")
-                    .select("id, username, display_name, first_name, last_name")
+                    .select("id, username, display_name, first_name, last_name, profile_picture_url")
                     .eq("id", value: record.shared_with.uuidString)
                     .single()
                     .execute()
@@ -84,9 +86,13 @@ final class CollaboratorService {
                 // We don't have email on profiles in this schema
                 let cleanEmail: String? = nil
                 
+                // Convert profile picture URL string to URL
+                let profilePictureURL: URL? = profile.profile_picture_url.flatMap { URL(string: $0) }
+                
                 print("✅ Fetched profile for collaborator \(record.shared_with):")
                 print("   - username: \(cleanUsername ?? "nil")")
                 print("   - display_name: \(cleanDisplayName ?? "nil")")
+                print("   - profile_picture_url: \(profilePictureURL?.absoluteString ?? "nil")")
                 
                 let collaborator = Collaborator(
                     id: record.shared_with,
@@ -95,7 +101,8 @@ final class CollaboratorService {
                     display_name: cleanDisplayName,
                     email: cleanEmail,
                     is_collaboration: record.is_collaboration,
-                    accepted_at: record.accepted_at
+                    accepted_at: record.accepted_at,
+                    profilePictureURL: profilePictureURL
                 )
                 
                 collaborators.append(collaborator)
@@ -110,7 +117,8 @@ final class CollaboratorService {
                     display_name: nil,
                     email: nil,
                     is_collaboration: record.is_collaboration,
-                    accepted_at: record.accepted_at
+                    accepted_at: record.accepted_at,
+                    profilePictureURL: nil
                 )
                 collaborators.append(collaborator)
             }

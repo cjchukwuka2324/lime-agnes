@@ -11,6 +11,7 @@ struct ShareableLink: Codable, Identifiable {
     var expires_at: String? // Optional expiration
     var access_count: Int
     var is_active: Bool
+    var is_collaboration: Bool? // Whether this is a collaboration link
 }
 
 struct ListenerRecord: Codable, Identifiable {

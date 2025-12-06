@@ -14,6 +14,16 @@ struct ShareSheetView: View {
     @State private var isCollaboration: Bool = false
     @State private var showShareSheet = false
     @State private var copiedToClipboard = false
+    @State private var hasExpiration: Bool = false
+    @State private var expirationDate: Date = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+    @State private var shareLinkDetails: ShareableLink?
+    @State private var showRevokeConfirmation = false
+    @State private var isRevoking = false
+    @State private var usersWithAccess: [CollaboratorService.Collaborator] = []
+    @State private var isLoadingAccess = false
+    @State private var showManageAccess = false
+    @State private var userToRevoke: UUID?
+    @State private var showRevokeUserConfirmation = false
     
     init(resourceType: String, resourceId: UUID, allowCollaboration: Bool = true) {
         self.resourceType = resourceType
@@ -72,7 +82,8 @@ struct ShareSheetView: View {
             ShareSheet(activityItems: [shareURL])
         }
         .task {
-            // Don't auto-create link, let user choose collaboration setting first
+            // Load existing share link if one exists
+            await loadExistingShareLink()
         }
     }
     
@@ -181,6 +192,60 @@ struct ShareSheetView: View {
                 }
                 .padding(.horizontal, 20)
             }
+            
+            // Expiration Settings
+            VStack(spacing: 16) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock.fill")
+                                .font(.title3)
+                                .foregroundColor(.white.opacity(0.7))
+                                .frame(width: 24)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Link Expiration")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                
+                                Text(hasExpiration 
+                                     ? "Link will expire on selected date" 
+                                     : "Link will remain active indefinitely")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $hasExpiration)
+                        .tint(.blue)
+                        .labelsHidden()
+                }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.white.opacity(0.1))
+                )
+                
+                if hasExpiration {
+                    DatePicker(
+                        "Expiration Date",
+                        selection: $expirationDate,
+                        in: Date()...,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .datePickerStyle(.compact)
+                    .colorScheme(.dark)
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.1))
+                    )
+                }
+            }
+            .padding(.horizontal, 20)
             
             // Create Button
             Button {
@@ -356,7 +421,167 @@ struct ShareSheetView: View {
                         .fill(Color.blue.opacity(0.2))
                 )
             }
+            
+            // Expiration Info
+            if let details = shareLinkDetails, let expiresAt = details.expires_at {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.fill")
+                        .font(.caption)
+                    Text("Expires: \(formatExpirationDate(expiresAt))")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .foregroundColor(.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.orange.opacity(0.2))
+                )
+            } else if let details = shareLinkDetails, details.expires_at == nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "infinity")
+                        .font(.caption)
+                    Text("Never expires")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .foregroundColor(.green)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.green.opacity(0.2))
+                )
+            }
+            
+            // Manage Access Section
+            if let token = shareToken {
+                manageAccessSection
+            }
+            
+            // Revoke Entire Share Link Button
+            if let token = shareToken {
+                Button {
+                    showRevokeConfirmation = true
+                } label: {
+                    HStack {
+                        if isRevoking {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.headline)
+                            Text("Revoke Entire Share Link")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.red.opacity(0.2))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal, 20)
+                .disabled(isRevoking)
+            }
         }
+        .alert("Revoke Share Link?", isPresented: $showRevokeConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Revoke", role: .destructive) {
+                Task {
+                    await revokeShareLink()
+                }
+            }
+        } message: {
+            Text("This will immediately revoke access for everyone using this share link and remove all shared access. This action cannot be undone.")
+        }
+        .alert("Revoke Access for User?", isPresented: $showRevokeUserConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Revoke", role: .destructive) {
+                if let userId = userToRevoke {
+                    Task {
+                        await revokeUserAccess(userId: userId)
+                    }
+                }
+            }
+        } message: {
+            Text("This will immediately revoke access for this user. They will no longer be able to view or collaborate on this album.")
+        }
+    }
+    
+    // MARK: - Helper Functions
+    private func formatExpirationDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        guard let date = formatter.date(from: dateString) else {
+            return dateString
+        }
+        
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .medium
+        displayFormatter.timeStyle = .short
+        return displayFormatter.string(from: date)
+    }
+    
+    private func revokeShareLink() async {
+        guard let token = shareToken else { return }
+        
+        isRevoking = true
+        errorMessage = nil
+        
+        do {
+            try await ShareService.shared.revokeShareLink(shareToken: token)
+            // Reset share link state
+            await MainActor.run {
+                shareToken = nil
+                shareURL = ""
+                shareLinkDetails = nil
+                usersWithAccess = []
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+            }
+        }
+        
+        isRevoking = false
+    }
+    
+    private func revokeUserAccess(userId: UUID) async {
+        isLoadingAccess = true
+        errorMessage = nil
+        
+        do {
+            try await ShareService.shared.revokeAccessForUser(albumId: resourceId, userIdToRevoke: userId)
+            // Reload users with access
+            await loadUsersWithAccess()
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+            }
+        }
+        
+        isLoadingAccess = false
+    }
+    
+    private func loadUsersWithAccess() async {
+        isLoadingAccess = true
+        
+        do {
+            let users = try await ShareService.shared.getAllUsersWithAccess(for: resourceId)
+            await MainActor.run {
+                usersWithAccess = users
+            }
+        } catch {
+            print("⚠️ Failed to load users with access: \(error.localizedDescription)")
+            await MainActor.run {
+                usersWithAccess = []
+            }
+        }
+        
+        isLoadingAccess = false
     }
     
     // MARK: - Loading View
@@ -372,6 +597,177 @@ struct ShareSheetView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 60)
+    }
+    
+    // MARK: - Manage Access Section
+    private var manageAccessSection: some View {
+        VStack(spacing: 16) {
+            Button {
+                showManageAccess.toggle()
+                if showManageAccess {
+                    Task {
+                        await loadUsersWithAccess()
+                    }
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "person.2.fill")
+                        .font(.headline)
+                    Text("Manage Access")
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Image(systemName: showManageAccess ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                }
+                .foregroundColor(.white)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 16)
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(12)
+            }
+            .padding(.horizontal, 20)
+            
+            if showManageAccess {
+                if isLoadingAccess {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(.white)
+                        Text("Loading...")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity)
+                } else if usersWithAccess.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 32))
+                            .foregroundColor(.white.opacity(0.5))
+                        Text("No one has access yet")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(usersWithAccess) { user in
+                                UserAccessRow(user: user) {
+                                    userToRevoke = user.user_id
+                                    showRevokeUserConfirmation = true
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                    }
+                    .frame(maxHeight: 300)
+                }
+            }
+        }
+    }
+    
+    // MARK: - User Access Row
+    private struct UserAccessRow: View {
+        let user: CollaboratorService.Collaborator
+        let onRevoke: () -> Void
+        
+        var body: some View {
+            HStack(spacing: 12) {
+                // Avatar
+                Group {
+                    if let imageURL = user.profilePictureURL {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .tint(.white)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            case .failure:
+                                defaultAvatar
+                            @unknown default:
+                                defaultAvatar
+                            }
+                        }
+                    } else {
+                        defaultAvatar
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.3), lineWidth: 2)
+                )
+                
+                // User Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(user.display_name ?? user.username ?? user.email ?? "Unknown User")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    
+                    if let username = user.username, !username.isEmpty {
+                        Text("@\(username)")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    
+                    HStack(spacing: 6) {
+                        Image(systemName: user.is_collaboration ? "person.2.fill" : "eye.fill")
+                            .font(.caption2)
+                        Text(user.is_collaboration ? "Collaborator" : "View Only")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.blue)
+                }
+                
+                Spacer()
+                
+                // Revoke Button
+                Button {
+                    onRevoke()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.red.opacity(0.8))
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(Color.white.opacity(0.05))
+            .cornerRadius(12)
+        }
+        
+        private var defaultAvatar: some View {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                
+                if let displayName = user.display_name, !displayName.isEmpty {
+                    Text(String(displayName.prefix(1)).uppercased())
+                        .font(.headline)
+                        .foregroundColor(.white)
+                } else if let username = user.username, !username.isEmpty {
+                    Text(String(username.prefix(1)).uppercased())
+                        .font(.headline)
+                        .foregroundColor(.white)
+                } else {
+                    Image(systemName: "person.fill")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                }
+            }
+        }
     }
     
     // MARK: - Error View
@@ -409,7 +805,10 @@ struct ShareSheetView: View {
             // Force view-only if collaboration is not allowed
             let collaborationMode = allowCollaboration ? isCollaboration : false
             
-            let token = try await ShareService.shared.createShareLink(for: resourceId, isCollaboration: collaborationMode)
+            // Set expiration date if enabled
+            let expiration = hasExpiration ? expirationDate : nil
+            
+            let token = try await ShareService.shared.createShareLink(for: resourceId, isCollaboration: collaborationMode, expiresAt: expiration)
             shareToken = token
             // Deep link format:
             //   - View-only:   rockout://view/{token}
@@ -418,10 +817,45 @@ struct ShareSheetView: View {
             
             // Update isCollaboration state to match what was actually created
             isCollaboration = collaborationMode
+            
+            // Fetch share link details to show expiration
+            shareLinkDetails = try await ShareService.shared.getShareLinkDetails(for: resourceId)
+            
+            // Load users with access
+            await loadUsersWithAccess()
         } catch {
             errorMessage = error.localizedDescription
         }
         
         isLoading = false
+    }
+    
+    private func loadExistingShareLink() async {
+        do {
+            if let existingLink = try await ShareService.shared.getShareLinkDetails(for: resourceId) {
+                await MainActor.run {
+                    shareToken = existingLink.share_token
+                    isCollaboration = existingLink.is_collaboration ?? false
+                    shareLinkDetails = existingLink
+                    shareURL = ShareService.shared.getShareURL(for: existingLink.share_token, isCollaboration: isCollaboration)
+                    
+                    // Set expiration state if link has expiration
+                    if let expiresAtString = existingLink.expires_at {
+                        let formatter = ISO8601DateFormatter()
+                        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                        if let expiresAt = formatter.date(from: expiresAtString) {
+                            hasExpiration = true
+                            expirationDate = expiresAt
+                        }
+                    }
+                }
+                
+                // Load users with access
+                await loadUsersWithAccess()
+            }
+        } catch {
+            // No existing share link, that's fine
+            print("ℹ️ No existing share link found: \(error.localizedDescription)")
+        }
     }
 }

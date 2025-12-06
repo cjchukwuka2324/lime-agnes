@@ -8,6 +8,9 @@ struct CollaboratorsView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var selectedFilter: FilterType = .all
+    @State private var userToRevoke: UUID?
+    @State private var showRevokeConfirmation = false
+    @State private var isRevoking = false
     
     enum FilterType {
         case all
@@ -164,7 +167,13 @@ struct CollaboratorsView: View {
                                     .padding(.vertical, 40)
                                 } else {
                                     ForEach(filteredCollaborators) { collaborator in
-                                        CollaboratorRow(collaborator: collaborator)
+                                        CollaboratorRow(
+                                            collaborator: collaborator,
+                                            onRevoke: {
+                                                userToRevoke = collaborator.user_id
+                                                showRevokeConfirmation = true
+                                            }
+                                        )
                                     }
                                 }
                             }
@@ -187,6 +196,25 @@ struct CollaboratorsView: View {
             .task {
                 await loadCollaborators()
             }
+            .alert("Revoke Access?", isPresented: $showRevokeConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    userToRevoke = nil
+                }
+                Button("Revoke", role: .destructive) {
+                    if let userId = userToRevoke {
+                        Task {
+                            await revokeAccess(for: userId)
+                        }
+                    }
+                }
+            } message: {
+                if let userId = userToRevoke,
+                   let collaborator = collaborators.first(where: { $0.user_id == userId }) {
+                    Text("This will immediately revoke access for \(collaborator.display_name ?? collaborator.username ?? "this user"). They will no longer be able to view or collaborate on this album.")
+                } else {
+                    Text("This will immediately revoke access for this user. They will no longer be able to view or collaborate on this album.")
+                }
+            }
         }
     }
     
@@ -207,39 +235,67 @@ struct CollaboratorsView: View {
             }
         }
     }
+    
+    private func revokeAccess(for userId: UUID) async {
+        isRevoking = true
+        errorMessage = nil
+        
+        do {
+            try await ShareService.shared.revokeAccessForUser(albumId: albumId, userIdToRevoke: userId)
+            
+            // Remove from local list immediately
+            await MainActor.run {
+                collaborators.removeAll { $0.user_id == userId }
+                userToRevoke = nil
+            }
+            
+            // Reload to ensure we have the latest state
+            await loadCollaborators()
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                userToRevoke = nil
+            }
+        }
+        
+        isRevoking = false
+    }
 }
 
 struct CollaboratorRow: View {
     let collaborator: CollaboratorService.Collaborator
+    let onRevoke: () -> Void
     
     var body: some View {
         HStack(spacing: 12) {
             // Avatar
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 50, height: 50)
-                
-                if let displayName = collaborator.display_name, !displayName.isEmpty {
-                    Text(String(displayName.prefix(1)).uppercased())
-                        .font(.headline)
-                        .foregroundColor(.white)
-                } else if let username = collaborator.username, !username.isEmpty {
-                    Text(String(username.prefix(1)).uppercased())
-                        .font(.headline)
-                        .foregroundColor(.white)
+            Group {
+                if let imageURL = collaborator.profilePictureURL {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .tint(.white)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            defaultAvatar
+                        @unknown default:
+                            defaultAvatar
+                        }
+                    }
                 } else {
-                    Image(systemName: "person.fill")
-                        .font(.headline)
-                        .foregroundColor(.white)
+                    defaultAvatar
                 }
             }
+            .frame(width: 50, height: 50)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.3), lineWidth: 2)
+            )
             
             // Info
             VStack(alignment: .leading, spacing: 4) {
@@ -275,11 +331,47 @@ struct CollaboratorRow: View {
             }
             
             Spacer()
+            
+            // Revoke Button
+            Button {
+                onRevoke()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(.red.opacity(0.8))
+            }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .background(Color.white.opacity(0.05))
         .cornerRadius(12)
+    }
+    
+    private var defaultAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.6)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            
+            if let displayName = collaborator.display_name, !displayName.isEmpty {
+                Text(String(displayName.prefix(1)).uppercased())
+                    .font(.headline)
+                    .foregroundColor(.white)
+            } else if let username = collaborator.username, !username.isEmpty {
+                Text(String(username.prefix(1)).uppercased())
+                    .font(.headline)
+                    .foregroundColor(.white)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            }
+        }
     }
 }
 
