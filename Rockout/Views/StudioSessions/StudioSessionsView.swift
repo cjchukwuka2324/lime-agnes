@@ -13,6 +13,8 @@ struct StudioSessionsView: View {
     @State private var searchText = ""
     @State private var showAcceptShareSheet = false
     @State private var shareTokenToAccept: String?
+    @State private var isPublic = false
+    @State private var showDiscoverSheet = false
     
     var loadingMessage: String {
         switch selectedTab {
@@ -176,20 +178,49 @@ struct StudioSessionsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if selectedTab == .myAlbums {
+                    HStack(spacing: 16) {
+                        // Discover button - always visible
                         Button {
-                            showCreateAlbumSheet = true
+                            showDiscoverSheet = true
                         } label: {
-                            Image(systemName: "plus.circle.fill")
+                            Image(systemName: "magnifyingglass")
                                 .font(.title2)
                                 .foregroundColor(.white)
+                        }
+                        
+                        // Create album button - only on My Albums tab
+                        if selectedTab == .myAlbums {
+                            Button {
+                                showCreateAlbumSheet = true
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.white)
+                            }
                         }
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search albums...")
+            .searchable(text: $searchText, prompt: "Search local albums...")
             .sheet(isPresented: $showCreateAlbumSheet) {
                 createAlbumSheet
+            }
+            .sheet(isPresented: $showDiscoverSheet) {
+                NavigationStack {
+                    PublicAlbumsSearchView()
+                        .navigationTitle("Discover Albums")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbarBackground(.black, for: .navigationBar)
+                        .toolbarColorScheme(.dark, for: .navigationBar)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button("Done") {
+                                    showDiscoverSheet = false
+                                }
+                                .foregroundColor(.white)
+                            }
+                        }
+                }
             }
             .onAppear {
                 viewModel.loadAlbums()
@@ -413,6 +444,27 @@ struct StudioSessionsView: View {
                                 .cornerRadius(12)
                         }
                         .padding(.horizontal, 24)
+                        
+                        // Public/Private Toggle
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Visibility")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    
+                                    Text(isPublic ? "Public - Discoverable by your @username or email" : "Private - Only you and people you share with can see it")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
+                                
+                                Spacer()
+                                
+                                Toggle("", isOn: $isPublic)
+                                    .tint(.blue)
+                            }
+                        }
+                        .padding(.horizontal, 24)
                     }
                     .padding(.bottom, 40)
                 }
@@ -431,7 +483,7 @@ struct StudioSessionsView: View {
                     Button("Create") {
                         let imageData = coverArtImage?.jpegData(compressionQuality: 0.8)
                         let artistNameValue = newArtistName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : newArtistName.trimmingCharacters(in: .whitespaces)
-                        viewModel.createAlbum(title: newAlbumTitle, artistName: artistNameValue, coverArtData: imageData)
+                        viewModel.createAlbum(title: newAlbumTitle, artistName: artistNameValue, coverArtData: imageData, isPublic: isPublic)
                         resetAlbumCreation()
                     }
                     .foregroundColor(.white)
@@ -449,6 +501,7 @@ struct StudioSessionsView: View {
         newAlbumTitle = ""
         newArtistName = ""
         coverArtImage = nil
+        isPublic = false
         showCreateAlbumSheet = false
     }
 }
@@ -505,72 +558,81 @@ struct AlbumCard: View {
                         
                         Spacer()
                         
-                        // Collaborator/Viewer indicator
-                        if let collabCount = album.collaborator_count, collabCount > 0,
-                           let viewerCount = album.viewer_count, viewerCount > 0 {
-                            // Both collaborators and viewers exist - show both icons
-                            Button {
-                                showCollaborators = true
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "person.2.fill")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
-                                    Text("\(collabCount)")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
-                                    
-                                    Image(systemName: "eye.fill")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
-                                    Text("\(viewerCount)")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
-                                }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color.blue.opacity(0.2))
-                                .cornerRadius(8)
+                        HStack(spacing: 8) {
+                            // Public badge
+                            if album.is_public == true {
+                                Image(systemName: "globe")
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
                             }
-                            .buttonStyle(PlainButtonStyle())
-                        } else if let collabCount = album.collaborator_count, collabCount > 0 {
-                            // Only collaborators exist
-                            Button {
-                                showCollaborators = true
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "person.2.fill")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
-                                    Text("\(collabCount)")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
+                            
+                            // Collaborator/Viewer indicator
+                            if let collabCount = album.collaborator_count, collabCount > 0,
+                               let viewerCount = album.viewer_count, viewerCount > 0 {
+                                // Both collaborators and viewers exist - show both icons
+                                Button {
+                                    showCollaborators = true
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "person.2.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                        Text("\(collabCount)")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                        
+                                        Image(systemName: "eye.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                        Text("\(viewerCount)")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.blue.opacity(0.2))
+                                    .cornerRadius(8)
                                 }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color.blue.opacity(0.2))
-                                .cornerRadius(8)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        } else if let viewerCount = album.viewer_count, viewerCount > 0 {
-                            // Only viewers exist
-                            Button {
-                                showCollaborators = true
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "eye.fill")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
-                                    Text("\(viewerCount)")
-                                        .font(.caption2)
-                                        .foregroundColor(.blue)
+                                .buttonStyle(PlainButtonStyle())
+                            } else if let collabCount = album.collaborator_count, collabCount > 0 {
+                                // Only collaborators exist
+                                Button {
+                                    showCollaborators = true
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "person.2.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                        Text("\(collabCount)")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.blue.opacity(0.2))
+                                    .cornerRadius(8)
                                 }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color.blue.opacity(0.2))
-                                .cornerRadius(8)
+                                .buttonStyle(PlainButtonStyle())
+                            } else if let viewerCount = album.viewer_count, viewerCount > 0 {
+                                // Only viewers exist
+                                Button {
+                                    showCollaborators = true
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "eye.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                        Text("\(viewerCount)")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.blue.opacity(0.2))
+                                    .cornerRadius(8)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                     

@@ -41,7 +41,7 @@ final class StudioSessionsViewModel: ObservableObject {
 
     // MARK: - Create Album With Optional Cover Art
 
-    func createAlbum(title: String, artistName: String?, coverArtData: Data?) {
+    func createAlbum(title: String, artistName: String?, coverArtData: Data?, isPublic: Bool = false) {
         Task {
             isLoadingAlbums = true
             errorMessage = nil
@@ -51,7 +51,8 @@ final class StudioSessionsViewModel: ObservableObject {
                 let newAlbum = try await albumService.createAlbum(
                     title: title,
                     artistName: artistName,
-                    coverArtData: coverArtData
+                    coverArtData: coverArtData,
+                    isPublic: isPublic
                 )
                 albums.insert(newAlbum, at: 0)
             } catch {

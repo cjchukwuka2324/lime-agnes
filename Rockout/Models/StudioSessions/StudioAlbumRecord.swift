@@ -12,4 +12,5 @@ struct StudioAlbumRecord: Codable, Identifiable, Hashable {
     var updated_at: String?
     var collaborator_count: Int? // Number of collaborators (excluding owner)
     var viewer_count: Int? // Number of view-only users (excluding owner)
+    var is_public: Bool? // Whether album is publicly discoverable
 }

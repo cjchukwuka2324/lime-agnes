@@ -13,6 +13,7 @@ struct EditAlbumView: View {
     @State private var tracks: [StudioTrackRecord] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var isPublic: Bool
     
     private let albumService = AlbumService.shared
     private let trackService = TrackService.shared
@@ -22,6 +23,7 @@ struct EditAlbumView: View {
         self.onUpdated = onUpdated
         _title = State(initialValue: album.title)
         _artistName = State(initialValue: album.artist_name ?? "")
+        _isPublic = State(initialValue: album.is_public ?? false)
     }
     
     var body: some View {
@@ -199,6 +201,27 @@ struct EditAlbumView: View {
                     TextField("Enter artist name", text: $artistName)
                         .textFieldStyle(CustomTextFieldStyle())
                 }
+                
+                // Public/Private Toggle
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Visibility")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white.opacity(0.8))
+                            
+                            Text(isPublic ? "Public - Discoverable by your @username or email" : "Private - Only you and people you share with can see it")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $isPublic)
+                            .tint(.blue)
+                    }
+                }
             }
         }
         .padding(20)
@@ -326,7 +349,8 @@ struct EditAlbumView: View {
                 album,
                 title: title.trimmingCharacters(in: .whitespaces).isEmpty ? nil : title.trimmingCharacters(in: .whitespaces),
                 artistName: artistName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : artistName.trimmingCharacters(in: .whitespaces),
-                coverArtData: coverArtData
+                coverArtData: coverArtData,
+                isPublic: isPublic
             )
             
             // Update track order if changed

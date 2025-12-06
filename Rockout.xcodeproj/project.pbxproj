@@ -31,7 +31,7 @@
 		38E9701B9C4255FCFFFD4C50 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B4E2ECD215300368E8B /* AlbumDetailView.swift */; };
 		39146494D2E10DA945B78C01 /* Notification+Feed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39146494D2E10DA945B78C02 /* Notification+Feed.swift */; };
 		3AAB164C7A08F6C08F0738B5 /* SpotifyError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB70832ECC40980084B284 /* SpotifyError.swift */; };
-		3B08C55207FEE667465B5F66 /* HashtagTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9D80A7860D1EA28902FF6 /* HashtagTextView.swift */; };
+		3B08C55207FEE667465B5F66 /* Views/Shared/HashtagTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9D80A7860D1EA28902FF6 /* Views/Shared/HashtagTextView.swift */; };
 		3B4C5D6E7F8A9B0C1D2E3F4A5 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B4C5D6E7F8A9B0C1D2E3F4A /* VideoPlayerView.swift */; };
 		3BAFE4A880C57BD8E5814F48 /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D75FA42ECEA0A500DC607F /* ImagePicker.swift */; };
 		3ED93F13F8BCBE7D9FA885B3 /* StudioTrackRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B442ECD1E6C00368E8B /* StudioTrackRecord.swift */; };
@@ -80,7 +80,7 @@
 		83FE5FEC92B46C26DF2247DA /* TimeAnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC43C2096A85BFA768C77433 /* TimeAnalysisView.swift */; };
 		840179862CAA31150FCAA2C3 /* MyRockListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A274DEF672263E37BB1D4573 /* MyRockListViewModel.swift */; };
 		84AD2C8F59AC4D79AC92A15E /* AccountSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A5DEAC59FA4BF698A97930 /* AccountSettingsView.swift */; };
-		861030CFF5729198B45F513F /* BottomPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9C0A8E4458A6C894BC2C6C /* BottomPlayerBar.swift */; };
+		861030CFF5729198B45F513F /* Views/StudioSessions/BottomPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9C0A8E4458A6C894BC2C6C /* Views/StudioSessions/BottomPlayerBar.swift */; };
 		869E341D5B742CDC504AB87D /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E0E7F12ECBE3B9006C7549 /* WelcomeView.swift */; };
 		86D0B2E1A2DF1EFA3B9BFFF6 /* SoundPrintCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E0E7EF2ECBE25F006C7549 /* SoundPrintCard.swift */; };
 		8A9DE930B90FD71876B0EB86 /* SoundPrintView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E0E7ED2ECBE1FA006C7549 /* SoundPrintView.swift */; };
@@ -100,6 +100,8 @@
 		AC6A04F2A0E328D890F2EBC2 /* RockOutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C5910AC9C748CBA45954EF /* RockOutApp.swift */; };
 		B054B867B0DE85DC7C09619D /* AnimatedGenreBarChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB708C2ECC44CC0084B284 /* AnimatedGenreBarChart.swift */; };
 		B85E3E4FCF58439CE834861C /* ListeningStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68ADA42A49FC25DF16ABC654 /* ListeningStatsView.swift */; };
+		B94F64EF2EE4B82A00A934B5 /* PublicAlbumsSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94F64EE2EE4B82A00A934B5 /* PublicAlbumsSearchView.swift */; };
+		B94F64F12EE4BB8200A934B5 /* UserPublicAlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94F64F02EE4BB8200A934B5 /* UserPublicAlbumsView.swift */; };
 		B961E41C2ECBD7F1000D8614 /* RockoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961E41B2ECBD7F1000D8614 /* RockoutTests.swift */; };
 		B961E4262ECBD7F1000D8614 /* RockoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961E4252ECBD7F1000D8614 /* RockoutUITests.swift */; };
 		B961E4282ECBD7F1000D8614 /* RockoutUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B961E4272ECBD7F1000D8614 /* RockoutUITestsLaunchTests.swift */; };
@@ -109,8 +111,8 @@
 		B961E43E2ECBDCAA000D8614 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43D2ECBDCAA000D8614 /* Realtime */; };
 		B961E4402ECBDCAA000D8614 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43F2ECBDCAA000D8614 /* Storage */; };
 		B9716CBAAEA89CB340B87460 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B372ECCC71800368E8B /* LoginView.swift */; };
-		B9C25F1B2ED10D7C003AA60B /* SpotifyConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F192ED10D7C003AA60B /* SpotifyConnectionView.swift */; };
-		B9C25F1C2ED10D7C003AA60B /* SpotifyPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1A2ED10D7C003AA60B /* SpotifyPresentationContextProvider.swift */; };
+		B9C25F1B2ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F192ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift */; };
+		B9C25F1C2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1A2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift */; };
 		B9C25F1E2ED10E47003AA60B /* SpotifyConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1D2ED10E47003AA60B /* SpotifyConnectionService.swift */; };
 		B9C25F202ED10EE3003AA60B /* SpotifyConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1F2ED10EE3003AA60B /* SpotifyConnection.swift */; };
 		B9E0E7EA2ECBE021006C7549 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B9E0E7E92ECBE021006C7549 /* Supabase */; };
@@ -151,7 +153,7 @@
 		DC3AA8E959AE72DBC11B6F1A /* ContactsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A7797470DD3D75822F40FEF /* ContactsService.swift */; };
 		DC3AA8E959AE72DBC11B6F1B /* SuggestedFollowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9599D42F963EDF0BC574CB74 /* SuggestedFollowService.swift */; };
 		DC3AA8E959AE72DBC11B6F1C /* UserCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96936237D5BE9DB9BB401B6 /* UserCardView.swift */; };
-		E06BC39862ED904E366F02CA /* CameraPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA649B64E36993E03A01A18 /* CameraPickerView.swift */; };
+		E06BC39862ED904E366F02CA /* Views/Shared/CameraPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA649B64E36993E03A01A18 /* Views/Shared/CameraPickerView.swift */; };
 		E23DCAFC99AD41D68F72B4A7 /* AppNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B6217F10F044819FF1F483 /* AppNotification.swift */; };
 		E3BE0F6A907DC5DF5728E9DA /* FeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0675D75457BF8761768569D /* FeedViewModel.swift */; };
 		E3E1F4007938D0B97199DB9D /* CollaboratorService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3CBF0521812791D38E31D4 /* CollaboratorService.swift */; };
@@ -178,7 +180,7 @@
 		FA0F1A2B3C4D5E6F7A8B9C0D1E /* BackgroundMusicSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0F1A2B3C4D5E6F7A8B9C0D1 /* BackgroundMusicSelectorView.swift */; };
 		FB1A2B3C4D5E6F7A8B9C0D1E2F /* PollVoteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB1A2B3C4D5E6F7A8B9C0D1E2 /* PollVoteService.swift */; };
 		FD0AF6131B5144E4BD029B04 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCACA684921B43AE9C2435A1 /* NotificationsView.swift */; };
-		FDAFEF856C83E02BE5F691D6 /* ScoreBreakdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D84EA3DA44654697B3D35C8 /* ScoreBreakdownView.swift */; };
+		FDAFEF856C83E02BE5F691D6 /* Views/RockList/ScoreBreakdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D84EA3DA44654697B3D35C8 /* Views/RockList/ScoreBreakdownView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -215,8 +217,8 @@
 		34791C15E878105EC4FAA7EE /* MainTabView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MainTabView.swift; path = Rockout/Views/Main/MainTabView.swift; sourceTree = "<group>"; };
 		39146494D2E10DA945B78C02 /* Notification+Feed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Feed.swift"; sourceTree = "<group>"; };
 		3B4C5D6E7F8A9B0C1D2E3F4A /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
-		3D63BF48CAB1CCC6A264FBFC /* ShareService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareService.swift; path = ShareService.swift; sourceTree = "<group>"; };
-		3F1E3BBCACB4F204BF35378F /* TrackVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TrackVersion.swift; path = TrackVersion.swift; sourceTree = "<group>"; };
+		3D63BF48CAB1CCC6A264FBFC /* ShareService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareService.swift; sourceTree = "<group>"; };
+		3F1E3BBCACB4F204BF35378F /* TrackVersion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrackVersion.swift; sourceTree = "<group>"; };
 		40090CEB94666436D0A85D94 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
 		4292B1E2647E2E3D0EA7D35A /* MoodContextView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MoodContextView.swift; path = Rockout/Views/SoundPrint/Features/MoodContextView.swift; sourceTree = "<group>"; };
 		43583979D58EAD3E9A1FC659 /* DiscoveryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiscoveryView.swift; path = Rockout/Views/SoundPrint/Features/DiscoveryView.swift; sourceTree = "<group>"; };
@@ -266,13 +268,15 @@
 		9599D42F963EDF0BC574CB74 /* SuggestedFollowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuggestedFollowService.swift; sourceTree = "<group>"; };
 		963EB8366FB850FE18727D84 /* SpotifyListeningStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyListeningStats.swift; sourceTree = "<group>"; };
 		9C0D1E2F3A4B5C6D7E8F9A0B /* View+GlassMorphism.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+GlassMorphism.swift"; sourceTree = "<group>"; };
-		9D84EA3DA44654697B3D35C8 /* ScoreBreakdownView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/RockList/ScoreBreakdownView.swift; sourceTree = "<group>"; };
+		9D84EA3DA44654697B3D35C8 /* Views/RockList/ScoreBreakdownView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/RockList/ScoreBreakdownView.swift; sourceTree = "<group>"; };
 		A274DEF672263E37BB1D4573 /* MyRockListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyRockListViewModel.swift; sourceTree = "<group>"; };
 		A41845955871E5560DEFC396 /* ShareSheetView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareSheetView.swift; path = Views/StudioSessions/ShareSheetView.swift; sourceTree = "<group>"; };
 		A4EB236CDB1F90DC9977D655 /* PostComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostComposerView.swift; sourceTree = "<group>"; };
-		A6C9D80A7860D1EA28902FF6 /* HashtagTextView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/Shared/HashtagTextView.swift; sourceTree = "<group>"; };
+		A6C9D80A7860D1EA28902FF6 /* Views/Shared/HashtagTextView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/Shared/HashtagTextView.swift; sourceTree = "<group>"; };
 		A79C85E966CD1FCAC9F75CAD /* VersionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VersionService.swift; path = Services/Supabase/VersionService.swift; sourceTree = "<group>"; };
 		AB65FA62EA134D19BB36570F /* TrendingFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendingFeedView.swift; sourceTree = "<group>"; };
+		B94F64EE2EE4B82A00A934B5 /* PublicAlbumsSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicAlbumsSearchView.swift; path = Views/StudioSessions/PublicAlbumsSearchView.swift; sourceTree = "<group>"; };
+		B94F64F02EE4BB8200A934B5 /* UserPublicAlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UserPublicAlbumsView.swift; path = Views/StudioSessions/UserPublicAlbumsView.swift; sourceTree = "<group>"; };
 		B961E4042ECBD7ED000D8614 /* Rockout.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rockout.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B961E40B2ECBD7ED000D8614 /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
 		B961E40D2ECBD7F0000D8614 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -309,8 +313,8 @@
 		B996EA972ECFE7540035E084 /* SignupForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignupForm.swift; sourceTree = "<group>"; };
 		B996EA992ECFE79B0035E084 /* GoogleLoginButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleLoginButton.swift; sourceTree = "<group>"; };
 		B99CD56F2ECFE30D005C2A23 /* RootAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootAppView.swift; sourceTree = "<group>"; };
-		B9C25F192ED10D7C003AA60B /* SpotifyConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Profile/SpotifyConnectionView.swift; sourceTree = "<group>"; };
-		B9C25F1A2ED10D7C003AA60B /* SpotifyPresentationContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Profile/SpotifyPresentationContextProvider.swift; sourceTree = "<group>"; };
+		B9C25F192ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Profile/SpotifyConnectionView.swift; sourceTree = "<group>"; };
+		B9C25F1A2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Profile/SpotifyPresentationContextProvider.swift; sourceTree = "<group>"; };
 		B9C25F1D2ED10E47003AA60B /* SpotifyConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyConnectionService.swift; sourceTree = "<group>"; };
 		B9C25F1F2ED10EE3003AA60B /* SpotifyConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyConnection.swift; sourceTree = "<group>"; };
 		B9D75F9A2ECE96C800DC607F /* ForgotPasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForgotPasswordView.swift; sourceTree = "<group>"; };
@@ -345,8 +349,8 @@
 		BC1840D52737FE22862E076F /* SocialSharingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SocialSharingView.swift; path = Rockout/Views/SoundPrint/Features/SocialSharingView.swift; sourceTree = "<group>"; };
 		BC43C2096A85BFA768C77433 /* TimeAnalysisView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TimeAnalysisView.swift; path = Rockout/Views/SoundPrint/Features/TimeAnalysisView.swift; sourceTree = "<group>"; };
 		BCACA684921B43AE9C2435A1 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
-		BEB65016A8C334B272343FC3 /* AudioPlayerViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AudioPlayerViewModel.swift; path = AudioPlayerViewModel.swift; sourceTree = "<group>"; };
-		CCA649B64E36993E03A01A18 /* CameraPickerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/Shared/CameraPickerView.swift; sourceTree = "<group>"; };
+		BEB65016A8C334B272343FC3 /* AudioPlayerViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPlayerViewModel.swift; sourceTree = "<group>"; };
+		CCA649B64E36993E03A01A18 /* Views/Shared/CameraPickerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/Shared/CameraPickerView.swift; sourceTree = "<group>"; };
 		CEADF9C908844AEA94CB77B1 /* TrendingFeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendingFeedViewModel.swift; sourceTree = "<group>"; };
 		CF6B5338B168FDDBCD7299C7 /* ProfileView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ProfileView.swift; path = Views/Profile/ProfileView.swift; sourceTree = "<group>"; };
 		D8F88D060035401B68882574 /* RockListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockListViewModel.swift; sourceTree = "<group>"; };
@@ -368,7 +372,7 @@
 		F9E0F1A2B3C4D5E6F7A8B9C0 /* PollCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollCreationView.swift; sourceTree = "<group>"; };
 		FA0F1A2B3C4D5E6F7A8B9C0D1 /* BackgroundMusicSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundMusicSelectorView.swift; sourceTree = "<group>"; };
 		FB1A2B3C4D5E6F7A8B9C0D1E2 /* PollVoteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollVoteService.swift; sourceTree = "<group>"; };
-		FB9C0A8E4458A6C894BC2C6C /* BottomPlayerBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/StudioSessions/BottomPlayerBar.swift; sourceTree = "<group>"; };
+		FB9C0A8E4458A6C894BC2C6C /* Views/StudioSessions/BottomPlayerBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/StudioSessions/BottomPlayerBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -533,7 +537,7 @@
 		4E658AA56C15547B1D9200D0 /* RockList */ = {
 			isa = PBXGroup;
 			children = (
-				9D84EA3DA44654697B3D35C8 /* ScoreBreakdownView.swift */,
+				9D84EA3DA44654697B3D35C8 /* Views/RockList/ScoreBreakdownView.swift */,
 			);
 			name = RockList;
 			sourceTree = "<group>";
@@ -550,9 +554,11 @@
 		5D9BFF6B8A76F7D9F7E71060 /* StudioSessions */ = {
 			isa = PBXGroup;
 			children = (
+				B94F64F02EE4BB8200A934B5 /* UserPublicAlbumsView.swift */,
+				B94F64EE2EE4B82A00A934B5 /* PublicAlbumsSearchView.swift */,
 				E6D953E080FA5E755F459039 /* CollaboratorsView.swift */,
 				30CCB1AABB46E891A17B98C0 /* EditAlbumView.swift */,
-				FB9C0A8E4458A6C894BC2C6C /* BottomPlayerBar.swift */,
+				FB9C0A8E4458A6C894BC2C6C /* Views/StudioSessions/BottomPlayerBar.swift */,
 				7381C517B85A051C44D10ECF /* AudioPlayerView.swift */,
 				A41845955871E5560DEFC396 /* ShareSheetView.swift */,
 			);
@@ -621,8 +627,8 @@
 		92930F796246F96616418344 /* Profile */ = {
 			isa = PBXGroup;
 			children = (
-				B9C25F192ED10D7C003AA60B /* SpotifyConnectionView.swift */,
-				B9C25F1A2ED10D7C003AA60B /* SpotifyPresentationContextProvider.swift */,
+				B9C25F192ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift */,
+				B9C25F1A2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift */,
 				CF6B5338B168FDDBCD7299C7 /* ProfileView.swift */,
 			);
 			name = Profile;
@@ -661,8 +667,8 @@
 		AA7AC14C37351940D38A6AA5 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				CCA649B64E36993E03A01A18 /* CameraPickerView.swift */,
-				A6C9D80A7860D1EA28902FF6 /* HashtagTextView.swift */,
+				CCA649B64E36993E03A01A18 /* Views/Shared/CameraPickerView.swift */,
+				A6C9D80A7860D1EA28902FF6 /* Views/Shared/HashtagTextView.swift */,
 			);
 			name = Shared;
 			sourceTree = "<group>";
@@ -992,7 +998,7 @@
 			path = Welcome;
 			sourceTree = "<group>";
 		};
-		B9C25EB72ED0A38A003AA60B /*  */ = {
+		B9C25EB72ED0A38A003AA60B = {
 			isa = PBXGroup;
 			children = (
 				B9C25E902ED0A38A003AA60B /* Auth */,
@@ -1016,7 +1022,7 @@
 				B9C25E7C2ED0A38A003AA60B /* Services */,
 				B9C25E802ED0A38A003AA60B /* Utils */,
 				B9C25E852ED0A38A003AA60B /* ViewModels */,
-				B9C25EB72ED0A38A003AA60B /*  */,
+				B9C25EB72ED0A38A003AA60B,
 				EE77EB45E4B9094A6457EC5C /* Views */,
 				B625EB6CEACFBA2E1972790E /* Services */,
 			);
@@ -1445,8 +1451,8 @@
 				DC3AA8E959AE72DBC11B6F13 /* MultiImagePicker.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F14 /* ImageSlideshowView.swift in Sources */,
 				B9C25F1E2ED10E47003AA60B /* SpotifyConnectionService.swift in Sources */,
-				B9C25F1B2ED10D7C003AA60B /* SpotifyConnectionView.swift in Sources */,
-				B9C25F1C2ED10D7C003AA60B /* SpotifyPresentationContextProvider.swift in Sources */,
+				B9C25F1B2ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift in Sources */,
+				B9C25F1C2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift in Sources */,
 				7896AE8A4B24470CBC417AD0 /* RockListView.swift in Sources */,
 				E3F4A5B6C7D8E9F0A1B2C3D4 /* MyRockListView.swift in Sources */,
 				F4A5B6C7D8E9F0A1B2C3D4E5 /* FeedView.swift in Sources */,
@@ -1462,10 +1468,12 @@
 				6A9D19870D3048AE8A89DFC8 /* TrendingFeedViewModel.swift in Sources */,
 				56E01952571F4F258AECA13A /* HashtagService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F03 /* FeedService.swift in Sources */,
+				B94F64EF2EE4B82A00A934B5 /* PublicAlbumsSearchView.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F15 /* SupabaseFeedService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F04 /* FeedStore.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F05 /* FeedPersistence.swift in Sources */,
 				765CEC57C71D0DEC41BBB167 /* FeedImageService.swift in Sources */,
+				B94F64F12EE4BB8200A934B5 /* UserPublicAlbumsView.swift in Sources */,
 				7D8E9F0A1B2C3D4E5F6A7B8D /* FeedMediaService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F06 /* InMemorySocialGraphService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F16 /* SupabaseSocialGraphService.swift in Sources */,
@@ -1526,10 +1534,10 @@
 				D752B1A928D1CA90FA709824 /* AdvancedAnalyticsView.swift in Sources */,
 				0C1D1E6B7CCB067FCF77D505 /* SharedAlbumHandler.swift in Sources */,
 				51BE7708B79CB8E7259FE0E9 /* AcceptSharedAlbumView.swift in Sources */,
-				E06BC39862ED904E366F02CA /* CameraPickerView.swift in Sources */,
-				3B08C55207FEE667465B5F66 /* HashtagTextView.swift in Sources */,
-				861030CFF5729198B45F513F /* BottomPlayerBar.swift in Sources */,
-				FDAFEF856C83E02BE5F691D6 /* ScoreBreakdownView.swift in Sources */,
+				E06BC39862ED904E366F02CA /* Views/Shared/CameraPickerView.swift in Sources */,
+				3B08C55207FEE667465B5F66 /* Views/Shared/HashtagTextView.swift in Sources */,
+				861030CFF5729198B45F513F /* Views/StudioSessions/BottomPlayerBar.swift in Sources */,
+				FDAFEF856C83E02BE5F691D6 /* Views/RockList/ScoreBreakdownView.swift in Sources */,
 				65977B0D0063FD5C23A2F2C4 /* SpotifyAuthService.swift in Sources */,
 				6C75365CE34AEEA230ACF44E /* SupabaseService.swift in Sources */,
 				D8BB79BF40E3A3116828EBCF /* StudioAlbumRecord.swift in Sources */,
@@ -1757,14 +1765,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Rockout/Preview Content\"";
-				DEVELOPMENT_TEAM = L5Y7VL3X35;
+				DEVELOPMENT_TEAM = VT37GYLU7C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Rockout/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Rockout;
 				INFOPLIST_KEY_NSCameraUsageDescription = "RockOut needs camera access to capture photos and videos for your posts";
-				INFOPLIST_KEY_NSContactsUsageDescription = "RockOut needs contacts access to help you find and invite friends who are already using the app";
+				INFOPLIST_KEY_NSContactsUsageDescription = "RockOut needs access to your contacts to help you find friends on the app";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "RockOut needs microphone access to record voice messages for your posts";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "RockOut needs photo library access to share photos and videos in your posts";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -1784,7 +1792,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = suinoik.RockOut;
+				PRODUCT_BUNDLE_IDENTIFIER = com.suinoik.rockout;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SRCROOT = "$(SRCROOT)/Rockout";
@@ -1804,14 +1812,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Rockout/Preview Content\"";
-				DEVELOPMENT_TEAM = L5Y7VL3X35;
+				DEVELOPMENT_TEAM = VT37GYLU7C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Rockout/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Rockout;
 				INFOPLIST_KEY_NSCameraUsageDescription = "RockOut needs camera access to capture photos and videos for your posts";
-				INFOPLIST_KEY_NSContactsUsageDescription = "RockOut needs contacts access to help you find and invite friends who are already using the app";
+				INFOPLIST_KEY_NSContactsUsageDescription = "RockOut needs access to your contacts to help you find friends on the app";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "RockOut needs microphone access to record voice messages for your posts";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "RockOut needs photo library access to share photos and videos in your posts";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -1831,7 +1839,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = suinoik.RockOut;
+				PRODUCT_BUNDLE_IDENTIFIER = com.suinoik.rockout;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SRCROOT = "$(SRCROOT)/Rockout";

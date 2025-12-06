@@ -13,10 +13,11 @@ final class AlbumService {
         let release_status: String
         let cover_art_url: String?
         let artist_name: String?
+        let is_public: Bool?
     }
 
     // MARK: - CREATE ALBUM (WITH COVER ART)
-    func createAlbum(title: String, artistName: String?, coverArtData: Data?) async throws -> StudioAlbumRecord {
+    func createAlbum(title: String, artistName: String?, coverArtData: Data?, isPublic: Bool = false) async throws -> StudioAlbumRecord {
 
         let session = try await supabase.auth.session
         let userId = session.user.id.uuidString
@@ -79,7 +80,8 @@ final class AlbumService {
             artist_id: artistId,
             release_status: "draft",
             cover_art_url: coverArtUrl,
-            artist_name: albumArtistName
+            artist_name: albumArtistName,
+            is_public: isPublic
         )
 
         print("📝 Creating album with title: \(title), artist_id: \(artistId), cover_art_url: \(coverArtUrl != nil ? "set" : "nil")")
@@ -511,7 +513,8 @@ final class AlbumService {
         _ album: StudioAlbumRecord,
         title: String?,
         artistName: String?,
-        coverArtData: Data?
+        coverArtData: Data?,
+        isPublic: Bool? = nil
     ) async throws -> StudioAlbumRecord {
         // Note: Permission check is handled by RLS policies
         // RLS allows both owners and collaborators (is_collaboration = true) to update albums
@@ -537,20 +540,22 @@ final class AlbumService {
         let trimmedTitle = title?.trimmingCharacters(in: .whitespaces).isEmpty == false ? title?.trimmingCharacters(in: .whitespaces) : nil
         let trimmedArtistName = artistName?.trimmingCharacters(in: .whitespaces).isEmpty == false ? artistName?.trimmingCharacters(in: .whitespaces) : nil
         
-        if trimmedTitle != nil || coverArtUrl != nil || trimmedArtistName != nil {
+        if trimmedTitle != nil || coverArtUrl != nil || trimmedArtistName != nil || isPublic != nil {
             struct UpdateDTO: Encodable {
                 let title: String?
                 let cover_art_url: String?
                 let artist_name: String?
+                let is_public: Bool?
             }
             
             let updateDTO = UpdateDTO(
                 title: trimmedTitle,
                 cover_art_url: coverArtUrl,
-                artist_name: trimmedArtistName
+                artist_name: trimmedArtistName,
+                is_public: isPublic
             )
             
-            print("🔄 Updating album \(album.id.uuidString) with title: \(trimmedTitle ?? "nil"), artistName: \(trimmedArtistName ?? "nil"), coverArtUrl: \(coverArtUrl != nil ? "set" : "nil")")
+            print("🔄 Updating album \(album.id.uuidString) with title: \(trimmedTitle ?? "nil"), artistName: \(trimmedArtistName ?? "nil"), coverArtUrl: \(coverArtUrl != nil ? "set" : "nil"), isPublic: \(isPublic?.description ?? "nil")")
             
             try await supabase
                 .from("albums")
@@ -680,6 +685,169 @@ final class AlbumService {
         // Remove from shared_albums (leaves collaboration)
         try await removeSharedAlbum(albumId: album.id, userId: userId)
         print("✅ User \(userId) left collaboration for album \(album.id.uuidString)")
+    }
+    
+    // MARK: - SEARCH PUBLIC ALBUMS BY USER
+    /// Searches for public albums owned by users matching the given email or username
+    /// Uses search_users_paginated to find users, then fetches their public albums
+    func searchPublicAlbumsByUser(query: String, limit: Int = 50) async throws -> [StudioAlbumRecord] {
+        let searchQuery = query.lowercased().trimmingCharacters(in: .whitespaces)
+        guard !searchQuery.isEmpty else {
+            return []
+        }
+        
+        print("🔍 Searching for public albums by user: \(searchQuery)")
+        
+        // Use the existing user search RPC to find matching users by email or username
+        let socialService = SupabaseSocialGraphService.shared
+        
+        var matchingUserIds: [UUID] = []
+        
+        do {
+            // Search for users - this supports both email and username
+            let (users, _) = try await socialService.searchUsersPaginated(query: searchQuery, limit: 20, offset: 0)
+            matchingUserIds = users.compactMap { UUID(uuidString: $0.id) }
+        } catch {
+            print("⚠️ Could not search users: \(error.localizedDescription)")
+            // Fallback to direct profile search by username only
+            do {
+                struct ProfileResponse: Codable {
+                    let id: UUID
+                }
+                
+                let cleanQuery = searchQuery.hasPrefix("@") ? String(searchQuery.dropFirst()) : searchQuery
+                let profileResponse = try await supabase
+                    .from("profiles")
+                    .select("id")
+                    .ilike("username", pattern: "%\(cleanQuery)%")
+                    .limit(20)
+                    .execute()
+                
+                let profiles = try JSONDecoder().decode([ProfileResponse].self, from: profileResponse.data)
+                matchingUserIds = profiles.map { $0.id }
+            } catch {
+                print("⚠️ Fallback search also failed: \(error.localizedDescription)")
+                return []
+            }
+        }
+        
+        guard !matchingUserIds.isEmpty else {
+            print("ℹ️ No matching users found")
+            return []
+        }
+        
+        print("✅ Found \(matchingUserIds.count) matching user(s)")
+        
+        // Fetch public albums for matching users
+        var allAlbums: [StudioAlbumRecord] = []
+        
+        for userId in matchingUserIds {
+            do {
+                let response = try await supabase
+                    .from("albums")
+                    .select()
+                    .eq("artist_id", value: userId.uuidString)
+                    .eq("is_public", value: true)
+                    .order("created_at", ascending: false)
+                    .execute()
+                
+                let userAlbums = try JSONDecoder().decode([StudioAlbumRecord].self, from: response.data)
+                allAlbums.append(contentsOf: userAlbums)
+                
+                if allAlbums.count >= limit {
+                    break
+                }
+            } catch {
+                print("⚠️ Failed to fetch albums for user \(userId): \(error.localizedDescription)")
+            }
+        }
+        
+        // Limit results
+        allAlbums = Array(allAlbums.prefix(limit))
+        
+        // Fetch artist names for albums that don't have them
+        let albumsNeedingArtistName = allAlbums.filter { $0.artist_name == nil || $0.artist_name?.isEmpty == true }
+        let uniqueArtistIds = Set(albumsNeedingArtistName.map { $0.artist_id })
+        var artistNames: [UUID: String] = [:]
+        
+        for artistId in uniqueArtistIds {
+            do {
+                struct ArtistResponse: Codable {
+                    let name: String
+                }
+                
+                let artistResponse: ArtistResponse = try await supabase
+                    .from("studio_artists")
+                    .select("name")
+                    .eq("id", value: artistId.uuidString)
+                    .single()
+                    .execute()
+                    .value
+                
+                artistNames[artistId] = artistResponse.name
+            } catch {
+                print("⚠️ Failed to fetch artist name for \(artistId): \(error.localizedDescription)")
+            }
+        }
+        
+        // Update albums with artist names
+        return allAlbums.map { album in
+            var updatedAlbum = album
+            if updatedAlbum.artist_name == nil || updatedAlbum.artist_name?.isEmpty == true {
+                updatedAlbum.artist_name = artistNames[album.artist_id]
+            }
+            return updatedAlbum
+        }
+    }
+    
+    // MARK: - FETCH PUBLIC ALBUMS BY USER ID
+    /// Fetches all public albums for a specific user
+    func fetchPublicAlbumsByUserId(userId: UUID) async throws -> [StudioAlbumRecord] {
+        print("🔍 Fetching public albums for user: \(userId.uuidString)")
+        
+        let response = try await supabase
+            .from("albums")
+            .select()
+            .eq("artist_id", value: userId.uuidString)
+            .eq("is_public", value: true)
+            .order("created_at", ascending: false)
+            .execute()
+        
+        var albums = try JSONDecoder().decode([StudioAlbumRecord].self, from: response.data)
+        
+        // Fetch artist names for albums that don't have them
+        let albumsNeedingArtistName = albums.filter { $0.artist_name == nil || $0.artist_name?.isEmpty == true }
+        let uniqueArtistIds = Set(albumsNeedingArtistName.map { $0.artist_id })
+        var artistNames: [UUID: String] = [:]
+        
+        for artistId in uniqueArtistIds {
+            do {
+                struct ArtistResponse: Codable {
+                    let name: String
+                }
+                
+                let artistResponse: ArtistResponse = try await supabase
+                    .from("studio_artists")
+                    .select("name")
+                    .eq("id", value: artistId.uuidString)
+                    .single()
+                    .execute()
+                    .value
+                
+                artistNames[artistId] = artistResponse.name
+            } catch {
+                print("⚠️ Failed to fetch artist name for \(artistId): \(error.localizedDescription)")
+            }
+        }
+        
+        // Update albums with artist names
+        return albums.map { album in
+            var updatedAlbum = album
+            if updatedAlbum.artist_name == nil || updatedAlbum.artist_name?.isEmpty == true {
+                updatedAlbum.artist_name = artistNames[album.artist_id]
+            }
+            return updatedAlbum
+        }
     }
     
     // MARK: - DELETE CONTEXT
