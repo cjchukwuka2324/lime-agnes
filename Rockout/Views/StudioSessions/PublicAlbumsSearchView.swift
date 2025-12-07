@@ -3,10 +3,14 @@ import SwiftUI
 struct PublicAlbumsSearchView: View {
     @State private var searchText = ""
     @State private var searchResults: [UserSummary] = []
+    @State private var discoverFeedAlbums: [StudioAlbumRecord] = []
     @State private var isLoading = false
+    @State private var isLoadingDiscoverFeed = false
     @State private var errorMessage: String?
     
     private let socialService = SupabaseSocialGraphService.shared
+    private let albumService = AlbumService.shared
+    @StateObject private var viewModel = StudioSessionsViewModel()
     @State private var searchTask: Task<Void, Never>?
     
     var body: some View {
@@ -102,6 +106,64 @@ struct PublicAlbumsSearchView: View {
                             .padding(.horizontal, 40)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if searchText.isEmpty {
+                    // Show discover feed albums when search is empty
+                    if isLoadingDiscoverFeed {
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .tint(.white)
+                            Text("Loading discover feed...")
+                                .foregroundColor(.white.opacity(0.7))
+                                .font(.subheadline)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if discoverFeedAlbums.isEmpty {
+                        VStack(spacing: 24) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 60))
+                                .foregroundColor(.white.opacity(0.3))
+                            
+                            Text("No Albums Yet")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                            
+                            Text("Check back soon for new discoveries")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.6))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("For You")
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 20)
+                                    .padding(.top, 20)
+                                
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16)
+                                ], spacing: 16) {
+                                    ForEach(discoverFeedAlbums) { album in
+                                        PublicAlbumCard(
+                                            album: album,
+                                            isSaved: viewModel.isAlbumSaved(album),
+                                            onAddToDiscoveries: {
+                                                viewModel.saveDiscoveredAlbum(album)
+                                            }
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 100)
+                            }
+                        }
+                    }
                 } else if searchResults.isEmpty {
                     VStack(spacing: 24) {
                         Image(systemName: "magnifyingglass")
@@ -166,6 +228,27 @@ struct PublicAlbumsSearchView: View {
                         .padding(.bottom, 100)
                     }
                 }
+            }
+        }
+        .task {
+            // Load discovered albums first so isAlbumSaved works correctly
+            viewModel.loadDiscoveredAlbums()
+            await loadDiscoverFeed()
+        }
+    }
+    
+    private func loadDiscoverFeed() async {
+        isLoadingDiscoverFeed = true
+        defer { isLoadingDiscoverFeed = false }
+        
+        do {
+            let albums = try await albumService.fetchDiscoverFeedAlbums(limit: 50)
+            await MainActor.run {
+                discoverFeedAlbums = albums
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
             }
         }
     }

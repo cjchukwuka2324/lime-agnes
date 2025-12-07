@@ -9,10 +9,14 @@ final class StudioSessionsViewModel: ObservableObject {
     @Published var albums: [StudioAlbumRecord] = []
     @Published var sharedAlbums: [StudioAlbumRecord] = []
     @Published var collaborativeAlbums: [StudioAlbumRecord] = []
+    @Published var discoverFeedAlbums: [StudioAlbumRecord] = []
+    @Published var discoveredAlbums: [StudioAlbumRecord] = []
     @Published var tracks: [StudioTrackRecord] = []
     @Published var isLoadingAlbums = false
     @Published var isLoadingSharedAlbums = false
     @Published var isLoadingCollaborativeAlbums = false
+    @Published var isLoadingDiscoverFeed = false
+    @Published var isLoadingDiscoveredAlbums = false
     @Published var isLoadingTracks = false
     @Published var errorMessage: String?
 
@@ -216,5 +220,81 @@ final class StudioSessionsViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             print("❌ Error loading collaborative albums: \(error.localizedDescription)")
         }
+    }
+    
+    // MARK: - Discover Feed
+    
+    func loadDiscoverFeedAlbums(limit: Int = 50) {
+        Task {
+            isLoadingDiscoverFeed = true
+            errorMessage = nil
+            defer { isLoadingDiscoverFeed = false }
+            
+            do {
+                let result = try await albumService.fetchDiscoverFeedAlbums(limit: limit)
+                discoverFeedAlbums = result
+                print("✅ Loaded \(result.count) discover feed albums")
+            } catch {
+                errorMessage = error.localizedDescription
+                print("❌ Error loading discover feed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    // MARK: - Discovered Albums (Saved)
+    
+    func loadDiscoveredAlbums() {
+        Task {
+            isLoadingDiscoveredAlbums = true
+            errorMessage = nil
+            defer { isLoadingDiscoveredAlbums = false }
+            
+            do {
+                let result = try await albumService.getDiscoveredAlbums()
+                discoveredAlbums = result
+                print("✅ Loaded \(result.count) discovered albums")
+            } catch {
+                errorMessage = error.localizedDescription
+                print("❌ Error loading discovered albums: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func saveDiscoveredAlbum(_ album: StudioAlbumRecord) {
+        Task {
+            do {
+                try await albumService.saveDiscoveredAlbum(albumId: album.id)
+                // Add to discovered albums list if not already there
+                if !discoveredAlbums.contains(where: { $0.id == album.id }) {
+                    discoveredAlbums.insert(album, at: 0)
+                }
+                // Update discover feed to reflect saved status
+                if let index = discoverFeedAlbums.firstIndex(where: { $0.id == album.id }) {
+                    // Album is now saved, UI will reflect this
+                }
+                print("✅ Album saved to discoveries")
+            } catch {
+                errorMessage = error.localizedDescription
+                print("❌ Error saving discovered album: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func removeDiscoveredAlbum(_ album: StudioAlbumRecord) {
+        Task {
+            do {
+                try await albumService.removeDiscoveredAlbum(albumId: album.id)
+                // Remove from discovered albums list
+                discoveredAlbums.removeAll { $0.id == album.id }
+                print("✅ Album removed from discoveries")
+            } catch {
+                errorMessage = error.localizedDescription
+                print("❌ Error removing discovered album: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func isAlbumSaved(_ album: StudioAlbumRecord) -> Bool {
+        return discoveredAlbums.contains(where: { $0.id == album.id })
     }
 }

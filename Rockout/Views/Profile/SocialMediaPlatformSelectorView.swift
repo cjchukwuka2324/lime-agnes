@@ -47,9 +47,9 @@ struct SocialMediaPlatformSelectorView: View {
             onSelect(platform)
         } label: {
             HStack(spacing: 16) {
-                Image(systemName: platform.iconName)
-                    .font(.title2)
-                    .foregroundColor(.white)
+                Image(platform.iconName)
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()

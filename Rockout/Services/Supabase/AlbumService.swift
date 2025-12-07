@@ -856,5 +856,265 @@ final class AlbumService {
         case sharedWithYou // View-only share
         case collaborations // Collaborative album
     }
+    
+    // MARK: - DISCOVER FEED
+    
+    /// Fetches discover feed albums using the fairness-focused algorithm
+    func fetchDiscoverFeedAlbums(limit: Int = 50) async throws -> [StudioAlbumRecord] {
+        let session = try await supabase.auth.session
+        let userId = session.user.id
+        
+        print("🔍 Fetching discover feed albums for user: \(userId)")
+        
+        struct DiscoverResponse: Codable {
+            let id: UUID
+            let artist_id: UUID
+            let title: String
+            let cover_art_url: String?
+            let release_status: String?
+            let release_date: String?
+            let artist_name: String?
+            let created_at: String?
+            let updated_at: String?
+            let is_public: Bool?
+            let discover_score: Double?
+        }
+        
+        struct DiscoverFeedParams: Encodable {
+            let p_user_id: String
+            let p_limit: Int
+        }
+        
+        let params = DiscoverFeedParams(
+            p_user_id: userId.uuidString,
+            p_limit: limit
+        )
+        
+        let response = try await supabase.rpc(
+            "get_discover_feed_albums",
+            params: params
+        ).execute()
+        
+        let discoverResults = try JSONDecoder().decode([DiscoverResponse].self, from: response.data)
+        
+        print("✅ Found \(discoverResults.count) albums in discover feed")
+        
+        return discoverResults.map { result in
+            StudioAlbumRecord(
+                id: result.id,
+                artist_id: result.artist_id,
+                title: result.title,
+                cover_art_url: result.cover_art_url,
+                release_status: result.release_status,
+                release_date: result.release_date,
+                artist_name: result.artist_name,
+                created_at: result.created_at,
+                updated_at: result.updated_at,
+                collaborator_count: nil,
+                viewer_count: nil,
+                is_public: result.is_public
+            )
+        }
+    }
+    
+    /// Saves an album to user's discovered albums (from Discover feed)
+    func saveDiscoveredAlbum(albumId: UUID) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id
+        
+        print("💾 Saving discovered album \(albumId) for user \(userId)")
+        
+        struct DiscoveredAlbumDTO: Encodable {
+            let user_id: UUID
+            let album_id: UUID
+            let saved_from_discover: Bool
+        }
+        
+        let dto = DiscoveredAlbumDTO(
+            user_id: userId,
+            album_id: albumId,
+            saved_from_discover: true
+        )
+        
+        do {
+            try await supabase
+                .from("discovered_albums")
+                .insert(dto)
+                .execute()
+            print("✅ Album saved to discoveries")
+        } catch {
+            // If already exists, that's fine - just update saved_from_discover if needed
+            if let errorMessage = (error as NSError).userInfo["message"] as? String,
+               errorMessage.contains("duplicate") || errorMessage.contains("unique") {
+                // Update existing record
+                try await supabase
+                    .from("discovered_albums")
+                    .update(["saved_from_discover": true])
+                    .eq("user_id", value: userId.uuidString)
+                    .eq("album_id", value: albumId.uuidString)
+                    .execute()
+                print("✅ Updated existing discovered album record")
+            } else {
+                throw error
+            }
+        }
+    }
+    
+    /// Removes an album from user's discovered albums
+    func removeDiscoveredAlbum(albumId: UUID) async throws {
+        let session = try await supabase.auth.session
+        let userId = session.user.id
+        
+        print("🗑️ Removing discovered album \(albumId) for user \(userId)")
+        
+        try await supabase
+            .from("discovered_albums")
+            .delete()
+            .eq("user_id", value: userId.uuidString)
+            .eq("album_id", value: albumId.uuidString)
+            .execute()
+        
+        print("✅ Album removed from discoveries")
+    }
+    
+    /// Fetches user's saved discovered albums
+    func getDiscoveredAlbums() async throws -> [StudioAlbumRecord] {
+        let session = try await supabase.auth.session
+        let userId = session.user.id
+        
+        print("📚 Fetching discovered albums for user: \(userId)")
+        
+        struct DiscoveredResponse: Codable {
+            let id: UUID
+            let artist_id: UUID
+            let title: String
+            let cover_art_url: String?
+            let release_status: String?
+            let release_date: String?
+            let artist_name: String?
+            let created_at: String?
+            let updated_at: String?
+            let is_public: Bool?
+            let discovered_at: String?
+        }
+        
+        struct GetDiscoveredAlbumsParams: Encodable {
+            let p_user_id: String
+        }
+        
+        let params = GetDiscoveredAlbumsParams(p_user_id: userId.uuidString)
+        
+        let response = try await supabase.rpc(
+            "get_user_discovered_albums",
+            params: params
+        ).execute()
+        
+        let discoveredResults = try JSONDecoder().decode([DiscoveredResponse].self, from: response.data)
+        
+        print("✅ Found \(discoveredResults.count) discovered albums")
+        
+        return discoveredResults.map { result in
+            StudioAlbumRecord(
+                id: result.id,
+                artist_id: result.artist_id,
+                title: result.title,
+                cover_art_url: result.cover_art_url,
+                release_status: result.release_status,
+                release_date: result.release_date,
+                artist_name: result.artist_name,
+                created_at: result.created_at,
+                updated_at: result.updated_at,
+                collaborator_count: nil,
+                viewer_count: nil,
+                is_public: result.is_public
+            )
+        }
+    }
+    
+    // MARK: - ALBUM SAVED USERS ANALYTICS
+    
+    /// User info for albums saved analytics
+    struct SavedUserInfo: Identifiable {
+        let userId: UUID
+        let username: String?
+        let displayName: String?
+        let firstName: String?
+        let lastName: String?
+        let profilePictureURL: URL?
+        let discoveredAt: Date?
+        let completedListen: Bool
+        let replayCount: Int
+        
+        var id: UUID { userId }
+        
+        var displayNameOrUsername: String {
+            if let displayName = displayName, !displayName.isEmpty {
+                return displayName
+            }
+            if let firstName = firstName, let lastName = lastName {
+                return "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+            }
+            if let username = username, !username.isEmpty {
+                return "@\(username)"
+            }
+            return "Unknown User"
+        }
+        
+        var handle: String {
+            if let username = username, !username.isEmpty {
+                return "@\(username)"
+            }
+            return ""
+        }
+    }
+    
+    /// Gets list of users who saved a specific album (for analytics)
+    func getUsersWhoSavedAlbum(albumId: UUID) async throws -> [SavedUserInfo] {
+        print("📊 Fetching users who saved album: \(albumId)")
+        
+        struct SavedResponse: Codable {
+            let user_id: UUID
+            let username: String?
+            let display_name: String?
+            let first_name: String?
+            let last_name: String?
+            let profile_picture_url: String?
+            let discovered_at: String?
+            let completed_listen: Bool?
+            let replay_count: Int?
+        }
+        
+        struct GetSavedUsersParams: Encodable {
+            let p_album_id: String
+        }
+        
+        let params = GetSavedUsersParams(p_album_id: albumId.uuidString)
+        
+        let response = try await supabase.rpc(
+            "get_users_who_saved_album",
+            params: params
+        ).execute()
+        
+        let savedResults = try JSONDecoder().decode([SavedResponse].self, from: response.data)
+        
+        print("✅ Found \(savedResults.count) users who saved this album")
+        
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        return savedResults.map { result in
+            SavedUserInfo(
+                userId: result.user_id,
+                username: result.username,
+                displayName: result.display_name,
+                firstName: result.first_name,
+                lastName: result.last_name,
+                profilePictureURL: result.profile_picture_url.flatMap { URL(string: $0) },
+                discoveredAt: result.discovered_at.flatMap { dateFormatter.date(from: $0) },
+                completedListen: result.completed_listen ?? false,
+                replayCount: result.replay_count ?? 0
+            )
+        }
+    }
 }
 

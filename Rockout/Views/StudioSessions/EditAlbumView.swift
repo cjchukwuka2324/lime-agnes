@@ -14,6 +14,8 @@ struct EditAlbumView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var isPublic: Bool
+    @State private var trackToDelete: StudioTrackRecord?
+    @State private var showDeleteTrackConfirmation = false
     
     private let albumService = AlbumService.shared
     private let trackService = TrackService.shared
@@ -27,68 +29,84 @@ struct EditAlbumView: View {
     }
     
     var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
-            
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Cover Art Section
-                    coverArtSection
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                    
-                    // Album Info Section
-                    albumInfoSection
-                        .padding(.horizontal, 20)
-                    
-                    // Tracks Reorder Section
-                    if !tracks.isEmpty {
-                        tracksReorderSection
+        NavigationStack {
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Cover Art Section
+                        coverArtSection
                             .padding(.horizontal, 20)
-                    }
-                    
-                    // Error Message
-                    if let error = errorMessage {
-                        errorView(error)
+                            .padding(.top, 20)
+                        
+                        // Album Info Section
+                        albumInfoSection
                             .padding(.horizontal, 20)
+                        
+                        // Tracks Reorder Section
+                        if !tracks.isEmpty {
+                            tracksReorderSection
+                                .padding(.horizontal, 20)
+                        }
+                        
+                        // Error Message
+                        if let error = errorMessage {
+                            errorView(error)
+                                .padding(.horizontal, 20)
+                        }
+                        
+                        // Save Button
+                        saveButton
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 40)
                     }
-                    
-                    // Save Button
-                    saveButton
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 40)
                 }
             }
-        }
-        .navigationTitle("Edit Album")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.black, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .onAppear {
-            // Ensure navigation bar is always opaque
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = .black
-            appearance.shadowColor = .clear
-            
-            UINavigationBar.appearance().standardAppearance = appearance
-            UINavigationBar.appearance().scrollEdgeAppearance = appearance
-            UINavigationBar.appearance().compactAppearance = appearance
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .foregroundColor(.white)
+            .navigationTitle("Edit Album")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .onAppear {
+                // Ensure navigation bar is always opaque
+                let appearance = UINavigationBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = .black
+                appearance.shadowColor = .clear
+                
+                UINavigationBar.appearance().standardAppearance = appearance
+                UINavigationBar.appearance().scrollEdgeAppearance = appearance
+                UINavigationBar.appearance().compactAppearance = appearance
             }
-        }
-        .sheet(isPresented: $showImagePicker) {
-            ImagePicker(selectedImage: $coverArtImage)
-        }
-        .task {
-            await loadTracks()
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .sheet(isPresented: $showImagePicker) {
+                ImagePicker(selectedImage: $coverArtImage)
+            }
+            .task {
+                await loadTracks()
+            }
+            .alert("Delete Track", isPresented: $showDeleteTrackConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    if let track = trackToDelete {
+                        Task {
+                            await deleteTrack(track)
+                        }
+                    }
+                }
+            } message: {
+                if let track = trackToDelete {
+                    Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
+                }
+            }
         }
     }
     
@@ -255,7 +273,11 @@ struct EditAlbumView: View {
                         withAnimation {
                             tracks.swapAt(index, index + 1)
                         }
-                    } : nil
+                    } : nil,
+                    onDelete: {
+                        trackToDelete = track
+                        showDeleteTrackConfirmation = true
+                    }
                 )
             }
         }
@@ -371,6 +393,20 @@ struct EditAlbumView: View {
             }
         }
     }
+    
+    private func deleteTrack(_ track: StudioTrackRecord) async {
+        do {
+            try await trackService.deleteTrack(track)
+            // Remove from local tracks array
+            await MainActor.run {
+                tracks.removeAll { $0.id == track.id }
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to delete track: \(error.localizedDescription)"
+            }
+        }
+    }
 }
 
 // MARK: - Track Reorder Row
@@ -379,6 +415,7 @@ struct TrackReorderRow: View {
     let trackNumber: Int
     let onMoveUp: (() -> Void)?
     let onMoveDown: (() -> Void)?
+    let onDelete: () -> Void
     
     var body: some View {
         HStack(spacing: 16) {
@@ -396,7 +433,7 @@ struct TrackReorderRow: View {
             
             Spacer()
             
-            // Move Buttons
+            // Move and Delete Buttons
             HStack(spacing: 8) {
                 if let moveUp = onMoveUp {
                     Button {
@@ -422,6 +459,18 @@ struct TrackReorderRow: View {
                             .background(Color.white.opacity(0.1))
                             .cornerRadius(8)
                     }
+                }
+                
+                // Delete Button
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundColor(.red.opacity(0.8))
+                        .padding(8)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(8)
                 }
             }
         }

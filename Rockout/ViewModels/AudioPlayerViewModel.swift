@@ -34,10 +34,17 @@ class AudioPlayerViewModel: ObservableObject {
     
     var currentTrack: StudioTrackRecord?
     
+    // Play tracking
+    private var thresholdRecordedForCurrentTrack: Bool = false
+    private var lastTrackedAlbumForReplay: UUID? // Track which album we last incremented replay for
+    private let trackPlayService = TrackPlayService.shared
+    
     private init() {}
     
     // MARK: - Load Track
     func loadTrack(_ track: StudioTrackRecord, album: StudioAlbumRecord? = nil, tracks: [StudioTrackRecord]? = nil) {
+        let previousAlbumId = currentAlbum?.id
+        
         currentTrack = track
         if let album = album {
             currentAlbum = album
@@ -52,6 +59,27 @@ class AudioPlayerViewModel: ObservableObject {
         }
         isLoading = true
         errorMessage = nil
+        
+        // Reset play tracking for new track
+        thresholdRecordedForCurrentTrack = false
+        
+        // Check if we should increment replay count (for discovered albums)
+        // Only increment once per album per session to avoid counting every track switch
+        if let currentAlbum = currentAlbum, 
+           lastTrackedAlbumForReplay != currentAlbum.id {
+            // Check if this is a replay of a completed discovered album
+            Task {
+                do {
+                    try await trackPlayService.incrementReplayCountIfNeeded(albumId: currentAlbum.id)
+                    // Mark that we've tracked replay for this album in this session
+                    await MainActor.run {
+                        lastTrackedAlbumForReplay = currentAlbum.id
+                    }
+                } catch {
+                    // Silently fail - replay tracking is not critical
+                }
+            }
+        }
         
         // Remove time observer BEFORE stopping/creating new player
         removeTimeObserver()
@@ -372,6 +400,9 @@ class AudioPlayerViewModel: ObservableObject {
             guard let self = self else { return }
             self.currentTime = time.seconds
             
+            // Check and record play if threshold reached
+            self.checkAndRecordPlayIfNeeded()
+            
             // Handle looping
             if self.isLooping && self.currentTime >= self.loopEnd {
                 self.seek(to: self.loopStart)
@@ -404,6 +435,61 @@ class AudioPlayerViewModel: ObservableObject {
         // We need to access the properties directly without main actor isolation
         Task { @MainActor in
             self.removeTimeObserver()
+        }
+    }
+    
+    // MARK: - Play Tracking
+    private func checkAndRecordPlayIfNeeded() {
+        // Only record if we haven't already recorded for this track
+        guard !thresholdRecordedForCurrentTrack else { return }
+        
+        // Need track, album, current time, and duration
+        guard let track = currentTrack,
+              let album = currentAlbum,
+              duration > 0 else { return }
+        
+        // Check if threshold is reached
+        let thresholdReached: Bool
+        if duration <= 30.0 {
+            // For tracks ≤ 30 sec, require 80% playback
+            let threshold = duration * 0.8
+            thresholdReached = currentTime >= threshold
+        } else {
+            // For tracks > 30 sec, require 30 seconds playback
+            thresholdReached = currentTime >= 30.0
+        }
+        
+        guard thresholdReached else { return }
+        
+        // Set flag IMMEDIATELY to prevent race condition from multiple rapid calls
+        // This prevents duplicate recordings before the async call completes
+        thresholdRecordedForCurrentTrack = true
+        
+        // Record the play asynchronously
+        Task {
+            do {
+                let recorded = try await trackPlayService.checkAndRecordPlay(
+                    trackId: track.id,
+                    albumId: album.id,
+                    durationListened: currentTime,
+                    trackDuration: duration
+                )
+                
+                if recorded {
+                    print("✅ Play recorded for track: \(track.title)")
+                } else {
+                    // If recording failed (e.g., already recorded recently), reset flag to allow retry
+                    await MainActor.run {
+                        self.thresholdRecordedForCurrentTrack = false
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to record play: \(error.localizedDescription)")
+                // Reset flag on error to allow retry
+                await MainActor.run {
+                    self.thresholdRecordedForCurrentTrack = false
+                }
+            }
         }
     }
     

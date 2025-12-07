@@ -111,6 +111,11 @@
 		B961E43E2ECBDCAA000D8614 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43D2ECBDCAA000D8614 /* Realtime */; };
 		B961E4402ECBDCAA000D8614 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = B961E43F2ECBDCAA000D8614 /* Storage */; };
 		B96E4BA62EE4CE5E008FD807 /* ShareableLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BA52EE4CE5E008FD807 /* ShareableLink.swift */; };
+		B96E4BA82EE58E85008FD807 /* TrackPlayService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BA72EE58E85008FD807 /* TrackPlayService.swift */; };
+		B96E4BAA2EE5945D008FD807 /* TrackPlayBreakdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BA92EE5945D008FD807 /* TrackPlayBreakdownView.swift */; };
+		B96E4BAE2EE5C47D008FD807 /* DiscoverFeedAlbumCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BAC2EE5C47D008FD807 /* DiscoverFeedAlbumCard.swift */; };
+		B96E4BAF2EE5C47D008FD807 /* DiscoveriesAlbumCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BAD2EE5C47D008FD807 /* DiscoveriesAlbumCard.swift */; };
+		B96E4BB02EE5C47D008FD807 /* AlbumSavedUsersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96E4BAB2EE5C47D008FD807 /* AlbumSavedUsersView.swift */; };
 		B9716CBAAEA89CB340B87460 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B372ECCC71800368E8B /* LoginView.swift */; };
 		B9C25F1B2ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F192ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift */; };
 		B9C25F1C2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1A2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift */; };
@@ -288,6 +293,11 @@
 		B961E4252ECBD7F1000D8614 /* RockoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockoutUITests.swift; sourceTree = "<group>"; };
 		B961E4272ECBD7F1000D8614 /* RockoutUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RockoutUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		B96E4BA52EE4CE5E008FD807 /* ShareableLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareableLink.swift; sourceTree = "<group>"; };
+		B96E4BA72EE58E85008FD807 /* TrackPlayService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TrackPlayService.swift; path = Services/Supabase/TrackPlayService.swift; sourceTree = "<group>"; };
+		B96E4BA92EE5945D008FD807 /* TrackPlayBreakdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TrackPlayBreakdownView.swift; path = Views/StudioSessions/TrackPlayBreakdownView.swift; sourceTree = "<group>"; };
+		B96E4BAB2EE5C47D008FD807 /* AlbumSavedUsersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlbumSavedUsersView.swift; path = Views/StudioSessions/AlbumSavedUsersView.swift; sourceTree = "<group>"; };
+		B96E4BAC2EE5C47D008FD807 /* DiscoverFeedAlbumCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoverFeedAlbumCard.swift; path = Views/StudioSessions/DiscoverFeedAlbumCard.swift; sourceTree = "<group>"; };
+		B96E4BAD2EE5C47D008FD807 /* DiscoveriesAlbumCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveriesAlbumCard.swift; path = Views/StudioSessions/DiscoveriesAlbumCard.swift; sourceTree = "<group>"; };
 		B97A6B1F2ECC9D0800368E8B /*  SoundPrintExportCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = " SoundPrintExportCard.swift"; sourceTree = "<group>"; };
 		B97A6B212ECC9FE400368E8B /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 		B97A6B232ECCA06800368E8B /* GenreStat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenreStat.swift; sourceTree = "<group>"; };
@@ -547,6 +557,7 @@
 		5A0D2DB3681F9A5F2FF665FC /* Supabase */ = {
 			isa = PBXGroup;
 			children = (
+				B96E4BA72EE58E85008FD807 /* TrackPlayService.swift */,
 				4A3CBF0521812791D38E31D4 /* CollaboratorService.swift */,
 				A79C85E966CD1FCAC9F75CAD /* VersionService.swift */,
 			);
@@ -556,6 +567,10 @@
 		5D9BFF6B8A76F7D9F7E71060 /* StudioSessions */ = {
 			isa = PBXGroup;
 			children = (
+				B96E4BAB2EE5C47D008FD807 /* AlbumSavedUsersView.swift */,
+				B96E4BAC2EE5C47D008FD807 /* DiscoverFeedAlbumCard.swift */,
+				B96E4BAD2EE5C47D008FD807 /* DiscoveriesAlbumCard.swift */,
+				B96E4BA92EE5945D008FD807 /* TrackPlayBreakdownView.swift */,
 				B94F64F02EE4BB8200A934B5 /* UserPublicAlbumsView.swift */,
 				B94F64EE2EE4B82A00A934B5 /* PublicAlbumsSearchView.swift */,
 				E6D953E080FA5E755F459039 /* CollaboratorsView.swift */,
@@ -1457,6 +1472,9 @@
 				B9C25F1B2ED10D7C003AA60B /* Views/Profile/SpotifyConnectionView.swift in Sources */,
 				B9C25F1C2ED10D7C003AA60B /* Views/Profile/SpotifyPresentationContextProvider.swift in Sources */,
 				7896AE8A4B24470CBC417AD0 /* RockListView.swift in Sources */,
+				B96E4BAE2EE5C47D008FD807 /* DiscoverFeedAlbumCard.swift in Sources */,
+				B96E4BAF2EE5C47D008FD807 /* DiscoveriesAlbumCard.swift in Sources */,
+				B96E4BB02EE5C47D008FD807 /* AlbumSavedUsersView.swift in Sources */,
 				E3F4A5B6C7D8E9F0A1B2C3D4 /* MyRockListView.swift in Sources */,
 				F4A5B6C7D8E9F0A1B2C3D4E5 /* FeedView.swift in Sources */,
 				02B25C0C8F20D55C9150293B /* RockListViewModel.swift in Sources */,
@@ -1468,6 +1486,7 @@
 				054CE96BCF94A8E1E9A47095 /* RockListDataService.swift in Sources */,
 				E3BE0F6A907DC5DF5728E9DA /* FeedViewModel.swift in Sources */,
 				1850ED79722546B8BD99653F /* TrendingFeedView.swift in Sources */,
+				B96E4BA82EE58E85008FD807 /* TrackPlayService.swift in Sources */,
 				6A9D19870D3048AE8A89DFC8 /* TrendingFeedViewModel.swift in Sources */,
 				56E01952571F4F258AECA13A /* HashtagService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F03 /* FeedService.swift in Sources */,
@@ -1477,6 +1496,7 @@
 				DC3AA8E959AE72DBC11B6F05 /* FeedPersistence.swift in Sources */,
 				765CEC57C71D0DEC41BBB167 /* FeedImageService.swift in Sources */,
 				B94F64F12EE4BB8200A934B5 /* UserPublicAlbumsView.swift in Sources */,
+				B96E4BAA2EE5945D008FD807 /* TrackPlayBreakdownView.swift in Sources */,
 				7D8E9F0A1B2C3D4E5F6A7B8D /* FeedMediaService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F06 /* InMemorySocialGraphService.swift in Sources */,
 				DC3AA8E959AE72DBC11B6F16 /* SupabaseSocialGraphService.swift in Sources */,

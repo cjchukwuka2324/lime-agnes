@@ -8,6 +8,7 @@ struct UserPublicAlbumsView: View {
     @State private var publicAlbums: [StudioAlbumRecord] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @StateObject private var viewModel = StudioSessionsViewModel()
     
     private let albumService = AlbumService.shared
     
@@ -65,7 +66,13 @@ struct UserPublicAlbumsView: View {
                         GridItem(.flexible(), spacing: 16)
                     ], spacing: 20) {
                         ForEach(publicAlbums) { album in
-                            PublicAlbumCard(album: album)
+                            PublicAlbumCard(
+                                album: album,
+                                isSaved: viewModel.isAlbumSaved(album),
+                                onAddToDiscoveries: {
+                                    viewModel.saveDiscoveredAlbum(album)
+                                }
+                            )
                         }
                     }
                     .padding(.horizontal, 20)
@@ -80,6 +87,7 @@ struct UserPublicAlbumsView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear {
             loadPublicAlbums()
+            viewModel.loadDiscoveredAlbums() // Load saved albums to check which are already saved
         }
     }
     
@@ -106,68 +114,106 @@ struct UserPublicAlbumsView: View {
 // MARK: - Public Album Card
 struct PublicAlbumCard: View {
     let album: StudioAlbumRecord
+    let isSaved: Bool
+    let onAddToDiscoveries: () -> Void
     
     var body: some View {
-        NavigationLink {
-            AlbumDetailView(album: album, deleteContext: .myAlbums)
-        } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                // Cover Art
-                Group {
-                    if let urlString = album.cover_art_url,
-                       let url = URL(string: urlString) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .empty:
-                                albumPlaceholder
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            case .failure:
-                                albumPlaceholder
-                            @unknown default:
-                                albumPlaceholder
+        VStack(alignment: .leading, spacing: 12) {
+            // Cover Art with Add button overlay
+            ZStack(alignment: .topTrailing) {
+                NavigationLink {
+                    AlbumDetailView(album: album, deleteContext: nil)
+                } label: {
+                    Group {
+                        if let urlString = album.cover_art_url,
+                           let url = URL(string: urlString) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .empty:
+                                    albumPlaceholder
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                case .failure:
+                                    albumPlaceholder
+                                @unknown default:
+                                    albumPlaceholder
+                                }
                             }
+                        } else {
+                            albumPlaceholder
                         }
-                    } else {
-                        albumPlaceholder
                     }
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
                 }
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1, contentMode: .fit)
-                .cornerRadius(12)
-                .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+                .buttonStyle(PlainButtonStyle())
                 
-                // Album Info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(album.title)
-                        .font(.headline)
+                // Add to Discoveries button
+                if !isSaved {
+                    Button {
+                        onAddToDiscoveries()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.caption)
+                            Text("Add to Discoveries")
+                                .font(.caption)
+                        }
                         .foregroundColor(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    
-                    if let artistName = album.artist_name, !artistName.isEmpty {
-                        Text(artistName)
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.7))
-                            .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.blue)
+                        .cornerRadius(16)
                     }
-                    
-                    // Public indicator
+                    .padding(8)
+                } else {
+                    // Already saved indicator
                     HStack(spacing: 4) {
-                        Image(systemName: "globe")
-                            .font(.caption2)
-                            .foregroundColor(.green)
-                        Text("Public")
+                        Image(systemName: "checkmark.circle.fill")
                             .font(.caption)
-                            .foregroundColor(.green)
+                        Text("Saved")
+                            .font(.caption)
                     }
-                    .padding(.top, 2)
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.green.opacity(0.2))
+                    .cornerRadius(16)
+                    .padding(8)
                 }
             }
+            
+            // Album Info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(album.title)
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                
+                if let artistName = album.artist_name, !artistName.isEmpty {
+                    Text(artistName)
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+                
+                // Public indicator
+                HStack(spacing: 4) {
+                    Image(systemName: "globe")
+                        .font(.caption2)
+                        .foregroundColor(.green)
+                    Text("Public")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+                .padding(.top, 2)
+            }
         }
-        .buttonStyle(PlainButtonStyle())
     }
     
     private var albumPlaceholder: some View {

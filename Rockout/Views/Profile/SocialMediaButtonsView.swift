@@ -9,21 +9,6 @@ struct SocialMediaButtonsView: View {
     var body: some View {
         HStack(spacing: 10) {
             socialMediaButton(
-                platform: .instagram,
-                handle: instagramHandle,
-                onTap: {
-                    if let handle = instagramHandle, !handle.isEmpty {
-                        openSocialMediaApp(platform: .instagram, handle: handle)
-                    } else {
-                        onEdit(.instagram)
-                    }
-                },
-                onLongPress: {
-                    onEdit(.instagram)
-                }
-            )
-            
-            socialMediaButton(
                 platform: .twitter,
                 handle: twitterHandle,
                 onTap: {
@@ -35,6 +20,21 @@ struct SocialMediaButtonsView: View {
                 },
                 onLongPress: {
                     onEdit(.twitter)
+                }
+            )
+            
+            socialMediaButton(
+                platform: .instagram,
+                handle: instagramHandle,
+                onTap: {
+                    if let handle = instagramHandle, !handle.isEmpty {
+                        openSocialMediaApp(platform: .instagram, handle: handle)
+                    } else {
+                        onEdit(.instagram)
+                    }
+                },
+                onLongPress: {
+                    onEdit(.instagram)
                 }
             )
             
@@ -62,12 +62,12 @@ struct SocialMediaButtonsView: View {
         
         return Button(action: onTap) {
             HStack(spacing: 8) {
-                Image(systemName: platform.iconName)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white)
+                Image(platform.iconName)
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 20, height: 20)
                 
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(platform.name)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
@@ -76,13 +76,14 @@ struct SocialMediaButtonsView: View {
                     
                     if hasHandle {
                         Text("@\(cleanHandle)")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(.system(size: 10, weight: .regular))
                             .foregroundColor(.white.opacity(0.85))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.5)
+                            .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text("Add")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(.system(size: 10, weight: .regular))
                             .foregroundColor(.white.opacity(0.85))
                             .lineLimit(1)
                     }
@@ -90,17 +91,21 @@ struct SocialMediaButtonsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity, minHeight: 56)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(hasHandle ? platform.displayColor : Color(white: 0.15))
+                    .fill(platform.backgroundFill(hasHandle: hasHandle))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(
-                        hasHandle ? platform.displayColor.opacity(0.5) : Color.white.opacity(0.2),
-                        lineWidth: 1
+                        hasHandle && (platform == .twitter || platform == .tiktok) 
+                            ? Color.white.opacity(0.15) 
+                            : (hasHandle && platform == .instagram 
+                                ? Color.white.opacity(0.3) 
+                                : (hasHandle ? platform.displayColor.opacity(0.5) : Color.white.opacity(0.2))),
+                        lineWidth: hasHandle && (platform == .twitter || platform == .tiktok) ? 1.5 : 1
                     )
             )
         }

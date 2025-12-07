@@ -14,8 +14,14 @@ struct AlbumDetailView: View {
     @State private var showLeaveCollaborationConfirmation = false
     @State private var showDeleteOptions = false
     @State private var currentAlbum: StudioAlbumRecord
+    @State private var showPlayBreakdown = false
+    @State private var selectedTrackForBreakdown: StudioTrackRecord?
+    @State private var showSavedUsers = false
+    @State private var isAlbumSaved = false
+    @State private var currentUserId: UUID?
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playerVM = AudioPlayerViewModel.shared
+    @StateObject private var viewModel = StudioSessionsViewModel()
 
     private let trackService = TrackService.shared
     private let albumService = AlbumService.shared
@@ -28,6 +34,28 @@ struct AlbumDetailView: View {
     // Check if this is a view-only share (shared with you)
     private var isViewOnly: Bool {
         return deleteContext == .sharedWithYou
+    }
+    
+    // Check if user can see play counts (owner or collaborator)
+    private var canViewPlayCounts: Bool {
+        // View-only users cannot see play counts
+        if deleteContext == .sharedWithYou {
+            return false
+        }
+        // Owners and collaborators can see play counts
+        // If deleteContext is nil, assume it's user's own album (myAlbums scenario)
+        return deleteContext == nil || deleteContext == .myAlbums || deleteContext == .collaborations
+    }
+    
+    // Check if user is album owner
+    private var isOwner: Bool {
+        guard let currentUserId = currentUserId else { return false }
+        return currentUserId == album.artist_id
+    }
+    
+    // Check if user is owner or collaborator (can see analytics)
+    private var canViewAnalytics: Bool {
+        return isOwner || isCollaboration || (deleteContext == .myAlbums)
     }
     
     init(album: StudioAlbumRecord, deleteContext: AlbumService.AlbumDeleteContext? = nil) {
@@ -114,6 +142,32 @@ struct AlbumDetailView: View {
                         .foregroundColor(.white)
                 }
                 
+                // Saved users analytics button (only for owners/collaborators)
+                if canViewAnalytics {
+                    Button {
+                        showSavedUsers = true
+                    } label: {
+                        Image(systemName: "bookmark.fill")
+                            .foregroundColor(.white)
+                    }
+                }
+                
+                // Save/Unsave button for Discover context (if not owner and public album)
+                if deleteContext == nil && !isOwner && album.is_public == true {
+                    Button {
+                        if isAlbumSaved {
+                            viewModel.removeDiscoveredAlbum(album)
+                            isAlbumSaved = false
+                        } else {
+                            viewModel.saveDiscoveredAlbum(album)
+                            isAlbumSaved = true
+                        }
+                    } label: {
+                        Image(systemName: isAlbumSaved ? "bookmark.fill" : "bookmark")
+                            .foregroundColor(.white)
+                    }
+                }
+                
                 Menu {
                     if isCollaboration {
                         // For collaborations, show both options
@@ -181,7 +235,28 @@ struct AlbumDetailView: View {
                 Task { await loadTracks() }
             }
         }
+        .sheet(isPresented: $showPlayBreakdown) {
+            if let track = selectedTrackForBreakdown {
+                TrackPlayBreakdownView(track: track, album: currentAlbum)
+            }
+        }
+        .sheet(isPresented: $showSavedUsers) {
+            AlbumSavedUsersView(album: currentAlbum)
+        }
         .task {
+            // Get current user ID
+            do {
+                let session = try await SupabaseService.shared.client.auth.session
+                currentUserId = session.user.id
+            } catch {
+                print("⚠️ Could not get current user ID: \(error.localizedDescription)")
+            }
+            
+            // Check if album is saved (for Discover context)
+            if deleteContext == nil && !isOwner {
+                isAlbumSaved = viewModel.isAlbumSaved(album)
+            }
+            
             await loadTracks()
             // Refresh album data to get latest changes (important for collaborations)
             await refreshAlbum()
@@ -295,10 +370,10 @@ struct AlbumDetailView: View {
                         trackNumber: track.track_number ?? (index + 1),
                         album: currentAlbum,
                         tracks: tracks,
-                        onDelete: {
-                            Task {
-                                await deleteTrack(track)
-                            }
+                        showPlayCount: canViewPlayCounts,
+                        onShowPlayBreakdown: {
+                            selectedTrackForBreakdown = track
+                            showPlayBreakdown = true
                         }
                     )
                 }
@@ -349,8 +424,10 @@ struct AlbumDetailView: View {
         defer { isLoading = false }
 
         do {
-            tracks = try await trackService.fetchTracks(for: currentAlbum)
-            print("✅ Loaded \(tracks.count) tracks for album \(currentAlbum.id.uuidString)")
+            // Include play counts if user is owner or collaborator
+            let includeCounts = canViewPlayCounts
+            tracks = try await trackService.fetchTracks(for: currentAlbum, includePlayCounts: includeCounts)
+            print("✅ Loaded \(tracks.count) tracks for album \(currentAlbum.id.uuidString), includePlayCounts: \(includeCounts)")
         } catch {
             errorMessage = error.localizedDescription
             print("❌ Error loading tracks: \(error.localizedDescription)")
@@ -418,17 +495,6 @@ struct AlbumDetailView: View {
         }
     }
     
-    private func deleteTrack(_ track: StudioTrackRecord) async {
-        do {
-            try await trackService.deleteTrack(track)
-            // Reload tracks to update the list
-            await loadTracks()
-        } catch {
-            await MainActor.run {
-                errorMessage = "Failed to delete track: \(error.localizedDescription)"
-            }
-        }
-    }
 }
 
 // MARK: - Track Row
@@ -437,10 +503,10 @@ struct TrackRow: View {
     let trackNumber: Int
     let album: StudioAlbumRecord
     let tracks: [StudioTrackRecord]
-    let onDelete: () -> Void
+    let showPlayCount: Bool
+    let onShowPlayBreakdown: () -> Void
     
     @StateObject private var playerVM = AudioPlayerViewModel.shared
-    @State private var showDeleteConfirmation = false
     
     private var isCurrentlyPlaying: Bool {
         playerVM.currentTrack?.id == track.id && playerVM.isPlaying
@@ -487,6 +553,22 @@ struct TrackRow: View {
                             .foregroundColor(.white.opacity(0.6))
                     }
                     
+                    // Play count (only show if available and user can view)
+                    if showPlayCount, let playCount = track.play_count, playCount > 0 {
+                        Button {
+                            onShowPlayBreakdown()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.caption2)
+                                Text("\(formatPlayCount(playCount)) play\(playCount == 1 ? "" : "s")")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.white.opacity(0.7))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    
                     if isCurrentlyPlaying {
                         HStack(spacing: 4) {
                             Image(systemName: "waveform")
@@ -513,15 +595,6 @@ struct TrackRow: View {
                     .font(.title3)
                     .foregroundColor(isCurrentlyPlaying ? .green : .white.opacity(0.6))
             }
-            
-            // Delete Button
-            Button {
-                showDeleteConfirmation = true
-            } label: {
-                Image(systemName: "trash")
-                    .foregroundColor(.red.opacity(0.8))
-                    .font(.body)
-            }
         }
         .contentShape(Rectangle()) // Make entire row tappable
         .onTapGesture {
@@ -535,14 +608,6 @@ struct TrackRow: View {
         .padding(.horizontal, 16)
         .background(isCurrentlyPlaying ? Color.white.opacity(0.1) : Color.white.opacity(0.05))
         .cornerRadius(12)
-        .alert("Delete Track", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                onDelete()
-            }
-        } message: {
-            Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
-        }
     }
     
     private var albumPlaceholder: some View {
@@ -571,6 +636,16 @@ struct TrackRow: View {
         let minutes = Int(validTime) / 60
         let seconds = Int(validTime) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+    
+    private func formatPlayCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000.0)
+        } else if count >= 1_000 {
+            return String(format: "%.1fK", Double(count) / 1_000.0)
+        } else {
+            return "\(count)"
+        }
     }
 }
 

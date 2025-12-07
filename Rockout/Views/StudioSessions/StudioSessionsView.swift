@@ -11,8 +11,6 @@ struct StudioSessionsView: View {
     @State private var coverArtImage: UIImage?
     @State private var showImagePicker = false
     @State private var searchText = ""
-    @State private var showAcceptShareSheet = false
-    @State private var shareTokenToAccept: String?
     @State private var isPublic = false
     @State private var showDiscoverSheet = false
     
@@ -24,6 +22,8 @@ struct StudioSessionsView: View {
             return "Loading shared albums..."
         case .collaborations:
             return "Loading collaborations..."
+        case .discoveries:
+            return "Loading your discoveries..."
         }
     }
     
@@ -31,8 +31,9 @@ struct StudioSessionsView: View {
         case myAlbums = "My Albums"
         case sharedWithYou = "Shared with You"
         case collaborations = "Collaborations"
+        case discoveries = "Discoveries"
         
-        var deleteContext: AlbumService.AlbumDeleteContext {
+        var deleteContext: AlbumService.AlbumDeleteContext? {
             switch self {
             case .myAlbums:
                 return .myAlbums
@@ -40,6 +41,8 @@ struct StudioSessionsView: View {
                 return .sharedWithYou
             case .collaborations:
                 return .collaborations
+            case .discoveries:
+                return nil // No delete context for discoveries
             }
         }
     }
@@ -53,6 +56,8 @@ struct StudioSessionsView: View {
             albumsToFilter = viewModel.sharedAlbums
         case .collaborations:
             albumsToFilter = viewModel.collaborativeAlbums
+        case .discoveries:
+            albumsToFilter = viewModel.discoveredAlbums
         }
         
         if searchText.isEmpty {
@@ -69,6 +74,8 @@ struct StudioSessionsView: View {
             return viewModel.isLoadingSharedAlbums
         case .collaborations:
             return viewModel.isLoadingCollaborativeAlbums
+        case .discoveries:
+            return viewModel.isLoadingDiscoveredAlbums
         }
     }
 
@@ -91,6 +98,20 @@ struct StudioSessionsView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 10)
                     .padding(.bottom, 16)
+                    .onAppear {
+                        // Customize segmented control appearance for white text on unselected tabs
+                        let appearance = UISegmentedControl.appearance()
+                        appearance.setTitleTextAttributes([
+                            .foregroundColor: UIColor.white,
+                            .font: UIFont.systemFont(ofSize: 13, weight: .medium)
+                        ], for: .normal)
+                        appearance.setTitleTextAttributes([
+                            .foregroundColor: UIColor.black,
+                            .font: UIFont.systemFont(ofSize: 13, weight: .semibold)
+                        ], for: .selected)
+                        // Ensure text doesn't truncate
+                        appearance.apportionsSegmentWidthsByContent = true
+                    }
                     .onChange(of: selectedTab) { _, _ in
                         Task {
                             switch selectedTab {
@@ -98,6 +119,8 @@ struct StudioSessionsView: View {
                                 await viewModel.loadSharedAlbums()
                             case .collaborations:
                                 await viewModel.loadCollaborativeAlbums()
+                            case .discoveries:
+                                viewModel.loadDiscoveredAlbums()
                             case .myAlbums:
                                 break
                             }
@@ -114,30 +137,53 @@ struct StudioSessionsView: View {
                                 .font(.subheadline)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if filteredAlbums.isEmpty {
+                    } else if filteredAlbums.isEmpty && !isLoading {
                         emptyStateView
-                    } else {
+                    } else if !isLoading {
                         ScrollView {
-                            LazyVGrid(columns: [
-                                GridItem(.flexible(), spacing: 16),
-                                GridItem(.flexible(), spacing: 16)
-                            ], spacing: 20) {
-                                ForEach(filteredAlbums) { album in
-                                    AlbumCard(
-                                        album: album,
-                                        deleteContext: selectedTab.deleteContext,
-                                        onDelete: {
-                                            viewModel.deleteAlbum(album, context: selectedTab.deleteContext)
-                                        }
-                                    )
-                                    .onTapGesture {
-                                        // Navigation handled by NavigationLink in card
+                            if selectedTab == .discoveries {
+                                // Discoveries tab uses regular card but with unsave option
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16)
+                                ], spacing: 20) {
+                                    ForEach(filteredAlbums) { album in
+                                        DiscoveriesAlbumCard(
+                                            album: album,
+                                            onUnsave: {
+                                                viewModel.removeDiscoveredAlbum(album)
+                                            }
+                                        )
                                     }
                                 }
+                                .padding(.horizontal, 20)
+                                .padding(.top, 20)
+                                .padding(.bottom, 100)
+                            } else {
+                                // Regular tabs use standard AlbumCard
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 16),
+                                    GridItem(.flexible(), spacing: 16)
+                                ], spacing: 20) {
+                                    ForEach(filteredAlbums) { album in
+                                        if let deleteContext = selectedTab.deleteContext {
+                                            AlbumCard(
+                                                album: album,
+                                                deleteContext: deleteContext,
+                                                onDelete: {
+                                                    viewModel.deleteAlbum(album, context: deleteContext)
+                                                }
+                                            )
+                                            .onTapGesture {
+                                                // Navigation handled by NavigationLink in card
+                                            }
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.top, 20)
+                                .padding(.bottom, 100)
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                            .padding(.bottom, 100)
                         }
                     }
                 }
@@ -231,52 +277,40 @@ struct StudioSessionsView: View {
                         await viewModel.loadSharedAlbums()
                     case .collaborations:
                         await viewModel.loadCollaborativeAlbums()
+                    case .discoveries:
+                        viewModel.loadDiscoveredAlbums()
                     case .myAlbums:
                         break
                     }
                 }
             }
-            .onChange(of: shareHandler.shouldShowAcceptSheet) { _, shouldShow in
-                if shouldShow, let token = shareHandler.pendingShareToken {
-                    shareTokenToAccept = token
-                    showAcceptShareSheet = true
-                    shareHandler.shouldShowAcceptSheet = false
-                }
-            }
-            .sheet(isPresented: $showAcceptShareSheet) {
-                if let token = shareTokenToAccept {
-                    AcceptSharedAlbumView(
-                        shareToken: token,
-                        onAccept: { isCollaboration in
-                            // Reload albums and navigate to correct tab
-                            Task {
-                                // Wait a moment for sheet to dismiss
-                                try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
-                                
-                                // Reload both lists to ensure proper state (handles upgrades from view-only to collaboration)
-                                await viewModel.loadSharedAlbums()
-                                await viewModel.loadCollaborativeAlbums()
-                                
-                                await MainActor.run {
-                                    // Navigate to the appropriate tab
-                                    if isCollaboration {
-                                        selectedTab = .collaborations
-                                    } else {
-                                        selectedTab = .sharedWithYou
-                                    }
-                                }
-                            }
-                        },
-                        onOwnerDetected: {
-                            // Owner clicked their own link - navigate to My Albums
-                            Task {
-                                await viewModel.loadAlbums()
-                                await MainActor.run {
-                                    selectedTab = .myAlbums
-                                }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AcceptSharedAlbum"))) { notification in
+                // Handle album acceptance from MainTabView
+                if let userInfo = notification.userInfo,
+                   let isCollaboration = userInfo["isCollaboration"] as? Bool {
+                    Task {
+                        // Reload both lists to ensure proper state
+                        await viewModel.loadSharedAlbums()
+                        await viewModel.loadCollaborativeAlbums()
+                        
+                        await MainActor.run {
+                            // Navigate to the appropriate tab
+                            if isCollaboration {
+                                selectedTab = .collaborations
+                            } else {
+                                selectedTab = .sharedWithYou
                             }
                         }
-                    )
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToMyAlbums"))) { _ in
+                // Handle owner detection from MainTabView
+                Task {
+                    await viewModel.loadAlbums()
+                    await MainActor.run {
+                        selectedTab = .myAlbums
+                    }
                 }
             }
         }
@@ -329,6 +363,8 @@ struct StudioSessionsView: View {
             return "person.2.fill"
         case .collaborations:
             return "person.3.fill"
+        case .discoveries:
+            return "bookmark.fill"
         }
     }
     
@@ -340,6 +376,8 @@ struct StudioSessionsView: View {
             return "No Shared Albums"
         case .collaborations:
             return "No Collaborations"
+        case .discoveries:
+            return "No Discoveries"
         }
     }
     
@@ -351,6 +389,8 @@ struct StudioSessionsView: View {
             return "Albums shared with you will appear here"
         case .collaborations:
             return "Albums you're collaborating on will appear here"
+        case .discoveries:
+            return "Albums you save from Discover will appear here"
         }
     }
     

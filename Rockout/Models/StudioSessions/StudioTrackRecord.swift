@@ -8,4 +8,5 @@ struct StudioTrackRecord: Codable, Identifiable, Hashable {
     var audio_url: String
     var duration: Double?
     var track_number: Int?
+    var play_count: Int? // Optional, only present when fetched with counts by owner/collaborator
 }

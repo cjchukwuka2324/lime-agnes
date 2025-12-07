@@ -193,13 +193,13 @@ struct UserProfileDetailView: View {
     private var socialMediaLinksSection: some View {
         HStack(spacing: 10) {
             socialMediaCardOrPlaceholder(
-                platform: .instagram,
-                handle: viewModel.user?.instagramHandle
+                platform: .twitter,
+                handle: viewModel.user?.twitterHandle
             )
             
             socialMediaCardOrPlaceholder(
-                platform: .twitter,
-                handle: viewModel.user?.twitterHandle
+                platform: .instagram,
+                handle: viewModel.user?.instagramHandle
             )
             
             socialMediaCardOrPlaceholder(
@@ -223,22 +223,24 @@ struct UserProfileDetailView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: platform.iconName)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
+                    Image(platform.iconName)
+                        .resizable()
+                        .scaledToFit()
                         .frame(width: 20, height: 20)
+                        .opacity(0.5)
                     
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(platform.name)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.7))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(platform.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         
                         Text(isCurrentUser ? "Add" : "Not added")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(.system(size: 10, weight: .regular))
                             .foregroundColor(.white.opacity(0.5))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.5)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -264,12 +266,12 @@ struct UserProfileDetailView: View {
             openSocialMediaApp(platform: platform, handle: handle)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: platform.iconName)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white)
+                Image(platform.iconName)
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 20, height: 20)
                 
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(platform.name)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
@@ -277,10 +279,11 @@ struct UserProfileDetailView: View {
                         .minimumScaleFactor(0.8)
                     
                     Text("@\(handle.replacingOccurrences(of: "@", with: ""))")
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 10, weight: .regular))
                         .foregroundColor(.white.opacity(0.85))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .minimumScaleFactor(0.5)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -289,11 +292,18 @@ struct UserProfileDetailView: View {
             .frame(maxWidth: .infinity, minHeight: 56)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(platform.displayColor)
+                    .fill(platform.backgroundFill(hasHandle: true))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(platform.displayColor.opacity(0.5), lineWidth: 1)
+                    .stroke(
+                        (platform == .twitter || platform == .tiktok) 
+                            ? Color.white.opacity(0.15) 
+                            : (platform == .instagram 
+                                ? Color.white.opacity(0.3) 
+                                : platform.displayColor.opacity(0.5)),
+                        lineWidth: (platform == .twitter || platform == .tiktok) ? 1.5 : 1
+                    )
             )
         }
         .buttonStyle(PlainButtonStyle())

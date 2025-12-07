@@ -6,6 +6,8 @@ struct MainTabView: View {
     @StateObject private var playerVM = AudioPlayerViewModel.shared
     @State private var selectedTab = 0
     @State private var edgeDragStart: CGFloat?
+    @State private var showAcceptShareSheet = false
+    @State private var shareTokenToAccept: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,6 +102,49 @@ struct MainTabView: View {
                     .transition(.move(edge: .bottom))
             }
 
+        }
+        .onChange(of: shareHandler.shouldShowAcceptSheet) { _, shouldShow in
+            if shouldShow, let token = shareHandler.pendingShareToken {
+                shareTokenToAccept = token
+                showAcceptShareSheet = true
+                shareHandler.shouldShowAcceptSheet = false
+            }
+        }
+        .sheet(isPresented: $showAcceptShareSheet) {
+            if let token = shareTokenToAccept {
+                AcceptSharedAlbumView(
+                    shareToken: token,
+                    onAccept: { isCollaboration in
+                        // Navigate to Studio Sessions tab first
+                        withAnimation {
+                            selectedTab = 2 // Studio Sessions tab
+                        }
+                        // Notify StudioSessionsView to reload and navigate to correct subtab
+                        Task {
+                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("AcceptSharedAlbum"),
+                                object: nil,
+                                userInfo: ["isCollaboration": isCollaboration]
+                            )
+                        }
+                    },
+                    onOwnerDetected: {
+                        // Navigate to Studio Sessions tab (My Albums)
+                        withAnimation {
+                            selectedTab = 2 // Studio Sessions tab
+                        }
+                        // Notify StudioSessionsView to navigate to My Albums
+                        Task {
+                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("NavigateToMyAlbums"),
+                                object: nil
+                            )
+                        }
+                    }
+                )
+            }
         }
     }
 }

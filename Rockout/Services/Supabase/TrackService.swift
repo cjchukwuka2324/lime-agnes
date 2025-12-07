@@ -160,8 +160,8 @@ final class TrackService {
     }
 
     // MARK: - FETCH TRACKS (UUID VERSION)
-    func fetchTracks(for albumId: UUID) async throws -> [StudioTrackRecord] {
-        print("🔍 Fetching tracks for album: \(albumId.uuidString)")
+    func fetchTracks(for albumId: UUID, includePlayCounts: Bool = false) async throws -> [StudioTrackRecord] {
+        print("🔍 Fetching tracks for album: \(albumId.uuidString), includePlayCounts: \(includePlayCounts)")
         
         do {
             let response = try await supabase
@@ -171,8 +171,29 @@ final class TrackService {
                 .order("track_number", ascending: true)
                 .execute()
 
-            let tracks = try JSONDecoder().decode([StudioTrackRecord].self, from: response.data)
-            print("✅ Successfully fetched \(tracks.count) tracks for album \(albumId.uuidString)")
+            var tracks = try JSONDecoder().decode([StudioTrackRecord].self, from: response.data)
+            
+            // If play counts are requested, fetch and merge them
+            if includePlayCounts {
+                do {
+                    let playCounts = try await TrackPlayService.shared.getPlayCounts(for: albumId)
+                    
+                    // Merge play counts into tracks
+                    tracks = tracks.map { track in
+                        var updatedTrack = track
+                        updatedTrack.play_count = playCounts[track.id]
+                        return updatedTrack
+                    }
+                    
+                    print("✅ Successfully fetched \(tracks.count) tracks with play counts for album \(albumId.uuidString)")
+                } catch {
+                    print("⚠️ Failed to fetch play counts, continuing without counts: \(error.localizedDescription)")
+                    // Continue without play counts if fetch fails
+                }
+            } else {
+                print("✅ Successfully fetched \(tracks.count) tracks for album \(albumId.uuidString)")
+            }
+            
             return tracks
         } catch {
             print("❌ Error fetching tracks for album \(albumId.uuidString): \(error.localizedDescription)")
@@ -182,8 +203,8 @@ final class TrackService {
 
     // MARK: - FETCH TRACKS (MODEL VERSION)
     // This is the overload that fixes your AlbumDetailView error
-    func fetchTracks(for album: StudioAlbumRecord) async throws -> [StudioTrackRecord] {
-        try await fetchTracks(for: album.id)
+    func fetchTracks(for album: StudioAlbumRecord, includePlayCounts: Bool = false) async throws -> [StudioTrackRecord] {
+        try await fetchTracks(for: album.id, includePlayCounts: includePlayCounts)
     }
 
     // MARK: - DELETE TRACK
