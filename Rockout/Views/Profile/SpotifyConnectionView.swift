@@ -11,9 +11,10 @@ struct SpotifyConnectionView: View {
     var body: some View {
         VStack(spacing: 20) {
             // Spotify Logo/Icon
-            Image(systemName: "music.note")
-                .font(.system(size: 50))
-                .foregroundColor(Color(red: 0.12, green: 0.72, blue: 0.33)) // Spotify green
+            Image("spotify-icon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 50, height: 50)
                 .padding(.top, 20)
             
             if spotifyAuth.isAuthorized(), let connection = spotifyAuth.spotifyConnection {
@@ -93,19 +94,20 @@ struct SpotifyConnectionView: View {
                                 ProgressView()
                                     .tint(.white)
                             } else {
-                                HStack {
-                                    Image(systemName: "music.note")
+                                HStack(spacing: 8) {
+                                    Image("spotify-icon")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 20, height: 20)
                                     Text("Connect to Spotify")
                                         .fontWeight(.semibold)
                                 }
                                 .foregroundColor(.white)
                             }
                         }
-                        .frame(height: 20)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .padding()
                     .background(Color(red: 0.12, green: 0.72, blue: 0.33)) // Spotify green
                     .cornerRadius(12)
                     .disabled(isConnecting)

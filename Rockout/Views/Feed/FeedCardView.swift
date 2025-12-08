@@ -562,21 +562,7 @@ struct FeedCardView: View {
     
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 20)
-            .fill(Color.white.opacity(0.08))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.2),
-                                Color.white.opacity(0.05)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
+            .fill(Color.black)
     }
     
     private func loadReplies() async {
