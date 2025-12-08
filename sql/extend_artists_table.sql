@@ -17,3 +17,6 @@ COMMENT ON COLUMN artists.catalog_updated_at IS 'Timestamp when catalog size was
 
 
 
+
+
+

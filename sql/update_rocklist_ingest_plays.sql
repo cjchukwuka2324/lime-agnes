@@ -232,3 +232,6 @@ GRANT EXECUTE ON FUNCTION rocklist_ingest_plays(JSONB) TO authenticated;
 
 
 
+
+
+

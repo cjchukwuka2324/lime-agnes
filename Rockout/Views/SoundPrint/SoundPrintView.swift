@@ -79,59 +79,7 @@ struct SoundPrintView: View {
                     .padding(.bottom, 24)
                 
                 // Content based on selected tab
-                Group {
-                    switch selectedTab {
-                    case 0:
-                        overviewTab
-                    case 1:
-                        artistsTab
-                    case 2:
-                        tracksTab
-                    case 3:
-                        genresTab
-                    case 4:
-                        if let stats = listeningStats, let features = audioFeatures {
-                            ListeningStatsView(stats: stats, audioFeatures: features)
-                        } else {
-                            loadingPlaceholder
-                        }
-                    case 5:
-                        TimeAnalysisView(yearInMusic: yearInMusic, monthlyEvolution: monthlyEvolution)
-                    case 6:
-                        DiscoveryView(
-                            discoverWeekly: discoverWeekly,
-                            releaseRadar: releaseRadar,
-                            recentlyDiscovered: recentlyDiscovered,
-                            realYouMix: realYouMix,
-                            soundprintForecast: soundprintForecast,
-                            discoveryBundle: discoveryBundle,
-                            onOpenInSpotify: handleOpenInSpotify,
-                            onOpenPlaylist: handleOpenInSpotify
-                        )
-                    case 7:
-                        SocialSharingView(
-                            profile: profile,
-                            topArtists: topArtists,
-                            topTracks: topTracks,
-                            personality: personality,
-                            compatibility: tasteCompatibility.isEmpty ? nil : tasteCompatibility
-                        )
-                    case 8:
-                        MoodContextView(
-                            moodPlaylists: moodPlaylists,
-                            timePatterns: timePatterns,
-                            seasonalTrends: seasonalTrends
-                        )
-                    case 9:
-                        if let diversity = diversity, let features = audioFeatures {
-                            AdvancedAnalyticsView(diversity: diversity, audioFeatures: features)
-                        } else {
-                            loadingPlaceholder
-                        }
-                    default:
-                        overviewTab
-                    }
-                }
+                tabContent
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
             }
@@ -254,6 +202,61 @@ struct SoundPrintView: View {
     }
     
     // MARK: - Overview Tab
+    @ViewBuilder
+    private var tabContent: some View {
+        switch selectedTab {
+        case 0:
+            overviewTab
+        case 1:
+            artistsTab
+        case 2:
+            tracksTab
+        case 3:
+            genresTab
+        case 4:
+            if let stats = listeningStats, let features = audioFeatures {
+                ListeningStatsView(stats: stats, audioFeatures: features)
+            } else {
+                loadingPlaceholder
+            }
+        case 5:
+            TimeAnalysisView(yearInMusic: yearInMusic, monthlyEvolution: monthlyEvolution)
+        case 6:
+            DiscoveryView(
+                discoverWeekly: discoverWeekly,
+                releaseRadar: releaseRadar,
+                recentlyDiscovered: recentlyDiscovered,
+                realYouMix: realYouMix,
+                soundprintForecast: soundprintForecast,
+                discoveryBundle: discoveryBundle,
+                onOpenInSpotify: handleOpenInSpotify,
+                onOpenPlaylist: handleOpenInSpotify
+            )
+        case 7:
+            SocialSharingView(
+                profile: profile,
+                topArtists: topArtists,
+                topTracks: topTracks,
+                personality: personality,
+                compatibility: tasteCompatibility.isEmpty ? nil : tasteCompatibility
+            )
+        case 8:
+            MoodContextView(
+                moodPlaylists: moodPlaylists,
+                timePatterns: timePatterns,
+                seasonalTrends: seasonalTrends
+            )
+        case 9:
+            if let diversity = diversity, let features = audioFeatures {
+                AdvancedAnalyticsView(diversity: diversity, audioFeatures: features)
+            } else {
+                loadingPlaceholder
+            }
+        default:
+            overviewTab
+        }
+    }
+    
     private var overviewTab: some View {
         VStack(spacing: 20) {
             statsCardsSection

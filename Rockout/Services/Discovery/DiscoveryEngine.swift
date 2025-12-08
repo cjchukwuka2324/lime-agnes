@@ -8,6 +8,14 @@ struct RealYouMix {
     let description: String
     let genres: [GenreStat]
     let tracks: [SpotifyTrack]
+    
+    init(title: String, subtitle: String, description: String, genres: [GenreStat], tracks: [SpotifyTrack]) {
+        self.title = title
+        self.subtitle = subtitle
+        self.description = description
+        self.genres = genres
+        self.tracks = tracks
+    }
 }
 
 struct SoundprintForecast {
@@ -15,12 +23,25 @@ struct SoundprintForecast {
     let risingGenres: [GenreStat]
     let wildcardGenres: [GenreStat]
     let suggestedTracks: [SpotifyTrack]
+    
+    init(headline: String, risingGenres: [GenreStat], wildcardGenres: [GenreStat], suggestedTracks: [SpotifyTrack]) {
+        self.headline = headline
+        self.risingGenres = risingGenres
+        self.wildcardGenres = wildcardGenres
+        self.suggestedTracks = suggestedTracks
+    }
 }
 
 struct DiscoveryBundle {
     let newTracks: [SpotifyTrack]
     let newArtists: [SpotifyArtist]
     let newGenres: [String]
+    
+    init(newTracks: [SpotifyTrack], newArtists: [SpotifyArtist], newGenres: [String]) {
+        self.newTracks = newTracks
+        self.newArtists = newArtists
+        self.newGenres = newGenres
+    }
 }
 
 // MARK: - Discovery Engine

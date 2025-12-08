@@ -2,7 +2,7 @@ import SwiftUI
 import AVKit
 import UIKit
 
-struct VideoPlayerView: View {
+struct FeedVideoPlayerView: View {
     let videoURL: URL
     @State private var player: AVPlayer?
     @State private var isMuted: Bool = true

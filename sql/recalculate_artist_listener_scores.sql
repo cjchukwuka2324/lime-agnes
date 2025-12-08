@@ -67,3 +67,6 @@ GRANT EXECUTE ON FUNCTION recalculate_artist_listener_scores(TEXT, TEXT) TO auth
 
 
 
+
+
+

@@ -48,3 +48,6 @@ COMMENT ON COLUMN user_artist_engagement.playlist_adds IS 'Number of times user 
 
 
 
+
+
+

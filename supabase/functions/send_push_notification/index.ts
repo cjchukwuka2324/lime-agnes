@@ -66,10 +66,11 @@ serve(async (req) => {
     console.log(`📱 Found ${tokens.length} device token(s)`);
 
     // Get APNs credentials from environment
+    // Support both APNS_AUTH_KEY and APNS_KEY_P8 for backward compatibility
     const apnsKeyId = Deno.env.get("APNS_KEY_ID");
     const apnsTeamId = Deno.env.get("APNS_TEAM_ID");
     const apnsBundleId = Deno.env.get("APNS_BUNDLE_ID") || "com.rockout.app";
-    const apnsKey = Deno.env.get("APNS_AUTH_KEY");
+    const apnsKey = Deno.env.get("APNS_AUTH_KEY") || Deno.env.get("APNS_KEY_P8");
     const apnsProduction = Deno.env.get("APNS_PRODUCTION") === "true";
 
     // Check if APNs is configured

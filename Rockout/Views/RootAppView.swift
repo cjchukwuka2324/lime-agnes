@@ -6,38 +6,73 @@ struct RootAppView: View {
     @EnvironmentObject var authVM: AuthViewModel
     @Environment(\.scenePhase) var scenePhase
     @StateObject private var shareHandler = SharedAlbumHandler.shared
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var hasCheckedOnAppLaunch = false
 
     var body: some View {
         Group {
-            switch authVM.authState {
-            case .loading:
-                ProgressView("Loading…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Show onboarding if not completed (first-time users, after logout, or when trying to sign up/sign in)
+            if !hasCompletedOnboarding {
+                OnboardingFlowView(hasCompletedOnboarding: $hasCompletedOnboarding)
+            } else {
+                // Existing auth flow
+                switch authVM.authState {
+                case .loading:
+                    ProgressView("Loading…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            case .unauthenticated:
-                AuthFlowView()
+                case .unauthenticated:
+                    // User is unauthenticated - show auth flow
+                    // Onboarding will show if they haven't completed it (handled above)
+                    AuthFlowView()
 
-            case .authenticated:
-                MainTabView()
-                    .environmentObject(shareHandler)
-                    .task {
-                        // Load feed on app startup when authenticated
-                        await loadFeedOnStartup()
-                    }
-                    
-            case .passwordReset:
-                ResetPasswordView()
+                case .authenticated:
+                    MainTabView()
+                        .environmentObject(shareHandler)
+                        .task {
+                            // Load feed on app startup when authenticated
+                            await loadFeedOnStartup()
+                        }
+                        
+                case .passwordReset:
+                    ResetPasswordView()
+                }
             }
         }
         .animation(.easeInOut, value: authVM.authState)
         .task {
             await authVM.checkForActiveSession()
+            // On app launch, if user is unauthenticated, reset onboarding
+            // This allows onboarding to restart if user refreshes app while on login screen
+            if !hasCheckedOnAppLaunch {
+                hasCheckedOnAppLaunch = true
+                if authVM.authState == .unauthenticated {
+                    hasCompletedOnboarding = false
+                }
+            }
+        }
+        .onChange(of: authVM.authState) { oldState, newState in
+            // When user becomes authenticated, ensure we're registered for remote notifications
+            // This handles the case where user logs in after app launch
+            if newState == .authenticated && oldState != .authenticated {
+                // Re-register for remote notifications to ensure token is registered
+                // This is safe to call multiple times - iOS will only call the delegate once per token
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                    print("✅ User authenticated - re-registering for remote notifications")
+                }
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase == .active {
                 // Check for session when app becomes active (e.g., after OAuth redirect)
                 Task {
                     await authVM.checkForActiveSession()
+                    // If app becomes active and user is unauthenticated, reset onboarding
+                    // This handles app refresh/restart while on login screen
+                    if authVM.authState == .unauthenticated {
+                        hasCompletedOnboarding = false
+                    }
                 }
             }
         }

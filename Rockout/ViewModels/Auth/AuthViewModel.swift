@@ -121,6 +121,8 @@ final class AuthViewModel: ObservableObject {
         try? await supabase.auth.signOut()
         currentUserEmail = nil
         authState = .unauthenticated
+        // Reset onboarding so it shows again after logout
+        UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
     }
 
     func refreshUser() async {

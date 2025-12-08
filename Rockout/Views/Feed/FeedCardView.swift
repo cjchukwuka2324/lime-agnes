@@ -322,7 +322,7 @@ struct FeedCardView: View {
         }
         
         if let videoURL = post.videoURL {
-            VideoPlayerView(videoURL: videoURL)
+            FeedVideoPlayerView(videoURL: videoURL)
                 .onTapGesture {
                     // Tap to open full screen (built-in fullscreen button also works)
                     showFullScreenMedia = true
