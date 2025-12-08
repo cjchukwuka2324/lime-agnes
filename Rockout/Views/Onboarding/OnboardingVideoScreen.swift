@@ -279,4 +279,3 @@ class Coordinator: NSObject {
         player?.play()
     }
 }
-

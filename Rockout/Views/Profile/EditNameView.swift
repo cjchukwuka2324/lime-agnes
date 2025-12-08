@@ -13,8 +13,8 @@ struct EditNameView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Animated gradient background matching Settings
-                AnimatedGradientBackground()
+                // Solid black background
+                Color.black
                     .ignoresSafeArea()
                 
                 ScrollView {

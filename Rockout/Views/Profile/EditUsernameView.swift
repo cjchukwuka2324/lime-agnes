@@ -12,8 +12,8 @@ struct EditUsernameView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Animated gradient background
-                AnimatedGradientBackground()
+                // Solid black background
+                Color.black
                     .ignoresSafeArea()
                 
                 ScrollView {

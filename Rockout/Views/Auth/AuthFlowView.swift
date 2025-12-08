@@ -9,9 +9,10 @@ struct AuthFlowView: View {
 
             // LOGO
             VStack(spacing: 6) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 48))
-                    .foregroundColor(.white)
+                Image("authicon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
                 Text("RockOut")
                     .font(.system(size: 30, weight: .bold))
                     .foregroundColor(.white)

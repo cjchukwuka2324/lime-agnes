@@ -17,7 +17,7 @@ struct MainTabView: View {
 
                 FeedView()
                     .tabItem {
-                        Label("Feed", systemImage: "house.fill")
+                        Label("GreenRoom", systemImage: "house.fill")
                     }
                     .tag(0)
 
@@ -31,7 +31,7 @@ struct MainTabView: View {
                 StudioSessionsView()
                     .environmentObject(shareHandler)
                     .tabItem {
-                        Label("StudioSessions", systemImage: "music.note.list")
+                        Label("StudioSessions", systemImage: "slider.horizontal.3")
                     }
                     .tag(2)
 
