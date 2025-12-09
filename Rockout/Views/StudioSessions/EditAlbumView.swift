@@ -30,68 +30,68 @@ struct EditAlbumView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black
-                    .ignoresSafeArea()
-                
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Cover Art Section
-                        coverArtSection
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Cover Art Section
+                    coverArtSection
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                    
+                    // Album Info Section
+                    albumInfoSection
+                        .padding(.horizontal, 20)
+                    
+                    // Tracks Reorder Section
+                    if !tracks.isEmpty {
+                        tracksReorderSection
                             .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                        
-                        // Album Info Section
-                        albumInfoSection
-                            .padding(.horizontal, 20)
-                        
-                        // Tracks Reorder Section
-                        if !tracks.isEmpty {
-                            tracksReorderSection
-                                .padding(.horizontal, 20)
-                        }
-                        
-                        // Error Message
-                        if let error = errorMessage {
-                            errorView(error)
-                                .padding(.horizontal, 20)
-                        }
-                        
-                        // Save Button
-                        saveButton
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 40)
                     }
+                    
+                    // Error Message
+                    if let error = errorMessage {
+                        errorView(error)
+                            .padding(.horizontal, 20)
+                    }
+                    
+                    // Save Button
+                    saveButton
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 40)
                 }
             }
-            .navigationTitle("Edit Album")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.black, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .onAppear {
-                // Ensure navigation bar is always opaque
-                let appearance = UINavigationBarAppearance()
-                appearance.configureWithOpaqueBackground()
-                appearance.backgroundColor = .black
-                appearance.shadowColor = .clear
-                
-                UINavigationBar.appearance().standardAppearance = appearance
-                UINavigationBar.appearance().scrollEdgeAppearance = appearance
-                UINavigationBar.appearance().compactAppearance = appearance
-            }
-            .toolbar {
+        }
+        .navigationTitle("Edit Album")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .onAppear {
+            // Ensure navigation bar is always opaque
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = .black
+            appearance.shadowColor = .clear
+            
+            UINavigationBar.appearance().standardAppearance = appearance
+            UINavigationBar.appearance().scrollEdgeAppearance = appearance
+            UINavigationBar.appearance().compactAppearance = appearance
+        }
+        .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .foregroundColor(.white)
+                Button("Cancel") {
+                    dismiss()
                 }
+                .foregroundColor(.white)
             }
-            .sheet(isPresented: $showImagePicker) {
-                ImagePicker(selectedImage: $coverArtImage)
-            }
-            .task {
-                await loadTracks()
+        }
+        .sheet(isPresented: $showImagePicker) {
+            ImagePicker(selectedImage: $coverArtImage)
+        }
+        .task {
+            await loadTracks()
             }
             .alert("Delete Track", isPresented: $showDeleteTrackConfirmation) {
                 Button("Cancel", role: .cancel) { }

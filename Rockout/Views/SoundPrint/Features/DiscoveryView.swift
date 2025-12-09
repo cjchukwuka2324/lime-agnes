@@ -7,7 +7,7 @@ struct DiscoveryView: View {
     let realYouMix: RealYouMix?
     let soundprintForecast: SoundprintForecast?
     let discoveryBundle: DiscoveryBundle?
-    let onOpenInSpotify: (String, [SpotifyTrack]) -> Void
+    let onOpenInSpotify: (String, [UnifiedTrack]) -> Void
     let onOpenPlaylist: (String) -> Void
     
     var body: some View {
@@ -134,7 +134,7 @@ struct DiscoveryView: View {
 struct PlaylistCard: View {
     let title: String
     let description: String
-    let tracks: [SpotifyTrack]
+    let tracks: [UnifiedTrack]
     let onOpenInSpotify: () -> Void
     
     @State private var isOpening = false
@@ -205,11 +205,11 @@ struct PlaylistCard: View {
 }
 
 struct TrackPreviewCard: View {
-    let track: SpotifyTrack
+    let track: UnifiedTrack
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let imageURL = track.album?.images?.first?.url,
+            if let imageURL = track.album?.imageURL,
                let url = URL(string: imageURL) {
                 AsyncImage(url: url) { image in
                     image
@@ -238,7 +238,7 @@ struct RecentlyDiscoveredRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            if let imageURL = discovery.artist.images?.first?.url,
+            if let imageURL = discovery.artist.imageURL,
                let url = URL(string: imageURL) {
                 AsyncImage(url: url) { image in
                     image
@@ -280,7 +280,7 @@ struct RecentlyDiscoveredRow: View {
 struct NativePlaylistCard: View {
     let title: String
     let description: String
-    let tracks: [SpotifyTrack]
+    let tracks: [UnifiedTrack]
     let onOpenPlaylist: () -> Void
     
     @State private var isOpening = false

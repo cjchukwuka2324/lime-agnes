@@ -3,13 +3,14 @@ import SwiftUI
 struct AccountSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var authVM: AuthViewModel
-    @StateObject private var spotifyAuth = SpotifyAuthService.shared
     private let profileService = UserProfileService.shared
     
     @State private var isLoading = false
     @State private var message: String?
     @State private var userProfile: UserProfileService.UserProfile?
     @State private var isLoadingProfile = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var isDeletingAccount = false
     
     var body: some View {
         NavigationStack {
@@ -25,9 +26,8 @@ struct AccountSettingsView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 20)
                         
-                        // Spotify Connection Section
-                        SpotifyConnectionView()
-                            .environmentObject(spotifyAuth)
+                        // Music Platform Connection Section
+                        MusicPlatformConnectionView()
                             .padding(.horizontal, 20)
                         
                         // Account Actions Section
@@ -215,16 +215,36 @@ struct AccountSettingsView: View {
                     .background(Color.red.opacity(0.8))
                     .cornerRadius(12)
                 }
-                .disabled(isLoading)
+                .disabled(isLoading || isDeletingAccount)
                 
-                // Note about Spotify
-                if spotifyAuth.isAuthorized() {
-                    Text("Note: Logging out of Rockout will also disconnect Spotify")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                // Delete Account
+                Button(role: .destructive) {
+                    showDeleteAccountConfirmation = true
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete Account")
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.red.opacity(0.9))
+                    .cornerRadius(12)
                 }
+                .disabled(isLoading || isDeletingAccount)
+                
+                // Note about music platform (removed - connections are permanent)
+            }
+            .alert("Delete Account", isPresented: $showDeleteAccountConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    Task {
+                        await deleteAccount()
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to delete your account? This action cannot be undone. All your data including posts, albums, followers, and profile will be permanently deleted.")
             }
         }
     }
@@ -276,12 +296,27 @@ struct AccountSettingsView: View {
             isLoading = true
             defer { isLoading = false }
             
-            // Always disconnect Spotify when logging out (clears local storage too)
-            await spotifyAuth.disconnect()
+            // Note: Music platform connections are permanent and binding
+            // They are not disconnected when logging out of Rockout
             
             // Log out of Rockout
             await authVM.logout()
             message = "Logged out."
+        }
+    }
+    
+    private func deleteAccount() async {
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        
+        do {
+            try await profileService.deleteAccount()
+            // The deleteAccount function signs out from Supabase
+            // Now we need to update the auth state to navigate to login screen
+            await authVM.logout()
+        } catch {
+            message = "Failed to delete account: \(error.localizedDescription)"
+            print("Error deleting account: \(error)")
         }
     }
 }

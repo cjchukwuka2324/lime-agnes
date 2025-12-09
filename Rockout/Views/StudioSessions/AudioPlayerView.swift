@@ -18,13 +18,8 @@ struct AudioPlayerView: View {
     
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [Color.black, Color(red: 0.1, green: 0.1, blue: 0.15)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Background - solid black
+            Color.black.ignoresSafeArea()
             
             ScrollView {
                 VStack(spacing: 0) {

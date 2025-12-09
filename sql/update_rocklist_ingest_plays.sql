@@ -197,12 +197,20 @@ BEGIN
         
         -- Ensure profile exists
         IF NOT FOUND THEN
-            INSERT INTO profiles (id, last_ingested_played_at, created_at, updated_at)
-            VALUES (v_current_user_id, v_max_played_at, NOW(), NOW())
+            INSERT INTO profiles (id, last_ingested_played_at, created_at, updated_at, email)
+            SELECT 
+                v_current_user_id,
+                v_max_played_at,
+                NOW(),
+                NOW(),
+                u.email
+            FROM auth.users u
+            WHERE u.id = v_current_user_id
             ON CONFLICT (id) 
             DO UPDATE SET 
                 last_ingested_played_at = v_max_played_at,
-                updated_at = NOW();
+                updated_at = NOW(),
+                email = COALESCE(profiles.email, EXCLUDED.email);
         END IF;
     END IF;
     

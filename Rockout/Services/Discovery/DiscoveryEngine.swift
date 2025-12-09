@@ -7,9 +7,9 @@ struct RealYouMix {
     let subtitle: String
     let description: String
     let genres: [GenreStat]
-    let tracks: [SpotifyTrack]
+    let tracks: [UnifiedTrack]
     
-    init(title: String, subtitle: String, description: String, genres: [GenreStat], tracks: [SpotifyTrack]) {
+    init(title: String, subtitle: String, description: String, genres: [GenreStat], tracks: [UnifiedTrack]) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
@@ -22,9 +22,9 @@ struct SoundprintForecast {
     let headline: String
     let risingGenres: [GenreStat]
     let wildcardGenres: [GenreStat]
-    let suggestedTracks: [SpotifyTrack]
+    let suggestedTracks: [UnifiedTrack]
     
-    init(headline: String, risingGenres: [GenreStat], wildcardGenres: [GenreStat], suggestedTracks: [SpotifyTrack]) {
+    init(headline: String, risingGenres: [GenreStat], wildcardGenres: [GenreStat], suggestedTracks: [UnifiedTrack]) {
         self.headline = headline
         self.risingGenres = risingGenres
         self.wildcardGenres = wildcardGenres
@@ -33,11 +33,11 @@ struct SoundprintForecast {
 }
 
 struct DiscoveryBundle {
-    let newTracks: [SpotifyTrack]
-    let newArtists: [SpotifyArtist]
+    let newTracks: [UnifiedTrack]
+    let newArtists: [UnifiedArtist]
     let newGenres: [String]
     
-    init(newTracks: [SpotifyTrack], newArtists: [SpotifyArtist], newGenres: [String]) {
+    init(newTracks: [UnifiedTrack], newArtists: [UnifiedArtist], newGenres: [String]) {
         self.newTracks = newTracks
         self.newArtists = newArtists
         self.newGenres = newGenres
@@ -113,7 +113,7 @@ final class DiscoveryEngine {
             subtitle: "Your core sound right now",
             description: desc,
             genres: coreGenres,
-            tracks: final
+            tracks: final.map { $0.toUnified() }
         )
     }
 
@@ -184,7 +184,7 @@ final class DiscoveryEngine {
             headline: headline,
             risingGenres: rising,
             wildcardGenres: wildcards,
-            suggestedTracks: finalTracks
+            suggestedTracks: finalTracks.map { $0.toUnified() }
         )
     }
 
@@ -238,8 +238,8 @@ final class DiscoveryEngine {
         let newGenres = Array(newGenreSet).sorted()
 
         return DiscoveryBundle(
-            newTracks: Array(fresh.prefix(40)),
-            newArtists: newArtists,
+            newTracks: Array(fresh.prefix(40)).map { $0.toUnified() },
+            newArtists: newArtists.map { $0.toUnified() },
             newGenres: newGenres
         )
     }

@@ -16,7 +16,8 @@ final class SpotifyAuthService: ObservableObject {
     private let redirectURI = "rockout://auth"
     private let tokenURL = "https://accounts.spotify.com/api/token"
     private let scopes = "user-read-email user-read-private user-top-read user-read-recently-played user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
-    private let connectionService = SpotifyConnectionService.shared
+    private let connectionService = MusicPlatformConnectionService.shared
+    private let legacyConnectionService = SpotifyConnectionService.shared // For backward compatibility
 
     private init() {
         Task {
@@ -33,23 +34,61 @@ final class SpotifyAuthService: ObservableObject {
         SpotifyTokenStore.clear()
         
         do {
-            if let connection = try await connectionService.getConnection() {
-                spotifyConnection = connection
-                accessToken = connection.access_token
-                refreshToken = connection.refresh_token
+            // Try unified connection service first
+            if let unifiedConnection = try await connectionService.getConnection(), unifiedConnection.platform == "spotify" {
+                // Convert unified connection to SpotifyConnection for compatibility
+                guard let spotifyUserId = unifiedConnection.spotify_user_id,
+                      let accessTokenValue = unifiedConnection.access_token,
+                      let refreshTokenValue = unifiedConnection.refresh_token,
+                      let expiresAtStr = unifiedConnection.expires_at else {
+                    throw NSError(domain: "SpotifyAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Spotify connection data"])
+                }
+                spotifyConnection = SpotifyConnection(
+                    id: unifiedConnection.id,
+                    user_id: unifiedConnection.user_id,
+                    spotify_user_id: spotifyUserId,
+                    access_token: accessTokenValue,
+                    refresh_token: refreshTokenValue,
+                    expires_at: expiresAtStr,
+                    connected_at: unifiedConnection.connected_at,
+                    display_name: unifiedConnection.display_name,
+                    email: unifiedConnection.email
+                )
+                accessToken = accessTokenValue
+                refreshToken = refreshTokenValue
                 
                 let formatter = ISO8601DateFormatter()
-                if let expiresAt = formatter.date(from: connection.expires_at) {
+                if let expiresAt = formatter.date(from: expiresAtStr) {
                     expirationDate = expiresAt
                     
                     // Also save to local storage for offline access
                     let timeUntilExpiry = Int(expiresAt.timeIntervalSinceNow)
                     let tokens = SpotifyTokens(
-                        access_token: connection.access_token,
+                        access_token: unifiedConnection.access_token ?? "",
                         token_type: "Bearer",
                         scope: nil,
                         expires_in: max(timeUntilExpiry, 3600), // At least 1 hour if negative
-                        refresh_token: connection.refresh_token
+                        refresh_token: unifiedConnection.refresh_token ?? ""
+                    )
+                    SpotifyTokenStore.saveTokens(tokens, expiry: expiresAt)
+                }
+            } else if let legacyConnection = try? await legacyConnectionService.getConnection() {
+                // Fallback to legacy connection for backward compatibility
+                spotifyConnection = legacyConnection
+                accessToken = legacyConnection.access_token
+                refreshToken = legacyConnection.refresh_token
+                
+                let formatter = ISO8601DateFormatter()
+                if let expiresAt = formatter.date(from: legacyConnection.expires_at) {
+                    expirationDate = expiresAt
+                    
+                    let timeUntilExpiry = Int(expiresAt.timeIntervalSinceNow)
+                    let tokens = SpotifyTokens(
+                        access_token: legacyConnection.access_token,
+                        token_type: "Bearer",
+                        scope: nil,
+                        expires_in: max(timeUntilExpiry, 3600),
+                        refresh_token: legacyConnection.refresh_token
                     )
                     SpotifyTokenStore.saveTokens(tokens, expiry: expiresAt)
                 }
@@ -301,22 +340,53 @@ final class SpotifyAuthService: ObservableObject {
         // Also save locally for offline access
         SpotifyTokenStore.saveTokens(t, expiry: expiry)
         
-        // If we already have a connection, just update tokens
-        if isRefresh, let existingConnection = spotifyConnection {
-            do {
-                try await connectionService.updateTokens(
-                    accessToken: t.access_token,
-                    refreshToken: t.refresh_token,
-                    expiresAt: expiry
-                )
-                // Update local connection object
-                var updated = existingConnection
-                // Note: We can't mutate the struct directly, so we'll reload
-                await loadConnection()
-            } catch {
-                print("Failed to update tokens: \(error)")
+        // Check if user already has a connection to another platform
+        do {
+            if let existingConnection = try await connectionService.getConnection() {
+                if existingConnection.platform != "spotify" {
+                    // User already has a different platform connection - cannot connect to Spotify
+                    print("⚠️ User already has a connection to \(existingConnection.platform). Platform connection is permanent.")
+                    return
+                }
+                
+                // If we already have a Spotify connection, just update tokens
+                if isRefresh {
+                    do {
+                        let updated = try await connectionService.updateSpotifyConnection(
+                            accessToken: t.access_token,
+                            refreshToken: t.refresh_token,
+                            expiresAt: expiry
+                        )
+                        // Convert to SpotifyConnection for compatibility
+                        guard let spotifyUserId = updated.spotify_user_id,
+                              let accessTokenValue = updated.access_token,
+                              let refreshTokenValue = updated.refresh_token,
+                              let expiresAtStr = updated.expires_at else {
+                            throw NSError(domain: "SpotifyAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid updated connection data"])
+                        }
+                        spotifyConnection = SpotifyConnection(
+                            id: updated.id,
+                            user_id: updated.user_id,
+                            spotify_user_id: spotifyUserId,
+                            access_token: accessTokenValue,
+                            refresh_token: refreshTokenValue,
+                            expires_at: expiresAtStr,
+                            connected_at: updated.connected_at,
+                            display_name: updated.display_name,
+                            email: updated.email
+                        )
+                        // Update class properties
+                        self.accessToken = accessTokenValue
+                        self.refreshToken = refreshTokenValue
+                        await loadConnection()
+                    } catch {
+                        print("Failed to update tokens: \(error)")
+                    }
+                    return
+                }
             }
-            return
+        } catch {
+            print("Error checking existing connection: \(error)")
         }
         
         // New connection - get Spotify user profile
@@ -324,8 +394,8 @@ final class SpotifyAuthService: ObservableObject {
             // Make direct API call to get user profile
             let profile = try await fetchSpotifyProfile(accessToken: t.access_token)
             
-            // Save to database
-            let connection = try await connectionService.saveConnection(
+            // Save to database using unified service
+            let unifiedConnection = try await connectionService.saveSpotifyConnection(
                 spotifyUserId: profile.id,
                 accessToken: t.access_token,
                 refreshToken: t.refresh_token ?? refreshToken ?? "",
@@ -334,19 +404,46 @@ final class SpotifyAuthService: ObservableObject {
                 email: profile.email
             )
             
-            spotifyConnection = connection
+            // Convert to SpotifyConnection for compatibility
+            guard let spotifyUserId = unifiedConnection.spotify_user_id,
+                  let accessTokenValue = unifiedConnection.access_token,
+                  let refreshTokenValue = unifiedConnection.refresh_token,
+                  let expiresAtStr = unifiedConnection.expires_at else {
+                throw NSError(domain: "SpotifyAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid connection data returned"])
+            }
+            spotifyConnection = SpotifyConnection(
+                id: unifiedConnection.id,
+                user_id: unifiedConnection.user_id,
+                spotify_user_id: spotifyUserId,
+                access_token: accessTokenValue,
+                refresh_token: refreshTokenValue,
+                expires_at: expiresAtStr,
+                connected_at: unifiedConnection.connected_at,
+                display_name: unifiedConnection.display_name,
+                email: unifiedConnection.email
+            )
+            // Update class properties
+            self.accessToken = accessTokenValue
+            self.refreshToken = refreshTokenValue
             // RockList ingestion is automatically triggered from RootAppView and RockOutApp
             // when authentication state changes, avoiding circular dependencies
         } catch {
             print("Failed to save Spotify connection: \(error)")
-            // Still save tokens even if profile fetch fails
-            if let refreshToken = t.refresh_token ?? refreshToken {
-                try? await connectionService.saveConnection(
-                    spotifyUserId: "unknown",
-                    accessToken: t.access_token,
-                    refreshToken: refreshToken,
-                    expiresAt: expiry
-                )
+            // Check if error is due to existing connection
+            if let nsError = error as NSError?,
+               nsError.domain == "MusicPlatformConnectionService",
+               nsError.code == -1 {
+                print("⚠️ Cannot connect: \(error.localizedDescription)")
+            } else {
+                // Still try to save tokens even if profile fetch fails (for error recovery)
+                if let refreshTokenValue = t.refresh_token ?? self.refreshToken {
+                    try? await connectionService.saveSpotifyConnection(
+                        spotifyUserId: "unknown",
+                        accessToken: t.access_token,
+                        refreshToken: refreshTokenValue,
+                        expiresAt: expiry
+                    )
+                }
             }
         }
     }
@@ -398,21 +495,10 @@ final class SpotifyAuthService: ObservableObject {
         }
     }
     
-    // MARK: - Disconnect Spotify
+    // MARK: - Disconnect Spotify (No-op - connections are permanent)
     func disconnect() async {
-        // Clear local state first
-        accessToken = nil
-        refreshToken = nil
-        expirationDate = nil
-        spotifyConnection = nil
-        SpotifyTokenStore.clear()
-        
-        // Try to delete from database (ignore errors if not connected or no session)
-        do {
-            try await connectionService.deleteConnection()
-        } catch {
-            // Ignore errors - connection might not exist or user might not be logged in
-            print("Note: Could not delete Spotify connection from database (might not exist): \(error.localizedDescription)")
-        }
+        // Connections are permanent and binding - no disconnect functionality
+        // This method exists for backward compatibility but does nothing
+        print("⚠️ Disconnect called but ignored - platform connections are permanent and binding")
     }
 }

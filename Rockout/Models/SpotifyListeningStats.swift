@@ -1,5 +1,8 @@
 import Foundation
 
+// Import unified models
+// Note: UnifiedArtist, UnifiedTrack, etc. are defined in MusicPlatformModels.swift
+
 // MARK: - Listening Stats
 struct ListeningStats: Codable {
     let totalListeningTimeMinutes: Int
@@ -14,16 +17,7 @@ struct ListeningStats: Codable {
 }
 
 // MARK: - Audio Features
-struct AudioFeatures: Codable {
-    let danceability: Double
-    let energy: Double
-    let valence: Double
-    let tempo: Double
-    let acousticness: Double
-    let instrumentalness: Double
-    let liveness: Double
-    let speechiness: Double
-}
+// Note: AudioFeatures is defined in MusicPlatformModels.swift for unified use
 
 struct AverageAudioFeatures: Codable {
     let danceability: Double
@@ -56,19 +50,21 @@ struct YearInMusic: Codable {
 
 // MARK: - Discovery Data
 struct RecentlyDiscovered: Codable {
-    let artist: SpotifyArtist
+    let artist: UnifiedArtist
     let discoveredDate: Date
     let playCount: Int
 }
 
+// Note: DiscoverWeekly, ReleaseRadar, MoodPlaylist now use UnifiedTrack to support both platforms
+
 struct DiscoverWeekly: Codable {
-    let tracks: [SpotifyTrack]
+    let tracks: [UnifiedTrack]
     let updatedAt: Date
     let playlistId: String?
 }
 
 struct ReleaseRadar: Codable {
-    let tracks: [SpotifyTrack]
+    let tracks: [UnifiedTrack]
     let updatedAt: Date
     let playlistId: String?
 }
@@ -76,7 +72,7 @@ struct ReleaseRadar: Codable {
 // MARK: - Mood & Context
 struct MoodPlaylist: Codable {
     let mood: String
-    let tracks: [SpotifyTrack]
+    let tracks: [UnifiedTrack]
     let description: String
 }
 

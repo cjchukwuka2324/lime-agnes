@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct SocialSharingView: View {
-    let profile: SpotifyUserProfile?
-    let topArtists: [SpotifyArtist]
-    let topTracks: [SpotifyTrack]
+    let profile: UnifiedUserProfile?
+    let topArtists: [UnifiedArtist]
+    let topTracks: [UnifiedTrack]
     let personality: FanPersonality?
     let compatibility: [TasteCompatibility]?
     
@@ -59,7 +59,7 @@ struct SocialSharingView: View {
 }
 
 struct ShareSoundPrintCard: View {
-    let profile: SpotifyUserProfile?
+    let profile: UnifiedUserProfile?
     let personality: FanPersonality?
     let onShare: () -> Void
     

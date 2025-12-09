@@ -1,8 +1,6 @@
--- RockList Ingestion Function
--- Processes play events from Spotify and updates rocklist_stats table
--- Also updates artist records and tracks last ingestion timestamp
+-- Update rocklist_ingest_plays to support cross-platform matching
+-- This replaces the existing rocklist_ingest_plays function with cross-platform support
 
--- Drop existing function if it exists (in case return type changed)
 DROP FUNCTION IF EXISTS rocklist_ingest_plays(JSONB);
 
 CREATE OR REPLACE FUNCTION rocklist_ingest_plays(
@@ -15,10 +13,13 @@ AS $$
 DECLARE
     v_current_user_id UUID;
     v_event JSONB;
-    v_artist_id TEXT;
+    v_platform TEXT;
+    v_platform_artist_id TEXT;
     v_artist_name TEXT;
+    v_unified_artist_id TEXT;
     v_track_id TEXT;
     v_track_name TEXT;
+    v_isrc TEXT;
     v_played_at TIMESTAMPTZ;
     v_duration_ms BIGINT;
     v_region TEXT;
@@ -26,6 +27,7 @@ DECLARE
     v_processed_count INTEGER := 0;
     v_error_count INTEGER := 0;
     v_errors TEXT[] := ARRAY[]::TEXT[];
+    v_connection RECORD;
 BEGIN
     -- Get current authenticated user
     v_current_user_id := auth.uid();
@@ -36,6 +38,29 @@ BEGIN
             'error', 'User not authenticated'
         );
     END IF;
+    
+    -- Get user's platform connection to determine platform
+    SELECT platform INTO v_connection
+    FROM music_platform_connections
+    WHERE user_id = v_current_user_id
+    LIMIT 1;
+    
+    IF v_connection.platform IS NULL THEN
+        -- Fallback to spotify_connections for backward compatibility during migration
+        SELECT 'spotify'::TEXT INTO v_connection.platform
+        FROM spotify_connections
+        WHERE user_id = v_current_user_id
+        LIMIT 1;
+        
+        IF v_connection.platform IS NULL THEN
+            RETURN jsonb_build_object(
+                'success', false,
+                'error', 'No music platform connection found'
+            );
+        END IF;
+    END IF;
+    
+    v_platform := v_connection.platform;
     
     -- Validate input
     IF p_events IS NULL OR jsonb_array_length(p_events) = 0 THEN
@@ -50,9 +75,11 @@ BEGIN
     LOOP
         BEGIN
             -- Extract event fields (handle both camelCase and snake_case)
-            v_artist_id := COALESCE(
+            v_platform_artist_id := COALESCE(
                 v_event->>'artistId',
-                v_event->>'artist_id'
+                v_event->>'artist_id',
+                v_event->>'platformArtistId',
+                v_event->>'platform_artist_id'
             );
             v_artist_name := COALESCE(
                 v_event->>'artistName',
@@ -60,11 +87,17 @@ BEGIN
             );
             v_track_id := COALESCE(
                 v_event->>'trackId',
-                v_event->>'track_id'
+                v_event->>'track_id',
+                v_event->>'platformTrackId',
+                v_event->>'platform_track_id'
             );
             v_track_name := COALESCE(
                 v_event->>'trackName',
                 v_event->>'track_name'
+            );
+            v_isrc := COALESCE(
+                v_event->>'isrc',
+                v_event->>'ISRC'
             );
             v_played_at := (v_event->>'playedAt')::TIMESTAMPTZ;
             v_duration_ms := (v_event->>'durationMs')::BIGINT;
@@ -73,8 +106,13 @@ BEGIN
                 'GLOBAL'
             );
             
+            -- Override platform from event if provided (for flexibility)
+            IF v_event->>'platform' IS NOT NULL THEN
+                v_platform := v_event->>'platform';
+            END IF;
+            
             -- Validate required fields
-            IF v_artist_id IS NULL OR v_artist_name IS NULL OR v_played_at IS NULL THEN
+            IF v_platform_artist_id IS NULL OR v_artist_name IS NULL OR v_played_at IS NULL THEN
                 v_error_count := v_error_count + 1;
                 v_errors := array_append(v_errors, format('Missing required fields in event: %s', v_event::TEXT));
                 CONTINUE;
@@ -90,19 +128,59 @@ BEGIN
                 v_max_played_at := v_played_at;
             END IF;
             
-            -- Upsert artist record
-            INSERT INTO artists (spotify_id, name, created_at)
-            VALUES (v_artist_id, v_artist_name, NOW())
-            ON CONFLICT (spotify_id) 
-            DO UPDATE SET 
-                name = EXCLUDED.name,
-                updated_at = NOW();
+            -- Get unified artist_id using matching function
+            v_unified_artist_id := match_or_create_unified_artist(
+                v_platform,
+                v_platform_artist_id,
+                v_artist_name,
+                v_isrc,
+                v_track_id,
+                v_track_name
+            );
             
-            -- Upsert rocklist_stats record
-            -- Aggregate play_count, total_ms_played, and update last_played_at
+            IF v_unified_artist_id IS NULL THEN
+                v_error_count := v_error_count + 1;
+                v_errors := array_append(v_errors, format('Failed to match/create artist for event: %s', v_event::TEXT));
+                CONTINUE;
+            END IF;
+            
+            -- Insert play event with unified artist_id and platform info
+            INSERT INTO rocklist_play_events (
+                user_id,
+                artist_id, -- Unified artist_id
+                track_id,
+                track_name,
+                played_duration_ms,
+                track_duration_ms,
+                played_at,
+                region,
+                platform,
+                isrc,
+                platform_artist_id,
+                platform_track_id,
+                created_at
+            )
+            VALUES (
+                v_current_user_id,
+                v_unified_artist_id,
+                COALESCE(v_track_id, 'unknown'),
+                v_track_name,
+                v_duration_ms,
+                v_duration_ms, -- Assume played_duration = track_duration for now
+                v_played_at,
+                v_region,
+                v_platform,
+                v_isrc,
+                v_platform_artist_id,
+                v_track_id,
+                NOW()
+            )
+            ON CONFLICT DO NOTHING; -- Avoid duplicate events
+            
+            -- Upsert rocklist_stats record using unified artist_id
             INSERT INTO rocklist_stats (
                 user_id,
-                artist_id,
+                artist_id, -- Unified artist_id
                 region,
                 play_count,
                 total_ms_played,
@@ -112,7 +190,7 @@ BEGIN
             )
             VALUES (
                 v_current_user_id,
-                v_artist_id,
+                v_unified_artist_id,
                 v_region,
                 1,
                 v_duration_ms,

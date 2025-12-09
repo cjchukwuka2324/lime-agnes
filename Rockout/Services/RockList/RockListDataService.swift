@@ -15,7 +15,7 @@ final class RockListDataService {
     
     // MARK: - Play Events
     
-    /// Represents a normalized play event from Spotify for RockList ingestion
+    /// Represents a normalized play event from Spotify or Apple Music for RockList ingestion
     struct RockListPlayEvent: Codable {
         let artistId: String
         let artistName: String
@@ -24,9 +24,11 @@ final class RockListDataService {
         let playedAt: Date
         let durationMs: Int
         let region: String?
+        let platform: String? // 'spotify' or 'apple_music'
+        let isrc: String? // ISRC code for cross-platform matching
         
         enum CodingKeys: String, CodingKey {
-            case artistId, artistName, trackId, trackName, playedAt, durationMs, region
+            case artistId, artistName, trackId, trackName, playedAt, durationMs, region, platform, isrc
         }
         
         // Regular initializer for creating instances in code
@@ -37,7 +39,9 @@ final class RockListDataService {
             trackName: String,
             playedAt: Date,
             durationMs: Int,
-            region: String?
+            region: String?,
+            platform: String? = nil,
+            isrc: String? = nil
         ) {
             self.artistId = artistId
             self.artistName = artistName
@@ -46,6 +50,8 @@ final class RockListDataService {
             self.playedAt = playedAt
             self.durationMs = durationMs
             self.region = region
+            self.platform = platform
+            self.isrc = isrc
         }
         
         func encode(to encoder: Encoder) throws {
@@ -62,6 +68,8 @@ final class RockListDataService {
             
             try container.encode(durationMs, forKey: .durationMs)
             try container.encodeIfPresent(region, forKey: .region)
+            try container.encodeIfPresent(platform, forKey: .platform)
+            try container.encodeIfPresent(isrc, forKey: .isrc)
         }
         
         init(from decoder: Decoder) throws {
@@ -86,6 +94,8 @@ final class RockListDataService {
             
             durationMs = try container.decode(Int.self, forKey: .durationMs)
             region = try container.decodeIfPresent(String.self, forKey: .region)
+            platform = try container.decodeIfPresent(String.self, forKey: .platform)
+            isrc = try container.decodeIfPresent(String.self, forKey: .isrc)
         }
     }
     
@@ -121,7 +131,9 @@ final class RockListDataService {
                     trackName: history.track.name,
                     playedAt: playedAt,
                     durationMs: history.track.durationMs,
-                    region: region
+                    region: region,
+                    platform: "spotify",
+                    isrc: nil // ISRC not available from recently played endpoint
                 )
             }
             events.append(contentsOf: recentEvents)
@@ -144,7 +156,9 @@ final class RockListDataService {
                             trackName: "Virtual play for ranking",
                             playedAt: Date(), // now
                             durationMs: 180_000, // 3 minutes
-                            region: region
+                            region: region,
+                            platform: "spotify",
+                            isrc: nil
                         )
                     )
                     virtualEventCount += 1
@@ -200,7 +214,9 @@ final class RockListDataService {
                 trackName: history.track.name,
                 playedAt: playedAt,
                 durationMs: history.track.durationMs,
-                region: region
+                region: region,
+                platform: "spotify",
+                isrc: nil
             )
         }
         
@@ -220,6 +236,10 @@ final class RockListDataService {
         let playedAt: String  // ISO8601 string
         let durationMs: Int
         let region: String
+        let platform: String? // 'spotify' or 'apple_music'
+        let isrc: String? // ISRC code for cross-platform matching
+        let platformArtistId: String? // Original platform artist ID
+        let platformTrackId: String? // Original platform track ID
     }
     
     /// Sends play events to Supabase for ingestion
@@ -243,7 +263,11 @@ final class RockListDataService {
                 trackName: event.trackName,
                 playedAt: formatter.string(from: event.playedAt),
                 durationMs: event.durationMs,
-                region: event.region ?? "GLOBAL"
+                region: event.region ?? "GLOBAL",
+                platform: event.platform ?? "spotify", // Default to spotify for backward compatibility
+                isrc: event.isrc,
+                platformArtistId: event.artistId, // Use artistId as platform artist ID (will be matched to unified)
+                platformTrackId: event.trackId // Use trackId as platform track ID
             )
         }
         
@@ -351,7 +375,9 @@ final class RockListDataService {
                 trackName: history.track.name,
                 playedAt: playedAt,
                 durationMs: history.track.durationMs,
-                region: userProfile.country
+                region: userProfile.country,
+                platform: "spotify",
+                isrc: nil
             )
         }
     }
@@ -515,7 +541,9 @@ final class RockListDataService {
                             trackName: track.name,
                             playedAt: playedAt,
                             durationMs: track.durationMs,
-                            region: region
+                            region: region,
+                            platform: "spotify",
+                            isrc: nil
                         )
                     )
                 }

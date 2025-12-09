@@ -1,17 +1,22 @@
 import SwiftUI
 import UIKit
+import MusicKit
 
 struct SoundPrintView: View {
     @EnvironmentObject var authService: SpotifyAuthService
-    @StateObject private var api = SpotifyAPI()
-    private let playlistService = SpotifyPlaylistService.shared
+    @StateObject private var spotifyAPI = SpotifyAPI()
+    @StateObject private var appleMusicAPI = AppleMusicAPI.shared
+    private let spotifyPlaylistService = SpotifyPlaylistService.shared
+    private let appleMusicPlaylistService = AppleMusicPlaylistService.shared
+    private let connectionService = MusicPlatformConnectionService.shared
 
-    // MARK: - Loaded data
-    @State private var profile: SpotifyUserProfile?
-    @State private var topArtists: [SpotifyArtist] = []
-    @State private var topTracks: [SpotifyTrack] = []
+    // MARK: - Loaded data (using unified models)
+    @State private var profile: UnifiedUserProfile?
+    @State private var topArtists: [UnifiedArtist] = []
+    @State private var topTracks: [UnifiedTrack] = []
     @State private var genreStats: [GenreStat] = []
     @State private var personality: FanPersonality?
+    @State private var currentPlatform: MusicPlatform = .spotify
     
     // New feature data
     @State private var listeningStats: ListeningStats?
@@ -36,6 +41,7 @@ struct SoundPrintView: View {
     @State private var errorMessage: String?
     @State private var selectedTab: Int = 0
     @State private var isAddingToSpotify = false
+    @State private var hasMusicPlatformConnection = false
 
     var body: some View {
         NavigationStack {
@@ -48,7 +54,7 @@ struct SoundPrintView: View {
                     loadingView
                 } else if let error = errorMessage {
                     errorView(error)
-                } else if !authService.isAuthorized() {
+                } else if !hasMusicPlatformConnection {
                     connectPromptView
                 } else {
                     contentView
@@ -59,6 +65,7 @@ struct SoundPrintView: View {
             .toolbarBackground(Color.clear, for: .navigationBar)
             .toolbarBackground(.hidden, for: .navigationBar)
             .task {
+                await checkMusicPlatformConnection()
                 await loadData()
             }
         }
@@ -105,7 +112,7 @@ struct SoundPrintView: View {
                     .frame(width: 100, height: 100)
                     .shadow(color: Color(red: 0.12, green: 0.72, blue: 0.33).opacity(0.5), radius: 20, x: 0, y: 10)
                 
-                if let imageURL = profile?.imageURL {
+                if let imageURL = profile?.imageURLAsURL {
                     AsyncImage(url: imageURL) { image in
                         image
                             .resizable()
@@ -125,7 +132,7 @@ struct SoundPrintView: View {
             }
             
             // Name
-            Text(profile?.display_name ?? "Your SoundPrint")
+            Text(profile?.displayName ?? "Your SoundPrint")
                 .font(.system(size: 32, weight: .bold))
                 .foregroundColor(.white)
             
@@ -204,24 +211,51 @@ struct SoundPrintView: View {
     // MARK: - Overview Tab
     @ViewBuilder
     private var tabContent: some View {
-        switch selectedTab {
-        case 0:
-            overviewTab
-        case 1:
-            artistsTab
-        case 2:
-            tracksTab
-        case 3:
-            genresTab
-        case 4:
+        Group {
+            switch selectedTab {
+            case 0:
+                overviewTab
+            case 1:
+                artistsTab
+            case 2:
+                tracksTab
+            case 3:
+                genresTab
+            case 4:
+                statsTab
+            case 5:
+                timeAnalysisTab
+            case 6:
+                discoveryTab
+            case 7:
+                socialSharingTab
+            case 8:
+                moodContextTab
+            case 9:
+                advancedAnalyticsTab
+            default:
+                overviewTab
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var statsTab: some View {
+        Group {
             if let stats = listeningStats, let features = audioFeatures {
                 ListeningStatsView(stats: stats, audioFeatures: features)
             } else {
                 loadingPlaceholder
             }
-        case 5:
-            TimeAnalysisView(yearInMusic: yearInMusic, monthlyEvolution: monthlyEvolution)
-        case 6:
+        }
+    }
+    
+    private var timeAnalysisTab: some View {
+        TimeAnalysisView(yearInMusic: yearInMusic, monthlyEvolution: monthlyEvolution)
+    }
+    
+    private var discoveryTab: some View {
+        Group {
             DiscoveryView(
                 discoverWeekly: discoverWeekly,
                 releaseRadar: releaseRadar,
@@ -232,28 +266,33 @@ struct SoundPrintView: View {
                 onOpenInSpotify: handleOpenInSpotify,
                 onOpenPlaylist: handleOpenInSpotify
             )
-        case 7:
-            SocialSharingView(
-                profile: profile,
-                topArtists: topArtists,
-                topTracks: topTracks,
-                personality: personality,
-                compatibility: tasteCompatibility.isEmpty ? nil : tasteCompatibility
-            )
-        case 8:
-            MoodContextView(
-                moodPlaylists: moodPlaylists,
-                timePatterns: timePatterns,
-                seasonalTrends: seasonalTrends
-            )
-        case 9:
-            if let diversity = diversity, let features = audioFeatures {
-                AdvancedAnalyticsView(diversity: diversity, audioFeatures: features)
-            } else {
-                loadingPlaceholder
-            }
-        default:
-            overviewTab
+        }
+    }
+    
+    private var socialSharingTab: some View {
+        SocialSharingView(
+            profile: profile,
+            topArtists: topArtists,
+            topTracks: topTracks,
+            personality: personality,
+            compatibility: tasteCompatibility.isEmpty ? nil : tasteCompatibility
+        )
+    }
+    
+    private var moodContextTab: some View {
+        MoodContextView(
+            moodPlaylists: moodPlaylists,
+            timePatterns: timePatterns,
+            seasonalTrends: seasonalTrends
+        )
+    }
+    
+    @ViewBuilder
+    private var advancedAnalyticsTab: some View {
+        if let diversity = diversity, let features = audioFeatures {
+            AdvancedAnalyticsView(diversity: diversity, audioFeatures: features)
+        } else {
+            loadingPlaceholder
         }
     }
     
@@ -397,17 +436,28 @@ struct SoundPrintView: View {
         VStack(spacing: 24) {
             Image(systemName: "music.note")
                 .font(.system(size: 80))
-                .foregroundColor(Color(red: 0.12, green: 0.72, blue: 0.33))
+                .foregroundColor(.white.opacity(0.8))
             
-            Text("Connect Your Spotify")
+            Text("Connect Your Music Platform")
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(.white)
             
-            Text("Connect to view your personalized SoundPrint")
+            Text("Connect your music platform to view your personalized SoundPrint")
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
+        }
+    }
+    
+    // MARK: - Check Music Platform Connection
+    private func checkMusicPlatformConnection() async {
+        do {
+            let connection = try await connectionService.getConnection()
+            hasMusicPlatformConnection = connection != nil
+        } catch {
+            print("Failed to check music platform connection: \(error)")
+            hasMusicPlatformConnection = false
         }
     }
     
@@ -426,7 +476,7 @@ struct SoundPrintView: View {
     
     // MARK: - Error View
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 60))
                 .foregroundColor(.red)
@@ -440,6 +490,27 @@ struct SoundPrintView: View {
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
+            
+            // Add button to navigate to Profile if error mentions Profile
+            if message.contains("Profile") || message.contains("Settings") {
+                Button {
+                    // Navigate to Profile tab
+                    if let url = URL(string: "rockout://profile") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("Go to Profile")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(red: 0.12, green: 0.72, blue: 0.33))
+                        )
+                }
+                .padding(.top, 8)
+            }
         }
     }
     
@@ -467,47 +538,147 @@ struct SoundPrintView: View {
 
     // MARK: - Load Data
     func loadData() async {
-        await MainActor.run {
-            isLoading = true
-            errorMessage = nil
-        }
-        
-        guard authService.isAuthorized() else {
+        // Only load data if user has a music platform connection
+        guard hasMusicPlatformConnection else {
             await MainActor.run {
                 isLoading = false
             }
             return
         }
+        
+        // Check which platform is connected
+        let connection: MusicPlatformConnectionService.MusicPlatformConnection?
+        do {
+            connection = try await connectionService.getConnection()
+            
+            guard let conn = connection else {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = "No music platform connection found. Please connect a platform in Profile."
+                }
+                return
+            }
+            
+            await MainActor.run {
+                if conn.platform == "spotify" {
+                    currentPlatform = .spotify
+                } else if conn.platform == "apple_music" {
+                    currentPlatform = .appleMusic
+                }
+            }
+            
+            // Check platform-specific authorization and try to refresh if needed
+            if conn.platform == "spotify" {
+                // Check if authorized, and if not, try to refresh the token
+                if !authService.isAuthorized() {
+                    // First, reload connection from database
+                    await authService.loadConnection()
+                    
+                    // If still not authorized, try to refresh the access token
+                    if !authService.isAuthorized() {
+                        do {
+                            // This will refresh the token if we have a refresh token
+                            _ = try await authService.refreshAccessTokenIfNeeded()
+                            
+                            // Check authorization again after refresh
+                            guard authService.isAuthorized() else {
+                                await MainActor.run {
+                                    isLoading = false
+                                    errorMessage = "Your Spotify session has expired. The connection is permanent, but you may need to re-authorize. Please check your connection in Profile."
+                                }
+                                return
+                            }
+                        } catch {
+                            await MainActor.run {
+                                isLoading = false
+                                errorMessage = "Failed to refresh Spotify connection: \(error.localizedDescription). Please check your connection in Profile."
+                            }
+                            return
+                        }
+                    }
+                }
+            } else if conn.platform == "apple_music" {
+                // For Apple Music, check MusicKit authorization status first
+                let musicKitStatus = await MusicAuthorization.request()
+                if musicKitStatus != .authorized {
+                    await MainActor.run {
+                        isLoading = false
+                        errorMessage = "Apple Music access is not authorized. Please grant access when prompted, or check Settings > Privacy & Security > Media & Apple Music on your device."
+                    }
+                    return
+                }
+                
+                // Reload connection from database and check authorization
+                await AppleMusicAuthService.shared.loadConnection()
+                guard await AppleMusicAuthService.shared.isAuthorized() else {
+                    await MainActor.run {
+                        isLoading = false
+                        errorMessage = "Your Apple Music connection needs to be refreshed. Please check your connection in Profile."
+                    }
+                    return
+                }
+            }
+        } catch {
+            await MainActor.run {
+                isLoading = false
+                errorMessage = "Failed to check music platform connection: \(error.localizedDescription)"
+            }
+            return
+        }
+        
+        await MainActor.run {
+            isLoading = true
+            errorMessage = nil
+        }
 
         do {
-            // Load basic data
-            let p = try await api.getUserProfile()
-            let artistsResponse = try await api.getTopArtists(limit: 20)
-            let tracksResponse = try await api.getTopTracks(limit: 20)
-            let artists = artistsResponse.items
-            let tracks = tracksResponse.items
-            let genres = computeGenres(from: artists)
-            let pers = FanPersonalityEngine.compute(artists: artists, tracks: tracks)
+            let unifiedProfile: UnifiedUserProfile
+            let unifiedArtists: [UnifiedArtist]
+            let unifiedTracks: [UnifiedTrack]
+            
+            // Load data based on platform
+            if currentPlatform == .spotify {
+                // Spotify path
+                let p = try await spotifyAPI.getUserProfile()
+                let artistsResponse = try await spotifyAPI.getTopArtists(limit: 20)
+                let tracksResponse = try await spotifyAPI.getTopTracks(limit: 20)
+                
+                unifiedProfile = p.toUnified()
+                unifiedArtists = artistsResponse.items.map { $0.toUnified() }
+                unifiedTracks = tracksResponse.items.map { $0.toUnified() }
+            } else {
+                // Apple Music path
+                let p = try await appleMusicAPI.getCurrentUserProfile()
+                let artistsResponse = try await appleMusicAPI.getTopArtists(limit: 20)
+                let tracksResponse = try await appleMusicAPI.getTopTracks(limit: 20)
+                
+                unifiedProfile = p.toUnified()
+                unifiedArtists = artistsResponse.items.map { $0.toUnified(platform: .appleMusic) }
+                unifiedTracks = tracksResponse.items.map { $0.toUnified(platform: .appleMusic) }
+            }
+            
+            let genres = computeGenres(from: unifiedArtists)
+            let pers = FanPersonalityEngine.compute(artists: unifiedArtists, tracks: unifiedTracks)
             
             // Load extended features (with error handling - don't fail if these don't work)
             async let statsTask = loadListeningStats()
-            async let featuresTask = loadAudioFeatures(tracks: tracks)
+            async let featuresTask = loadAudioFeatures(tracks: unifiedTracks)
             async let timeTask = loadTimeAnalysis()
             async let discoveryTask = loadDiscovery()
-            async let moodTask = loadMoodData(tracks: tracks)
-            async let analyticsTask = loadAnalytics(artists: artists, tracks: tracks)
+            async let moodTask = loadMoodData(tracks: unifiedTracks)
+            async let analyticsTask = loadAnalytics(artists: unifiedArtists, tracks: unifiedTracks)
 
             await MainActor.run {
-                self.profile = p
-                self.topArtists = artists
-                self.topTracks = tracks
+                self.profile = unifiedProfile
+                self.topArtists = unifiedArtists
+                self.topTracks = unifiedTracks
                 self.genreStats = genres
                 self.personality = pers
             }
             
             // Load RockList data for all artists (non-blocking)
             Task {
-                await ensureRockListDataForArtists(artists)
+                await ensureRockListDataForArtists(unifiedArtists)
             }
             
             // Load extended data (non-blocking)
@@ -531,10 +702,11 @@ struct SoundPrintView: View {
     
     // MARK: - RockList Data Loading
     
-    private func ensureRockListDataForArtists(_ artists: [SpotifyArtist]) async {
-        // Only proceed if Spotify is authorized
-        guard authService.isAuthorized() else {
-            print("ℹ️ SoundPrint: Spotify not authorized, skipping RockList data ingestion")
+    private func ensureRockListDataForArtists(_ artists: [UnifiedArtist]) async {
+        // RockList data ingestion works for both platforms via cross-platform matching
+        // Only proceed if we have a music platform connection
+        guard hasMusicPlatformConnection else {
+            print("ℹ️ SoundPrint: No music platform connection, skipping RockList data ingestion")
             return
         }
         
@@ -616,7 +788,7 @@ struct SoundPrintView: View {
         }
     }
     
-    private func loadAudioFeatures(tracks: [SpotifyTrack]) async throws {
+    private func loadAudioFeatures(tracks: [UnifiedTrack]) async throws {
         // Use placeholder for now
         let features = AverageAudioFeatures(
             danceability: 0.6, energy: 0.7, valence: 0.65, tempo: 125,
@@ -644,38 +816,72 @@ struct SoundPrintView: View {
     }
     
     private func loadDiscovery() async throws {
-        // Load Spotify's native playlists
-        do {
-            // Find Discover Weekly
-            if let discoverWeeklyPlaylist = try await api.findDiscoverWeekly() {
-                let tracks = try await api.getAllPlaylistTracks(playlistId: discoverWeeklyPlaylist.id)
-                await MainActor.run {
-                    self.discoverWeekly = DiscoverWeekly(tracks: tracks, updatedAt: Date(), playlistId: discoverWeeklyPlaylist.id)
+        // Load platform-specific playlists
+        if currentPlatform == .spotify {
+            // Load Spotify's native playlists
+            do {
+                // Find Discover Weekly
+                if let discoverWeeklyPlaylist = try await spotifyAPI.findDiscoverWeekly() {
+                    let tracks = try await spotifyAPI.getAllPlaylistTracks(playlistId: discoverWeeklyPlaylist.id)
+                    let unifiedTracks = tracks.map { $0.toUnified() }
+                    await MainActor.run {
+                        self.discoverWeekly = DiscoverWeekly(tracks: unifiedTracks, updatedAt: Date(), playlistId: discoverWeeklyPlaylist.id)
+                    }
+                } else {
+                    await MainActor.run {
+                        self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
+                    }
                 }
-            } else {
+                
+                // Find Release Radar
+                if let releaseRadarPlaylist = try await spotifyAPI.findReleaseRadar() {
+                    let tracks = try await spotifyAPI.getAllPlaylistTracks(playlistId: releaseRadarPlaylist.id)
+                    let unifiedTracks = tracks.map { $0.toUnified() }
+                    await MainActor.run {
+                        self.releaseRadar = ReleaseRadar(tracks: unifiedTracks, updatedAt: Date(), playlistId: releaseRadarPlaylist.id)
+                    }
+                } else {
+                    await MainActor.run {
+                        self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
+                    }
+                }
+            } catch {
+                // If fetching fails, set empty playlists
                 await MainActor.run {
                     self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
+                    self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
                 }
+                print("⚠️ Failed to load Spotify playlists: \(error.localizedDescription)")
+            }
+        } else {
+            // Load Apple Music playlists
+            guard let userToken = await AppleMusicAuthService.shared.userToken else {
+                await MainActor.run {
+                    self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
+                    self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
+                }
+                return
             }
             
-            // Find Release Radar
-            if let releaseRadarPlaylist = try await api.findReleaseRadar() {
-                let tracks = try await api.getAllPlaylistTracks(playlistId: releaseRadarPlaylist.id)
+            do {
+                // Create/update My Weekly Discovery
+                let discoveryPlaylistId = try await appleMusicPlaylistService.createOrUpdateWeeklyDiscovery(userToken: userToken)
                 await MainActor.run {
-                    self.releaseRadar = ReleaseRadar(tracks: tracks, updatedAt: Date(), playlistId: releaseRadarPlaylist.id)
+                    self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: discoveryPlaylistId)
                 }
-            } else {
+                
+                // Create/update New Release Radar
+                let releaseRadarPlaylistId = try await appleMusicPlaylistService.createOrUpdateReleaseRadar(userToken: userToken)
                 await MainActor.run {
+                    self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: releaseRadarPlaylistId)
+                }
+            } catch {
+                print("⚠️ Failed to create Apple Music playlists: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
                     self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
                 }
             }
-        } catch {
-            // If fetching fails, set empty playlists
-            await MainActor.run {
-                self.discoverWeekly = DiscoverWeekly(tracks: [], updatedAt: Date(), playlistId: nil)
-                self.releaseRadar = ReleaseRadar(tracks: [], updatedAt: Date(), playlistId: nil)
-            }
-            print("⚠️ Failed to load Spotify playlists: \(error.localizedDescription)")
         }
         
         await MainActor.run {
@@ -683,14 +889,72 @@ struct SoundPrintView: View {
         }
         
         // Build custom curated playlists
-        let discoveryEngine = DiscoveryEngine(api: api)
+        // Note: DiscoveryEngine uses SpotifyAPI - need to make it platform-agnostic or skip for Apple Music
+        guard currentPlatform == .spotify else {
+            // Skip DiscoveryEngine for Apple Music for now
+            await MainActor.run {
+                self.realYouMix = nil
+                self.soundprintForecast = nil
+                self.discoveryBundle = nil
+            }
+            return
+        }
+        
+        let discoveryEngine = DiscoveryEngine(api: spotifyAPI)
+        
+        // Convert unified models to Spotify models for DiscoveryEngine
+        // (DiscoveryEngine uses Spotify's recommendation API which is Spotify-specific)
+        let spotifyArtists = topArtists.filter { $0.platform == .spotify }.compactMap { unifiedArtist -> SpotifyArtist? in
+            // Find original SpotifyArtist from topArtists if available
+            // For now, create a minimal SpotifyArtist from UnifiedArtist
+            SpotifyArtist(
+                id: unifiedArtist.id,
+                name: unifiedArtist.name,
+                images: unifiedArtist.imageURL.map { urlString in
+                    [SpotifyImage(url: urlString, width: nil, height: nil)]
+                },
+                genres: unifiedArtist.genres.isEmpty ? nil : unifiedArtist.genres,
+                popularity: unifiedArtist.popularity
+            )
+        }
+        
+        let spotifyTracks = topTracks.filter { $0.platform == .spotify }.compactMap { unifiedTrack -> SpotifyTrack? in
+            // Create minimal SpotifyTrack from UnifiedTrack
+            SpotifyTrack(
+                id: unifiedTrack.id,
+                name: unifiedTrack.name,
+                album: unifiedTrack.album.map { album in
+                    SpotifyAlbum(
+                        id: album.id,
+                        name: album.name,
+                        images: album.imageURL.map { urlString in
+                            [SpotifyImage(url: urlString, width: nil, height: nil)]
+                        }
+                    )
+                },
+                artists: unifiedTrack.artists.map { artist in
+                    SpotifyArtist(
+                        id: artist.id,
+                        name: artist.name,
+                        images: artist.imageURL.map { urlString in
+                            [SpotifyImage(url: urlString, width: nil, height: nil)]
+                        },
+                        genres: artist.genres.isEmpty ? nil : artist.genres,
+                        popularity: artist.popularity
+                    )
+                },
+                popularity: nil,
+                duration_ms: unifiedTrack.durationMs,
+                preview_url: unifiedTrack.previewURL
+            )
+        }
         
         // Build Real You Mix
         do {
             let realYou = try await discoveryEngine.buildRealYouMix(
                 genres: genreStats,
-                topArtists: topArtists,
-                topTracks: topTracks
+                topArtists: spotifyArtists,
+                topTracks: spotifyTracks
             )
             await MainActor.run {
                 self.realYouMix = realYou
@@ -707,8 +971,8 @@ struct SoundPrintView: View {
         do {
             let forecast = try await discoveryEngine.buildForecast(
                 genres: genreStats,
-                topArtists: topArtists,
-                topTracks: topTracks
+                topArtists: spotifyArtists,
+                topTracks: spotifyTracks
             )
             await MainActor.run {
                 self.soundprintForecast = forecast
@@ -746,8 +1010,8 @@ struct SoundPrintView: View {
         do {
             let bundle = try await discoveryEngine.buildDiscoveryBundle(
                 genres: genreStats,
-                topArtists: topArtists,
-                topTracks: topTracks
+                topArtists: spotifyArtists,
+                topTracks: spotifyTracks
             )
             await MainActor.run {
                 self.discoveryBundle = bundle
@@ -761,7 +1025,7 @@ struct SoundPrintView: View {
         }
     }
     
-    private func loadMoodData(tracks: [SpotifyTrack]) async throws {
+    private func loadMoodData(tracks: [UnifiedTrack]) async throws {
         // Generate mood playlists based on audio features
         // This is a simplified version
         await MainActor.run {
@@ -771,7 +1035,7 @@ struct SoundPrintView: View {
         }
     }
     
-    private func loadAnalytics(artists: [SpotifyArtist], tracks: [SpotifyTrack]) async throws {
+    private func loadAnalytics(artists: [UnifiedArtist], tracks: [UnifiedTrack]) async throws {
         let diversity = MusicTasteDiversity(
             score: calculateDiversityScore(artists: artists, tracks: tracks),
             genreCount: genreStats.count,
@@ -784,7 +1048,7 @@ struct SoundPrintView: View {
     }
     
     // MARK: - Helper Functions
-    private func generateMoodPlaylists(from tracks: [SpotifyTrack]) -> [MoodPlaylist] {
+    private func generateMoodPlaylists(from tracks: [UnifiedTrack]) -> [MoodPlaylist] {
         // Simplified mood playlist generation
         return [
             MoodPlaylist(mood: "Chill", tracks: Array(tracks.prefix(10)), description: "Relaxing vibes"),
@@ -804,7 +1068,7 @@ struct SoundPrintView: View {
         }
     }
     
-    private func calculateDiversityScore(artists: [SpotifyArtist], tracks: [SpotifyTrack]) -> Double {
+    private func calculateDiversityScore(artists: [UnifiedArtist], tracks: [UnifiedTrack]) -> Double {
         // Simple diversity calculation
         let uniqueGenres = Set(genreStats.map { $0.genre })
         let genreScore = min(Double(uniqueGenres.count) / 20.0 * 50, 50)
@@ -812,40 +1076,69 @@ struct SoundPrintView: View {
         return genreScore + artistScore
     }
     
-    private func handleOpenInSpotify(playlistName: String, tracks: [SpotifyTrack]) {
+    private func handleOpenInSpotify(playlistName: String, tracks: [UnifiedTrack]) {
         Task {
             await MainActor.run {
                 isAddingToSpotify = true
             }
             
             do {
-                // Create the playlist first
-                let trackUris = tracks.map { track in
-                    "spotify:track:\(track.id)"
-                }
-                
-                let playlistId = try await playlistService.createPlaylistAndAddTracks(
-                    name: playlistName,
-                    description: "Curated by Rockout SoundPrint",
-                    trackUris: trackUris,
-                    isPublic: false
-                )
-                
-                // Open in Spotify app
-                await MainActor.run {
-                    isAddingToSpotify = false
-                    if let spotifyURL = URL(string: "spotify:playlist:\(playlistId)") {
-                        if UIApplication.shared.canOpenURL(spotifyURL) {
-                            UIApplication.shared.open(spotifyURL)
-                        } else if let webURL = URL(string: "https://open.spotify.com/playlist/\(playlistId)") {
-                            UIApplication.shared.open(webURL)
+                if currentPlatform == .spotify {
+                    // Create the playlist first
+                    let trackUris = tracks.filter { $0.platform == .spotify }.map { track in
+                        "spotify:track:\(track.id)"
+                    }
+                    
+                    let playlistId = try await spotifyPlaylistService.createPlaylistAndAddTracks(
+                        name: playlistName,
+                        description: "Curated by Rockout SoundPrint",
+                        trackUris: trackUris,
+                        isPublic: false
+                    )
+                    
+                    // Open in Spotify app
+                    await MainActor.run {
+                        isAddingToSpotify = false
+                        if let spotifyURL = URL(string: "spotify:playlist:\(playlistId)") {
+                            if UIApplication.shared.canOpenURL(spotifyURL) {
+                                UIApplication.shared.open(spotifyURL)
+                            } else if let webURL = URL(string: "https://open.spotify.com/playlist/\(playlistId)") {
+                                UIApplication.shared.open(webURL)
+                            }
+                        }
+                    }
+                } else {
+                    // Apple Music path
+                    guard let userToken = await AppleMusicAuthService.shared.userToken else {
+                        await MainActor.run {
+                            isAddingToSpotify = false
+                            errorMessage = "Apple Music not authorized"
+                        }
+                        return
+                    }
+                    
+                    let trackIds = tracks.filter { $0.platform == .appleMusic }.map { $0.id }
+                    let playlistId = try await appleMusicPlaylistService.createPlaylistAndAddTracks(
+                        name: playlistName,
+                        description: "Curated by Rockout SoundPrint",
+                        trackIds: trackIds,
+                        isPublic: false
+                    )
+                    
+                    // Open in Apple Music app
+                    await MainActor.run {
+                        isAddingToSpotify = false
+                        if let appleMusicURL = URL(string: "music://playlists/\(playlistId)") {
+                            if UIApplication.shared.canOpenURL(appleMusicURL) {
+                                UIApplication.shared.open(appleMusicURL)
+                            }
                         }
                     }
                 }
             } catch {
                 await MainActor.run {
                     isAddingToSpotify = false
-                    errorMessage = "Failed to open in Spotify: \(error.localizedDescription)"
+                    errorMessage = "Failed to create playlist: \(error.localizedDescription)"
                 }
             }
         }
@@ -854,11 +1147,20 @@ struct SoundPrintView: View {
     private func handleOpenInSpotify(playlistId: String) {
         Task {
             await MainActor.run {
-                if let spotifyURL = URL(string: "spotify:playlist:\(playlistId)") {
-                    if UIApplication.shared.canOpenURL(spotifyURL) {
-                        UIApplication.shared.open(spotifyURL)
-                    } else if let webURL = URL(string: "https://open.spotify.com/playlist/\(playlistId)") {
-                        UIApplication.shared.open(webURL)
+                if currentPlatform == .spotify {
+                    if let spotifyURL = URL(string: "spotify:playlist:\(playlistId)") {
+                        if UIApplication.shared.canOpenURL(spotifyURL) {
+                            UIApplication.shared.open(spotifyURL)
+                        } else if let webURL = URL(string: "https://open.spotify.com/playlist/\(playlistId)") {
+                            UIApplication.shared.open(webURL)
+                        }
+                    }
+                } else {
+                    // Apple Music
+                    if let appleMusicURL = URL(string: "music://playlists/\(playlistId)") {
+                        if UIApplication.shared.canOpenURL(appleMusicURL) {
+                            UIApplication.shared.open(appleMusicURL)
+                        }
                     }
                 }
             }
@@ -876,10 +1178,10 @@ struct SoundPrintView: View {
         .padding(40)
     }
 
-    func computeGenres(from artists: [SpotifyArtist]) -> [GenreStat] {
+    func computeGenres(from artists: [UnifiedArtist]) -> [GenreStat] {
         var counts: [String: Int] = [:]
         for artist in artists {
-            for g in artist.genres ?? [] {
+            for g in artist.genres {
                 let key = g.lowercased()
                 counts[key, default: 0] += 1
             }
@@ -950,7 +1252,7 @@ struct StatCard: View {
     }
 
 struct ArtistRow: View {
-    let artist: SpotifyArtist
+    let artist: UnifiedArtist
     let rank: Int
     
     var body: some View {
@@ -962,7 +1264,7 @@ struct ArtistRow: View {
                 .frame(width: 30)
             
             // Artist Image
-            AsyncImage(url: artist.imageURL) { image in
+            AsyncImage(url: artist.imageURL.flatMap { URL(string: $0) }) { image in
                 image
                     .resizable()
                     .scaledToFill()
@@ -979,8 +1281,8 @@ struct ArtistRow: View {
                     .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                 
-                if let genres = artist.genres, !genres.isEmpty {
-                    Text(genres.prefix(2).joined(separator: ", "))
+                if !artist.genres.isEmpty {
+                    Text(artist.genres.prefix(2).joined(separator: ", "))
                         .font(.system(size: 14))
                         .foregroundColor(.white.opacity(0.6))
                         .lineLimit(1)
@@ -993,22 +1295,15 @@ struct ArtistRow: View {
 }
 
 struct SoundPrintTrackRow: View {
-    let track: SpotifyTrack
+    let track: UnifiedTrack
     let rank: Int
     
     private var albumImageURL: URL? {
         guard let album = track.album,
-              let images = album.images,
-              let firstImage = images.first else {
+              let imageURL = album.imageURL else {
             return nil
         }
-        // Handle both String and URL types
-        if let url = firstImage.url as? URL {
-            return url
-        } else if let urlString = firstImage.url as? String {
-            return URL(string: urlString)
-        }
-        return nil
+        return URL(string: imageURL)
     }
     
     private var artistNames: String {
@@ -1061,7 +1356,7 @@ struct SoundPrintTrackRow: View {
     }
 
 struct ArtistCard: View {
-    let artist: SpotifyArtist
+    let artist: UnifiedArtist
     let rank: Int
     
     var body: some View {
@@ -1087,7 +1382,7 @@ struct ArtistCard: View {
             }
             
             // Artist Image
-            AsyncImage(url: artist.imageURL) { image in
+            AsyncImage(url: artist.imageURL.flatMap { URL(string: $0) }) { image in
                 image
                     .resizable()
                     .scaledToFill()
@@ -1104,8 +1399,8 @@ struct ArtistCard: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.white)
                 
-                if let genres = artist.genres, !genres.isEmpty {
-                    Text(genres.prefix(3).joined(separator: " • "))
+                if !artist.genres.isEmpty {
+                    Text(artist.genres.prefix(3).joined(separator: " • "))
                         .font(.system(size: 14))
                         .foregroundColor(.white.opacity(0.6))
                         .lineLimit(2)
@@ -1123,22 +1418,15 @@ struct ArtistCard: View {
 }
 
 struct TrackCard: View {
-    let track: SpotifyTrack
+    let track: UnifiedTrack
     let rank: Int
     
     private var albumImageURL: URL? {
         guard let album = track.album,
-              let images = album.images,
-              let firstImage = images.first else {
+              let imageURL = album.imageURL else {
             return nil
         }
-        // Handle both String and URL types
-        if let url = firstImage.url as? URL {
-            return url
-        } else if let urlString = firstImage.url as? String {
-            return URL(string: urlString)
-        }
-        return nil
+        return URL(string: imageURL)
     }
     
     private var artistNames: String {

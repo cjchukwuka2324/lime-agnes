@@ -80,11 +80,12 @@ struct SignUpForm: View {
                         try await authVM.signup(email: email, password: password)
                         try await authVM.login(email: email, password: password)
                         
-                        // Create user profile with first name, last name, and username
+                        // Create user profile with first name, last name, username, and email
                         try await UserProfileService.shared.createOrUpdateProfile(
                             firstName: trimmedFirstName,
                             lastName: trimmedLastName,
-                            username: trimmedUsername
+                            username: trimmedUsername,
+                            email: email
                         )
                     } catch {
                         // Provide user-friendly error messages

@@ -87,7 +87,7 @@ class UserProfileService: ObservableObject {
         return response.isEmpty
     }
     
-    func createOrUpdateProfile(firstName: String, lastName: String, username: String? = nil, displayName: String? = nil) async throws {
+    func createOrUpdateProfile(firstName: String, lastName: String, username: String? = nil, displayName: String? = nil, email: String? = nil) async throws {
         guard let userId = supabase.auth.currentUser?.id else {
             throw NSError(domain: "UserProfileService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
@@ -103,6 +103,9 @@ class UserProfileService: ObservableObject {
         
         let displayNameValue = displayName ?? "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
         
+        // Get email from auth user if not provided
+        let emailValue = email ?? supabase.auth.currentUser?.email
+        
         var profileData: [String: String] = [
             "id": userId.uuidString,
             "first_name": firstName,
@@ -113,6 +116,10 @@ class UserProfileService: ObservableObject {
         
         if let username = username {
             profileData["username"] = username.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        
+        if let emailValue = emailValue {
+            profileData["email"] = emailValue
         }
         
         try await supabase
@@ -198,6 +205,23 @@ class UserProfileService: ObservableObject {
             .update([columnName: cleanHandle])
             .eq("id", value: userId)
             .execute()
+    }
+    
+    // MARK: - Delete Account
+    
+    func deleteAccount() async throws {
+        guard supabase.auth.currentUser != nil else {
+            throw NSError(domain: "UserProfileService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        // Call the database function to delete all user data
+        try await supabase
+            .rpc("delete_user_account")
+            .execute()
+        
+        // After deleting data, sign out the user
+        // Note: The auth user will still exist in Supabase auth until manually deleted via admin
+        try await supabase.auth.signOut()
     }
 }
 

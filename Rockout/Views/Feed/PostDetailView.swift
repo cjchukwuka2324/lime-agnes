@@ -15,9 +15,8 @@ struct PostDetailView: View {
     
     var body: some View {
         ZStack {
-            // Animated gradient background matching SoundPrint
-            AnimatedGradientBackground()
-                .ignoresSafeArea()
+            // Solid black background
+            Color.black.ignoresSafeArea()
             
             if viewModel.isLoading {
                 VStack(spacing: 16) {

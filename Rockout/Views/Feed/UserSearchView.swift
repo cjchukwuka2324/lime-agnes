@@ -3,6 +3,7 @@ import Supabase
 import Combine
 
 struct UserSearchView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var searchResults: [UserProfileCard] = []
     @State private var isLoading = false
@@ -163,6 +164,14 @@ struct UserSearchView: View {
             .navigationTitle("Search Users")
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
         }
     }
     

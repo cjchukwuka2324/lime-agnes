@@ -56,11 +56,11 @@ enum FanPersonality: String, CaseIterable, Identifiable {
 
 struct FanPersonalityEngine {
 
-    static func compute(artists: [SpotifyArtist], tracks: [SpotifyTrack]) -> FanPersonality {
+    static func compute(artists: [UnifiedArtist], tracks: [UnifiedTrack]) -> FanPersonality {
         // Unique genre count (breadth)
         let uniqueGenres = Set(
             artists
-                .flatMap { $0.genres ?? [] }   // 👈 handle optional
+                .flatMap { $0.genres }
                 .map { $0.lowercased() }
         ).count
 
@@ -103,10 +103,10 @@ struct FanPersonalityEngine {
         return .balancedListener
     }
 
-    private static func genreFrequency(from artists: [SpotifyArtist]) -> [String: Int] {
+    private static func genreFrequency(from artists: [UnifiedArtist]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for artist in artists {
-            for g in (artist.genres ?? []) {    // 👈 handle optional
+            for g in artist.genres {
                 let key = g.lowercased()
                 counts[key, default: 0] += 1
             }
