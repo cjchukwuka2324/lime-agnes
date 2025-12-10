@@ -25,7 +25,8 @@ protocol FeedService {
         leaderboardEntry: LeaderboardEntrySummary?,
         spotifyLink: SpotifyLink?,
         poll: Poll?,
-        backgroundMusic: BackgroundMusic?
+        backgroundMusic: BackgroundMusic?,
+        mentionedUserIds: [String]
     ) async throws -> Post
     
     func reply(
@@ -36,7 +37,8 @@ protocol FeedService {
         audioURL: URL?,
         spotifyLink: SpotifyLink?,
         poll: Poll?,
-        backgroundMusic: BackgroundMusic?
+        backgroundMusic: BackgroundMusic?,
+        mentionedUserIds: [String]
     ) async throws -> Post
     
     func deletePost(postId: String) async throws
@@ -49,9 +51,13 @@ protocol FeedService {
     func likePost(_ postId: String) async throws -> Bool
     func unlikePost(_ postId: String) async throws -> Bool
     func toggleLike(postId: String) async throws -> Bool
+    func echoPost(_ postId: String) async throws -> Post
+    func unechoPost(_ echoPostId: String) async throws -> Bool
+    func toggleEcho(postId: String) async throws -> Bool
     func fetchPostsByUser(_ userId: String) async throws -> [Post]
     func fetchRepliesByUser(_ userId: String) async throws -> [Post]
     func fetchLikedPostsByUser(_ userId: String) async throws -> [Post]
+    func fetchEchoedPostsByUser(_ userId: String) async throws -> [Post]
 }
 
 // MARK: - In-Memory Implementation for MVP
@@ -61,6 +67,8 @@ final class InMemoryFeedService: FeedService {
     
     private var posts: [Post] = []
     private var likesByUser: [String: Set<String>] = [:] // userId -> set of postIds
+    private var echoesByUser: [String: Set<String>] = [:] // userId -> set of echoed postIds (original post IDs)
+    private var echoPostsByUser: [String: [String]] = [:] // userId -> array of echo post IDs (the echo posts themselves)
     private let queue = DispatchQueue(label: "FeedServiceQueue", qos: .userInitiated)
     private let profileService = UserProfileService.shared
     
@@ -74,11 +82,17 @@ final class InMemoryFeedService: FeedService {
             seedDemoData()
         }
         
-        // Initialize likesByUser for current user
+        // Initialize likesByUser and echoesByUser for current user
         Task {
             let currentUser = await currentUserSummary()
             if likesByUser[currentUser.id] == nil {
                 likesByUser[currentUser.id] = []
+            }
+            if echoesByUser[currentUser.id] == nil {
+                echoesByUser[currentUser.id] = []
+            }
+            if echoPostsByUser[currentUser.id] == nil {
+                echoPostsByUser[currentUser.id] = []
             }
             
             // Merge loaded posts to FeedStore (never replace, always merge to preserve all posts)
@@ -175,6 +189,8 @@ final class InMemoryFeedService: FeedService {
                         likeCount: persistedPost.likeCount,
                         replyCount: 0, // Would need to calculate
                         isLiked: false, // Will be set correctly when fetching
+                        echoCount: 0, // Would need to calculate
+                        isEchoed: false, // Will be set correctly when fetching
                         parentPostId: persistedPost.parentPostId,
                         parentPost: parentPost,
                         leaderboardEntry: leaderboardEntry,
@@ -354,6 +370,8 @@ final class InMemoryFeedService: FeedService {
                     let totalLikes = self.likesByUser.values.reduce(0) { count, likedPostIds in
                         count + (likedPostIds.contains(post.id) ? 1 : 0)
                     }
+                    let currentUserEchoes = self.echoesByUser[currentUser.id] ?? []
+                    let echoCount = self.posts.filter { $0.resharedPostId == post.id }.count
                     return Post(
                         id: post.id,
                         text: post.text,
@@ -365,6 +383,8 @@ final class InMemoryFeedService: FeedService {
                         likeCount: totalLikes,
                         replyCount: post.replyCount,
                         isLiked: currentUserLikes.contains(post.id),
+                        echoCount: echoCount,
+                        isEchoed: currentUserEchoes.contains(post.id),
                         parentPostId: post.parentPostId,
                         parentPost: post.parentPost,
                         leaderboardEntry: post.leaderboardEntry,
@@ -426,6 +446,8 @@ final class InMemoryFeedService: FeedService {
                 let totalLikes = self.likesByUser.values.reduce(0) { count, likedPostIds in
                     count + (likedPostIds.contains(rootPost.id) ? 1 : 0)
                 }
+                let currentUserEchoes = self.echoesByUser[currentUser.id] ?? []
+                let rootEchoCount = self.posts.filter { $0.resharedPostId == rootPost.id }.count
                 let root = Post(
                     id: rootPost.id,
                     text: rootPost.text,
@@ -437,6 +459,8 @@ final class InMemoryFeedService: FeedService {
                     likeCount: totalLikes,
                     replyCount: rootPost.replyCount,
                     isLiked: currentUserLikes.contains(rootPost.id),
+                    echoCount: rootEchoCount,
+                    isEchoed: currentUserEchoes.contains(rootPost.id),
                     parentPostId: rootPost.parentPostId,
                     parentPost: rootPost.parentPost,
                     leaderboardEntry: rootPost.leaderboardEntry,
@@ -452,6 +476,7 @@ final class InMemoryFeedService: FeedService {
                         let replyLikes = self.likesByUser.values.reduce(0) { count, likedPostIds in
                             count + (likedPostIds.contains(reply.id) ? 1 : 0)
                         }
+                        let replyEchoCount = self.posts.filter { $0.resharedPostId == reply.id }.count
                         return Post(
                             id: reply.id,
                             text: reply.text,
@@ -463,6 +488,8 @@ final class InMemoryFeedService: FeedService {
                             likeCount: replyLikes,
                             replyCount: reply.replyCount,
                             isLiked: currentUserLikes.contains(reply.id),
+                            echoCount: replyEchoCount,
+                            isEchoed: currentUserEchoes.contains(reply.id),
                             parentPostId: reply.parentPostId,
                             parentPost: reply.parentPost,
                             leaderboardEntry: reply.leaderboardEntry,
@@ -487,7 +514,8 @@ final class InMemoryFeedService: FeedService {
         leaderboardEntry: LeaderboardEntrySummary?,
         spotifyLink: SpotifyLink? = nil,
         poll: Poll? = nil,
-        backgroundMusic: BackgroundMusic? = nil
+        backgroundMusic: BackgroundMusic? = nil,
+        mentionedUserIds: [String] = []
     ) async throws -> Post {
         let author = await currentUserSummary()
         return try await withCheckedThrowingContinuation { continuation in
@@ -503,13 +531,16 @@ final class InMemoryFeedService: FeedService {
                     likeCount: 0,
                     replyCount: 0,
                     isLiked: false,
+                    echoCount: 0,
+                    isEchoed: false,
                     parentPostId: nil,
                     parentPost: nil,
                     leaderboardEntry: leaderboardEntry,
                     resharedPostId: nil,
                     spotifyLink: spotifyLink,
                     poll: poll,
-                    backgroundMusic: backgroundMusic
+                    backgroundMusic: backgroundMusic,
+                    mentionedUserIds: mentionedUserIds
                 )
                 self.posts.append(post)
                 self.syncStoreAndPersist()
@@ -518,7 +549,7 @@ final class InMemoryFeedService: FeedService {
         }
     }
     
-    func reply(to parentPost: Post, text: String, imageURLs: [URL], videoURL: URL?, audioURL: URL?, spotifyLink: SpotifyLink? = nil, poll: Poll? = nil, backgroundMusic: BackgroundMusic? = nil) async throws -> Post {
+    func reply(to parentPost: Post, text: String, imageURLs: [URL], videoURL: URL?, audioURL: URL?, spotifyLink: SpotifyLink? = nil, poll: Poll? = nil, backgroundMusic: BackgroundMusic? = nil, mentionedUserIds: [String] = []) async throws -> Post {
         let author = await currentUserSummary()
         return try await withCheckedThrowingContinuation { continuation in
             self.queue.async(execute: DispatchWorkItem {
@@ -532,7 +563,9 @@ final class InMemoryFeedService: FeedService {
                     videoURL: parentPost.videoURL,
                     likeCount: parentPost.likeCount,
                     replyCount: parentPost.replyCount,
-                    isLiked: parentPost.isLiked
+                    isLiked: parentPost.isLiked,
+                    echoCount: parentPost.echoCount,
+                    isEchoed: parentPost.isEchoed
                 )
                 
                 let reply = Post(
@@ -546,19 +579,24 @@ final class InMemoryFeedService: FeedService {
                     likeCount: 0,
                     replyCount: 0,
                     isLiked: false,
+                    echoCount: 0,
+                    isEchoed: false,
                     parentPostId: parentPost.id,
                     parentPost: parentSummary,
                     leaderboardEntry: parentPost.leaderboardEntry,
                     resharedPostId: nil,
                     spotifyLink: spotifyLink,
                     poll: poll,
-                    backgroundMusic: backgroundMusic
+                    backgroundMusic: backgroundMusic,
+                    mentionedUserIds: mentionedUserIds
                 )
                 self.posts.append(reply)
                 
                 // Update parent post reply count
                 if let parentIndex = self.posts.firstIndex(where: { $0.id == parentPost.id }) {
                     var updatedParent = self.posts[parentIndex]
+                    let parentEchoCount = self.posts.filter { $0.resharedPostId == updatedParent.id }.count
+                    let currentUserEchoes = self.echoesByUser[author.id] ?? []
                     updatedParent = Post(
                         id: updatedParent.id,
                         text: updatedParent.text,
@@ -570,6 +608,8 @@ final class InMemoryFeedService: FeedService {
                         likeCount: updatedParent.likeCount,
                         replyCount: updatedParent.replyCount + 1,
                         isLiked: updatedParent.isLiked,
+                        echoCount: parentEchoCount,
+                        isEchoed: currentUserEchoes.contains(updatedParent.id),
                         parentPostId: updatedParent.parentPostId,
                         parentPost: updatedParent.parentPost,
                         leaderboardEntry: updatedParent.leaderboardEntry,
@@ -669,6 +709,8 @@ final class InMemoryFeedService: FeedService {
                         count + (likedPostIds.contains(postId) ? 1 : 0)
                     }
                     
+                    let echoCount = self.posts.filter { $0.resharedPostId == post.id }.count
+                    let currentUserEchoes = self.echoesByUser[currentUser.id] ?? []
                     post = Post(
                         id: post.id,
                         text: post.text,
@@ -680,6 +722,8 @@ final class InMemoryFeedService: FeedService {
                         likeCount: totalLikes,
                         replyCount: post.replyCount,
                         isLiked: true,
+                        echoCount: echoCount,
+                        isEchoed: currentUserEchoes.contains(post.id),
                         parentPostId: post.parentPostId,
                         parentPost: post.parentPost,
                         leaderboardEntry: post.leaderboardEntry,
@@ -722,6 +766,8 @@ final class InMemoryFeedService: FeedService {
                         count + (likedPostIds.contains(postId) ? 1 : 0)
                     }
                     
+                    let echoCount = self.posts.filter { $0.resharedPostId == post.id }.count
+                    let currentUserEchoes = self.echoesByUser[currentUser.id] ?? []
                     post = Post(
                         id: post.id,
                         text: post.text,
@@ -733,6 +779,8 @@ final class InMemoryFeedService: FeedService {
                         likeCount: totalLikes,
                         replyCount: post.replyCount,
                         isLiked: false,
+                        echoCount: echoCount,
+                        isEchoed: currentUserEchoes.contains(post.id),
                         parentPostId: post.parentPostId,
                         parentPost: post.parentPost,
                         leaderboardEntry: post.leaderboardEntry,
@@ -761,6 +809,198 @@ final class InMemoryFeedService: FeedService {
             return try await unlikePost(postId)
         } else {
             return try await likePost(postId)
+        }
+    }
+    
+    // MARK: - Echo Methods
+    
+    func echoPost(_ postId: String) async throws -> Post {
+        let currentUser = await currentUserSummary()
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            self.queue.async(execute: DispatchWorkItem {
+                guard let originalPost = self.posts.first(where: { $0.id == postId }) else {
+                    continuation.resume(throwing: NSError(
+                        domain: "FeedService",
+                        code: 404,
+                        userInfo: [NSLocalizedDescriptionKey: "Post not found"]
+                    ))
+                    return
+                }
+                
+                // Check if user already echoed this post
+                if self.echoesByUser[currentUser.id]?.contains(postId) == true {
+                    // Find existing echo post
+                    if let echoPostId = self.echoPostsByUser[currentUser.id]?.first(where: { echoId in
+                        self.posts.first(where: { $0.id == echoId && $0.resharedPostId == postId }) != nil
+                    }) {
+                        if let echoPost = self.posts.first(where: { $0.id == echoPostId }) {
+                            continuation.resume(returning: echoPost)
+                            return
+                        }
+                    }
+                }
+                
+                // Create echo post
+                let echoPost = Post(
+                    id: UUID().uuidString,
+                    text: "", // Echo posts have no text, just reference the original
+                    createdAt: Date(),
+                    author: currentUser,
+                    imageURLs: [],
+                    videoURL: nil,
+                    audioURL: nil,
+                    likeCount: 0,
+                    replyCount: 0,
+                    isLiked: false,
+                    echoCount: 0,
+                    isEchoed: false,
+                    parentPostId: nil,
+                    parentPost: nil,
+                    leaderboardEntry: nil,
+                    resharedPostId: postId,
+                    spotifyLink: nil,
+                    poll: nil,
+                    backgroundMusic: nil
+                )
+                
+                self.posts.append(echoPost)
+                
+                // Track echo
+                if self.echoesByUser[currentUser.id] == nil {
+                    self.echoesByUser[currentUser.id] = []
+                }
+                self.echoesByUser[currentUser.id]?.insert(postId)
+                
+                if self.echoPostsByUser[currentUser.id] == nil {
+                    self.echoPostsByUser[currentUser.id] = []
+                }
+                self.echoPostsByUser[currentUser.id]?.append(echoPost.id)
+                
+                // Update original post echo count
+                if let originalIndex = self.posts.firstIndex(where: { $0.id == postId }) {
+                    let echoCount = self.posts.filter { $0.resharedPostId == postId }.count
+                    var updatedOriginal = self.posts[originalIndex]
+                    updatedOriginal = Post(
+                        id: updatedOriginal.id,
+                        text: updatedOriginal.text,
+                        createdAt: updatedOriginal.createdAt,
+                        author: updatedOriginal.author,
+                        imageURLs: updatedOriginal.imageURLs,
+                        videoURL: updatedOriginal.videoURL,
+                        audioURL: updatedOriginal.audioURL,
+                        likeCount: updatedOriginal.likeCount,
+                        replyCount: updatedOriginal.replyCount,
+                        isLiked: updatedOriginal.isLiked,
+                        echoCount: echoCount,
+                        isEchoed: true,
+                        parentPostId: updatedOriginal.parentPostId,
+                        parentPost: updatedOriginal.parentPost,
+                        leaderboardEntry: updatedOriginal.leaderboardEntry,
+                        resharedPostId: updatedOriginal.resharedPostId,
+                        spotifyLink: updatedOriginal.spotifyLink,
+                        poll: updatedOriginal.poll,
+                        backgroundMusic: updatedOriginal.backgroundMusic
+                    )
+                    self.posts[originalIndex] = updatedOriginal
+                }
+                
+                self.syncStoreAndPersist()
+                continuation.resume(returning: echoPost)
+            })
+        }
+    }
+    
+    func unechoPost(_ echoPostId: String) async throws -> Bool {
+        let currentUser = await currentUserSummary()
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            self.queue.async(execute: DispatchWorkItem {
+                guard let echoPost = self.posts.first(where: { $0.id == echoPostId }),
+                      let originalPostId = echoPost.resharedPostId,
+                      echoPost.author.id == currentUser.id else {
+                    continuation.resume(throwing: NSError(
+                        domain: "FeedService",
+                        code: 404,
+                        userInfo: [NSLocalizedDescriptionKey: "Echo post not found or not owned by user"]
+                    ))
+                    return
+                }
+                
+                // Remove echo post
+                self.posts.removeAll { $0.id == echoPostId }
+                
+                // Remove from tracking
+                self.echoesByUser[currentUser.id]?.remove(originalPostId)
+                self.echoPostsByUser[currentUser.id]?.removeAll { $0 == echoPostId }
+                
+                // Update original post echo count
+                if let originalIndex = self.posts.firstIndex(where: { $0.id == originalPostId }) {
+                    let echoCount = self.posts.filter { $0.resharedPostId == originalPostId }.count
+                    var updatedOriginal = self.posts[originalIndex]
+                    let isEchoed = self.echoesByUser[currentUser.id]?.contains(originalPostId) == true
+                    updatedOriginal = Post(
+                        id: updatedOriginal.id,
+                        text: updatedOriginal.text,
+                        createdAt: updatedOriginal.createdAt,
+                        author: updatedOriginal.author,
+                        imageURLs: updatedOriginal.imageURLs,
+                        videoURL: updatedOriginal.videoURL,
+                        audioURL: updatedOriginal.audioURL,
+                        likeCount: updatedOriginal.likeCount,
+                        replyCount: updatedOriginal.replyCount,
+                        isLiked: updatedOriginal.isLiked,
+                        echoCount: echoCount,
+                        isEchoed: isEchoed,
+                        parentPostId: updatedOriginal.parentPostId,
+                        parentPost: updatedOriginal.parentPost,
+                        leaderboardEntry: updatedOriginal.leaderboardEntry,
+                        resharedPostId: updatedOriginal.resharedPostId,
+                        spotifyLink: updatedOriginal.spotifyLink,
+                        poll: updatedOriginal.poll,
+                        backgroundMusic: updatedOriginal.backgroundMusic
+                    )
+                    self.posts[originalIndex] = updatedOriginal
+                }
+                
+                self.syncStoreAndPersist()
+                continuation.resume(returning: true)
+            })
+        }
+    }
+    
+    func toggleEcho(postId: String) async throws -> Bool {
+        let currentUser = await currentUserSummary()
+        let currentUserEchoes = await withCheckedContinuation { continuation in
+            self.queue.async {
+                continuation.resume(returning: self.echoesByUser[currentUser.id] ?? [])
+            }
+        }
+        
+        if currentUserEchoes.contains(postId) {
+            // Find and delete echo post
+            if let echoPostId = self.echoPostsByUser[currentUser.id]?.first(where: { echoId in
+                self.posts.first(where: { $0.id == echoId && $0.resharedPostId == postId }) != nil
+            }) {
+                _ = try await unechoPost(echoPostId)
+                return false
+            }
+            return false
+        } else {
+            _ = try await echoPost(postId)
+            return true
+        }
+    }
+    
+    func fetchEchoedPostsByUser(_ userId: String) async throws -> [Post] {
+        return try await withCheckedThrowingContinuation { continuation in
+            self.queue.async(execute: DispatchWorkItem {
+                let echoedPosts = self.posts.filter { post in
+                    post.resharedPostId != nil && post.author.id == userId
+                }
+                .sorted(by: { $0.createdAt > $1.createdAt })
+                continuation.resume(returning: echoedPosts)
+            })
         }
     }
     

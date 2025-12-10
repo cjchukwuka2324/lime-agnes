@@ -338,7 +338,7 @@ struct SoundPrintView: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(.white)
             
-            ForEach(Array(topTracks.prefix(3).enumerated()), id: \.element.id) { index, track in
+            ForEach(Array(topTracks.prefix(3).enumerated()), id: \.offset) { index, track in
                 SoundPrintTrackRow(track: track, rank: index + 1)
             }
         }
@@ -660,14 +660,6 @@ struct SoundPrintView: View {
             let genres = computeGenres(from: unifiedArtists)
             let pers = FanPersonalityEngine.compute(artists: unifiedArtists, tracks: unifiedTracks)
             
-            // Load extended features (with error handling - don't fail if these don't work)
-            async let statsTask = loadListeningStats()
-            async let featuresTask = loadAudioFeatures(tracks: unifiedTracks)
-            async let timeTask = loadTimeAnalysis()
-            async let discoveryTask = loadDiscovery()
-            async let moodTask = loadMoodData(tracks: unifiedTracks)
-            async let analyticsTask = loadAnalytics(artists: unifiedArtists, tracks: unifiedTracks)
-
             await MainActor.run {
                 self.profile = unifiedProfile
                 self.topArtists = unifiedArtists
@@ -681,13 +673,26 @@ struct SoundPrintView: View {
                 await ensureRockListDataForArtists(unifiedArtists)
             }
             
-            // Load extended data (non-blocking)
-            _ = try? await statsTask
-            _ = try? await featuresTask
-            _ = try? await timeTask
-            _ = try? await discoveryTask
-            _ = try? await moodTask
-            _ = try? await analyticsTask
+            // Load extended features (with error handling - don't fail if these don't work)
+            // Run these in parallel but don't block on them
+            Task {
+                _ = try? await loadListeningStats()
+            }
+            Task {
+                _ = try? await loadAudioFeatures(tracks: unifiedTracks)
+            }
+            Task {
+                _ = try? await loadTimeAnalysis()
+            }
+            Task {
+                _ = try? await loadDiscovery()
+            }
+            Task {
+                _ = try? await loadMoodData(tracks: unifiedTracks)
+            }
+            Task {
+                _ = try? await loadAnalytics(artists: unifiedArtists, tracks: unifiedTracks)
+            }
             
             await MainActor.run {
                 self.isLoading = false

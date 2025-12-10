@@ -250,6 +250,121 @@ CREATE TRIGGER trg_new_post_notification
     EXECUTE FUNCTION notify_new_post_from_followed();
 
 -- ============================================================================
+-- TRIGGER 6: Post Echo Notification
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_post_echo_notification ON posts;
+
+CREATE OR REPLACE FUNCTION notify_post_echo()
+RETURNS TRIGGER AS $$
+DECLARE
+    original_author_id UUID;
+    actor_name TEXT;
+BEGIN
+    -- Only process if this is an echo (has reshared_post_id)
+    IF NEW.reshared_post_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the original post author's ID
+    SELECT user_id INTO original_author_id
+    FROM posts
+    WHERE id = NEW.reshared_post_id;
+    
+    -- Don't notify if user echoes their own post
+    IF original_author_id = NEW.user_id THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the echoer's display name
+    SELECT COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email)
+    INTO actor_name
+    FROM profiles p
+    LEFT JOIN auth.users u ON u.id = p.id
+    WHERE p.id = NEW.user_id;
+    
+    -- Create notification for original post author
+    INSERT INTO notifications (user_id, actor_id, type, post_id, message)
+    VALUES (
+        original_author_id,
+        NEW.user_id,
+        'post_echo',
+        NEW.reshared_post_id,
+        actor_name || ' echoed your Bar'
+    );
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_post_echo_notification
+    AFTER INSERT ON posts
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_post_echo();
+
+-- ============================================================================
+-- TRIGGER 7: Post Mention Notification
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_post_mention_notification ON posts;
+
+CREATE OR REPLACE FUNCTION notify_post_mention()
+RETURNS TRIGGER AS $$
+DECLARE
+    mentioned_user_id UUID;
+    actor_name TEXT;
+    post_preview TEXT;
+BEGIN
+    -- Only process if there are mentioned users
+    IF NEW.mentioned_user_ids IS NULL OR array_length(NEW.mentioned_user_ids, 1) IS NULL THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get the mentioner's display name
+    SELECT COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email)
+    INTO actor_name
+    FROM profiles p
+    LEFT JOIN auth.users u ON u.id = p.id
+    WHERE p.id = NEW.user_id;
+    
+    -- Create post preview (first 50 chars)
+    post_preview := SUBSTRING(NEW.text FROM 1 FOR 50);
+    IF LENGTH(NEW.text) > 50 THEN
+        post_preview := post_preview || '...';
+    END IF;
+    
+    -- Create notification for each mentioned user (except the post author)
+    FOREACH mentioned_user_id IN ARRAY NEW.mentioned_user_ids
+    LOOP
+        -- Skip if user mentions themselves
+        IF mentioned_user_id = NEW.user_id THEN
+            CONTINUE;
+        END IF;
+        
+        -- Create notification for mentioned user
+        INSERT INTO notifications (user_id, actor_id, type, post_id, message)
+        VALUES (
+            mentioned_user_id,
+            NEW.user_id,
+            'post_mention',
+            NEW.id,
+            actor_name || ' mentioned you in a Bar'
+        );
+    END LOOP;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_post_mention_notification
+    AFTER INSERT ON posts
+    FOR EACH ROW
+    WHEN (NEW.mentioned_user_ids IS NOT NULL)
+    EXECUTE FUNCTION notify_post_mention();
+
+-- ============================================================================
 -- Utility Functions
 -- ============================================================================
 
@@ -285,4 +400,6 @@ COMMENT ON FUNCTION notify_post_like() IS 'Creates notification when a post is l
 COMMENT ON FUNCTION notify_post_reply() IS 'Creates notification when someone replies to a post';
 COMMENT ON FUNCTION notify_rocklist_rank_improvement() IS 'Creates notification when user rank improves';
 COMMENT ON FUNCTION notify_new_post_from_followed() IS 'Creates notification when followed user posts (if enabled)';
+COMMENT ON FUNCTION notify_post_echo() IS 'Creates notification when someone echoes (reposts) a post';
+COMMENT ON FUNCTION notify_post_mention() IS 'Creates notification when a user is mentioned in a post';
 

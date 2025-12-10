@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     actor_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
-    type TEXT NOT NULL CHECK (type IN ('new_follower', 'post_like', 'post_reply', 'rocklist_rank', 'new_post')),
+    type TEXT NOT NULL CHECK (type IN ('new_follower', 'post_like', 'post_reply', 'rocklist_rank', 'new_post', 'post_echo', 'post_mention')),
     post_id UUID NULL,
     rocklist_id TEXT NULL,
     old_rank INT NULL,
@@ -55,7 +55,7 @@ CREATE POLICY "Users can delete their own notifications"
     USING (auth.uid() = user_id);
 
 COMMENT ON TABLE notifications IS 'Stores all user notifications for the RockOut app';
-COMMENT ON COLUMN notifications.type IS 'Type of notification: new_follower, post_like, post_reply, rocklist_rank, new_post';
+COMMENT ON COLUMN notifications.type IS 'Type of notification: new_follower, post_like, post_reply, rocklist_rank, new_post, post_echo, post_mention';
 COMMENT ON COLUMN notifications.message IS 'Human-readable notification message';
 COMMENT ON COLUMN notifications.read_at IS 'Timestamp when notification was marked as read, NULL if unread';
 

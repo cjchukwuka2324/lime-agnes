@@ -2,6 +2,7 @@ import Foundation
 
 // Import unified models
 // Note: UnifiedArtist, UnifiedTrack, etc. are defined in MusicPlatformModels.swift
+// Since they're in the same module, they should be accessible, but we need to ensure the file is compiled
 
 // MARK: - Listening Stats
 struct ListeningStats: Codable {

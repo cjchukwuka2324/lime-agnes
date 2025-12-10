@@ -1,6 +1,9 @@
 -- Cursor-based paginated feed query for production scalability
 -- Replaces the 1000-post limit with efficient cursor-based pagination
 
+-- Drop existing function first to allow return type changes
+DROP FUNCTION IF EXISTS get_feed_posts_paginated(TEXT, TEXT, INT, TIMESTAMPTZ);
+
 CREATE OR REPLACE FUNCTION get_feed_posts_paginated(
     p_feed_type TEXT,
     p_region TEXT DEFAULT NULL,
@@ -25,6 +28,8 @@ RETURNS TABLE (
     like_count BIGINT,
     is_liked_by_current_user BOOLEAN,
     reply_count BIGINT,
+    echo_count BIGINT,
+    is_echoed_by_current_user BOOLEAN,
     author_display_name TEXT,
     author_handle TEXT,
     author_profile_picture_url TEXT,
@@ -97,6 +102,8 @@ BEGIN
             COALESCE(plc.like_count, 0)::BIGINT as like_count,
             (ul.post_id IS NOT NULL) as is_liked_by_current_user,
             COALESCE(prc.reply_count, 0)::BIGINT as reply_count,
+            COALESCE(ec.echo_count, 0)::BIGINT as echo_count,
+            (echo_post.id IS NOT NULL) as is_echoed_by_current_user,
             COALESCE(prof.display_name, u.email, 'User') as author_display_name,
             COALESCE(
                 CASE 
@@ -145,7 +152,14 @@ BEGIN
             WHERE pr.parent_post_id IS NOT NULL AND pr.deleted_at IS NULL
             GROUP BY pr.parent_post_id
         ) prc ON prc.parent_post_id = p.id
+        LEFT JOIN (
+            SELECT pe.reshared_post_id, COUNT(*)::BIGINT as echo_count
+            FROM posts pe
+            WHERE pe.reshared_post_id IS NOT NULL AND pe.deleted_at IS NULL
+            GROUP BY pe.reshared_post_id
+        ) ec ON ec.reshared_post_id = p.id
         LEFT JOIN post_likes ul ON ul.post_id = p.id AND ul.user_id = v_current_user_id
+        LEFT JOIN posts echo_post ON echo_post.reshared_post_id = p.id AND echo_post.user_id = v_current_user_id AND echo_post.deleted_at IS NULL
         LEFT JOIN auth.users u ON u.id = p.user_id
         LEFT JOIN profiles prof ON prof.id = p.user_id
         WHERE p.deleted_at IS NULL
@@ -179,10 +193,15 @@ BEGIN
         pws.like_count,
         pws.is_liked_by_current_user,
         pws.reply_count,
+        pws.echo_count,
+        pws.is_echoed_by_current_user,
         pws.author_display_name,
         pws.author_handle,
         pws.author_profile_picture_url,
         pws.author_avatar_initials,
+        pws.author_instagram_handle,
+        pws.author_twitter_handle,
+        pws.author_tiktok_handle,
         pws.spotify_link_url,
         pws.spotify_link_type,
         pws.spotify_link_data,

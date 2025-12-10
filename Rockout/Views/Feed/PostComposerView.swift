@@ -37,8 +37,16 @@ struct PostComposerView: View {
     @State private var showPollCreation = false
     @State private var showBackgroundMusicSelector = false
     
+    // Mention autocomplete
+    @State private var showMentionAutocomplete = false
+    @State private var mentionSuggestions: [UserSummary] = []
+    @State private var mentionQuery: String = ""
+    @State private var mentionSearchTask: Task<Void, Never>?
+    @State private var currentMentionRange: NSRange?
+    
     private let imageService = FeedImageService.shared
     private let mediaService = FeedMediaService.shared
+    private let mentionService: MentionService = SupabaseMentionService.shared
     
     init(
         service: FeedService = SupabaseFeedService.shared as FeedService,
@@ -63,7 +71,7 @@ struct PostComposerView: View {
                     contentView
                 }
             }
-            .navigationTitle(parentPost == nil ? "New Post" : "Reply")
+            .navigationTitle(parentPost == nil ? GreenRoomBranding.composerTitleNew : GreenRoomBranding.composerTitleReply)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -83,9 +91,15 @@ struct PostComposerView: View {
                             ProgressView()
                                 .tint(.white)
                         } else {
-                            Text("Post")
+                            Text(parentPost == nil ? GreenRoomBranding.composerButtonNew : GreenRoomBranding.composerButtonReply)
                                 .fontWeight(.semibold)
                                 .foregroundColor(canPost ? .white : .gray)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(canPost ? Color(hex: "#1ED760") : Color.gray.opacity(0.3))
+                                )
                         }
                     }
                     .disabled(!canPost || isPosting || isUploadingMedia || isRecording)
@@ -152,18 +166,9 @@ struct PostComposerView: View {
     // MARK: - View Components
     
     private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [
-                Color(hex: "#050505"),
-                Color(hex: "#0C7C38"),
-                Color(hex: "#1DB954"),
-                Color(hex: "#1ED760"),
-                Color(hex: "#050505")
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        // Solid black background with green highlights
+        Color(hex: "#000000")
+            .ignoresSafeArea()
     }
     
     private var contentView: some View {
@@ -373,7 +378,7 @@ struct PostComposerView: View {
     
     private var textEditorView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(parentPost == nil ? "What's on your mind?" : "Write a reply")
+            Text(parentPost == nil ? GreenRoomBranding.composerPlaceholderNew : GreenRoomBranding.composerPlaceholderReply)
                 .font(.headline)
                 .foregroundColor(.white)
             
@@ -427,12 +432,12 @@ struct PostComposerView: View {
                 Text("Photo")
                     .font(.caption2)
             }
-            .foregroundColor(.white)
+            .foregroundColor(Color(hex: "#1ED760"))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(Color(hex: "#1ED760").opacity(0.15))
             )
         }
         .disabled(isPosting || isUploadingMedia || isRecording)
@@ -452,12 +457,12 @@ struct PostComposerView: View {
                 Text(isRecording ? formatTime(recordingTime) + "/1:00" : "Voice")
                     .font(.caption2)
             }
-            .foregroundColor(isRecording ? Color.red : .white)
+            .foregroundColor(isRecording ? Color.red : Color(hex: "#1ED760"))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isRecording ? Color.red.opacity(0.2) : Color.white.opacity(0.15))
+                    .fill(isRecording ? Color.red.opacity(0.2) : Color(hex: "#1ED760").opacity(0.15))
             )
         }
         .disabled(isPosting || isUploadingMedia || !selectedImages.isEmpty || selectedVideo != nil)
@@ -473,12 +478,12 @@ struct PostComposerView: View {
                 Text("Music")
                     .font(.caption2)
             }
-            .foregroundColor(.white)
+            .foregroundColor(Color(hex: "#1ED760"))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(Color(hex: "#1ED760").opacity(0.15))
             )
         }
         .disabled(isPosting || isUploadingMedia || isRecording)
@@ -494,12 +499,12 @@ struct PostComposerView: View {
                 Text("Poll")
                     .font(.caption2)
             }
-            .foregroundColor(.white)
+            .foregroundColor(Color(hex: "#1ED760"))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(Color(hex: "#1ED760").opacity(0.15))
             )
         }
         .disabled(isPosting || isUploadingMedia || isRecording)
@@ -515,12 +520,12 @@ struct PostComposerView: View {
                 Text("BG Music")
                     .font(.caption2)
             }
-            .foregroundColor(.white)
+            .foregroundColor(Color(hex: "#1ED760"))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(Color(hex: "#1ED760").opacity(0.15))
             )
         }
         .disabled(isPosting || isUploadingMedia || isRecording)
@@ -955,6 +960,9 @@ struct PostComposerView: View {
             
             let postText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             
+            // Extract mentioned user IDs from text
+            let mentionedUserIds = extractMentionedUserIds(from: postText)
+            
             // Debug: Check backgroundMusic state right before posting
             print("🎵 PostComposerView.post(): backgroundMusic state = \(backgroundMusic != nil ? "exists" : "nil")")
             if let bgMusic = backgroundMusic {
@@ -966,6 +974,7 @@ struct PostComposerView: View {
             print("📤 Images: \(imageURLs.count)")
             print("📤 Video: \(videoURL?.absoluteString ?? "nil")")
             print("📤 Audio: \(audioURL?.absoluteString ?? "nil")")
+            print("📤 Mentions: \(mentionedUserIds.count) users")
             
             let createdPostId: String?
             if let parentPost = parentPost {
@@ -978,7 +987,8 @@ struct PostComposerView: View {
                     audioURL: audioURL,
                     spotifyLink: spotifyLink,
                     poll: poll,
-                    backgroundMusic: backgroundMusic
+                    backgroundMusic: backgroundMusic,
+                    mentionedUserIds: mentionedUserIds
                 )
                 createdPostId = reply.id
                 print("✅ Reply created successfully with ID: \(reply.id)")
@@ -994,7 +1004,8 @@ struct PostComposerView: View {
                     leaderboardEntry: leaderboardEntry,
                     spotifyLink: spotifyLink,
                     poll: poll,
-                    backgroundMusic: backgroundMusic
+                    backgroundMusic: backgroundMusic,
+                    mentionedUserIds: mentionedUserIds
                 )
                 createdPostId = post.id
                 print("✅ Post created successfully with ID: \(post.id)")
@@ -1026,5 +1037,112 @@ struct PostComposerView: View {
             }
             errorMessage = "Failed to post: \(errorDescription)"
         }
+    }
+    
+    // MARK: - Mention Detection
+    
+    private func detectMention(in text: String) {
+        // Find the last @ symbol and extract the query
+        guard let lastAtIndex = text.lastIndex(of: "@") else {
+            showMentionAutocomplete = false
+            mentionSuggestions = []
+            return
+        }
+        
+        // Check if there's a space after @ (mention is complete)
+        let afterAt = text.index(after: lastAtIndex)
+        if afterAt < text.endIndex {
+            let remainingText = String(text[afterAt...])
+            if remainingText.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                // Mention is complete, hide autocomplete
+                showMentionAutocomplete = false
+                mentionSuggestions = []
+                return
+            }
+        }
+        
+        // Extract query after @
+        let queryStart = text.index(after: lastAtIndex)
+        let query = String(text[queryStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if query.isEmpty {
+            showMentionAutocomplete = false
+            mentionSuggestions = []
+            return
+        }
+        
+        // Store the range for later replacement
+        let nsRange = NSRange(location: text.distance(from: text.startIndex, to: lastAtIndex), length: text.distance(from: lastAtIndex, to: text.endIndex))
+        currentMentionRange = nsRange
+        mentionQuery = query
+        
+        // Cancel previous search
+        mentionSearchTask?.cancel()
+        
+        // Debounce search
+        mentionSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
+            
+            if !Task.isCancelled {
+                do {
+                    let results = try await mentionService.searchUsers(query: query)
+                    await MainActor.run {
+                        if !Task.isCancelled {
+                            mentionSuggestions = results
+                            showMentionAutocomplete = true
+                        }
+                    }
+                } catch {
+                    print("Failed to search users for mention: \(error)")
+                }
+            }
+        }
+    }
+    
+    private func insertMention(user: UserSummary) {
+        guard let range = currentMentionRange else { return }
+        
+        let nsText = text as NSString
+        let mentionText = "@\(user.handle) "
+        let newText = nsText.replacingCharacters(in: range, with: mentionText)
+        
+        text = newText
+        showMentionAutocomplete = false
+        mentionSuggestions = []
+        currentMentionRange = nil
+        mentionQuery = ""
+    }
+    
+    private func extractMentionedUserIds(from text: String) -> [String] {
+        // Extract @mentions using regex
+        let pattern = #"@(\w+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return []
+        }
+        
+        let nsString = text as NSString
+        let range = NSRange(location: 0, length: nsString.length)
+        let matches = regex.matches(in: text, options: [], range: range)
+        
+        var mentionedHandles: Set<String> = []
+        for match in matches {
+            if match.numberOfRanges > 1 {
+                let handleRange = match.range(at: 1)
+                let handle = nsString.substring(with: handleRange)
+                mentionedHandles.insert(handle)
+            }
+        }
+        
+        // Convert handles to user IDs by looking them up in mentionSuggestions
+        // Note: This is a simplified version that only matches users from autocomplete
+        // In production, you might want to do a server-side lookup for all handles
+        var userIds: [String] = []
+        for handle in mentionedHandles {
+            if let user = mentionSuggestions.first(where: { $0.handle == handle }) {
+                userIds.append(user.id)
+            }
+        }
+        
+        return userIds
     }
 }
