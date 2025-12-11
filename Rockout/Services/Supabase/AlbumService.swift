@@ -297,6 +297,15 @@ final class AlbumService {
             }
         }
         
+        // Fetch saved counts for all albums
+        let albumIds = albums.map { $0.id }
+        var savedCounts: [UUID: Int] = [:]
+        do {
+            savedCounts = try await getSavedCounts(albumIds: albumIds)
+        } catch {
+            print("⚠️ Failed to fetch saved counts: \(error.localizedDescription)")
+        }
+        
         // Update albums with artist names (use album's artist_name if available, otherwise fall back to studio_artists)
         // and collaborator/viewer counts
         return albums.map { album in
@@ -307,6 +316,7 @@ final class AlbumService {
             }
             updatedAlbum.collaborator_count = collaboratorCounts[album.id] ?? 0
             updatedAlbum.viewer_count = viewerCounts[album.id] ?? 0
+            updatedAlbum.saved_count = savedCounts[album.id] ?? 0
             return updatedAlbum
         }
     }
@@ -388,7 +398,21 @@ final class AlbumService {
             }
         }
         
-        return albums
+        // Fetch saved counts for all albums
+        let albumIds = albums.map { $0.id }
+        var savedCounts: [UUID: Int] = [:]
+        do {
+            savedCounts = try await getSavedCounts(albumIds: albumIds)
+        } catch {
+            print("⚠️ Failed to fetch saved counts: \(error.localizedDescription)")
+        }
+        
+        // Update albums with saved counts
+        return albums.map { album in
+            var updatedAlbum = album
+            updatedAlbum.saved_count = savedCounts[album.id] ?? 0
+            return updatedAlbum
+        }
     }
 
     // MARK: - FETCH COLLABORATIVE ALBUMS
@@ -468,7 +492,21 @@ final class AlbumService {
             }
         }
         
-        return albums
+        // Fetch saved counts for all albums
+        let albumIds = albums.map { $0.id }
+        var savedCounts: [UUID: Int] = [:]
+        do {
+            savedCounts = try await getSavedCounts(albumIds: albumIds)
+        } catch {
+            print("⚠️ Failed to fetch saved counts: \(error.localizedDescription)")
+        }
+        
+        // Update albums with saved counts
+        return albums.map { album in
+            var updatedAlbum = album
+            updatedAlbum.saved_count = savedCounts[album.id] ?? 0
+            return updatedAlbum
+        }
     }
 
     // MARK: - FETCH SINGLE ALBUM
@@ -840,12 +878,22 @@ final class AlbumService {
             }
         }
         
-        // Update albums with artist names
+        // Fetch saved counts for all albums
+        let albumIds = albums.map { $0.id }
+        var savedCounts: [UUID: Int] = [:]
+        do {
+            savedCounts = try await getSavedCounts(albumIds: albumIds)
+        } catch {
+            print("⚠️ Failed to fetch saved counts: \(error.localizedDescription)")
+        }
+        
+        // Update albums with artist names and saved counts
         return albums.map { album in
             var updatedAlbum = album
             if updatedAlbum.artist_name == nil || updatedAlbum.artist_name?.isEmpty == true {
                 updatedAlbum.artist_name = artistNames[album.artist_id]
             }
+            updatedAlbum.saved_count = savedCounts[album.id] ?? 0
             return updatedAlbum
         }
     }
@@ -899,7 +947,7 @@ final class AlbumService {
         
         print("✅ Found \(discoverResults.count) albums in discover feed")
         
-        return discoverResults.map { result in
+        let albums = discoverResults.map { result in
             StudioAlbumRecord(
                 id: result.id,
                 artist_id: result.artist_id,
@@ -912,8 +960,25 @@ final class AlbumService {
                 updated_at: result.updated_at,
                 collaborator_count: nil,
                 viewer_count: nil,
-                is_public: result.is_public
+                is_public: result.is_public,
+                saved_count: nil
             )
+        }
+        
+        // Fetch saved counts for all albums
+        let albumIds = albums.map { $0.id }
+        var savedCounts: [UUID: Int] = [:]
+        do {
+            savedCounts = try await getSavedCounts(albumIds: albumIds)
+        } catch {
+            print("⚠️ Failed to fetch saved counts: \(error.localizedDescription)")
+        }
+        
+        // Update albums with saved counts
+        return albums.map { album in
+            var updatedAlbum = album
+            updatedAlbum.saved_count = savedCounts[album.id] ?? 0
+            return updatedAlbum
         }
     }
     
@@ -1115,6 +1180,51 @@ final class AlbumService {
                 replayCount: result.replay_count ?? 0
             )
         }
+    }
+    
+    /// Gets the count of users who saved this album to discoveries
+    func getSavedCount(albumId: UUID) async throws -> Int {
+        let response = try await supabase
+            .from("discovered_albums")
+            .select("id", head: true, count: .exact)
+            .eq("album_id", value: albumId.uuidString)
+            .execute()
+        
+        return response.count ?? 0
+    }
+    
+    /// Batch fetches saved counts for multiple albums
+    func getSavedCounts(albumIds: [UUID]) async throws -> [UUID: Int] {
+        guard !albumIds.isEmpty else { return [:] }
+        
+        let albumIdStrings = albumIds.map { $0.uuidString }
+        
+        // Fetch all discovered_albums rows for these album IDs
+        struct DiscoveredAlbumRow: Codable {
+            let album_id: UUID
+        }
+        
+        let response = try await supabase
+            .from("discovered_albums")
+            .select("album_id")
+            .in("album_id", values: albumIdStrings)
+            .execute()
+        
+        let rows = try JSONDecoder().decode([DiscoveredAlbumRow].self, from: response.data)
+        
+        // Count occurrences of each album_id
+        var counts: [UUID: Int] = [:]
+        for row in rows {
+            counts[row.album_id, default: 0] += 1
+        }
+        
+        // Ensure all album IDs are in the result (with 0 if not found)
+        var result: [UUID: Int] = [:]
+        for albumId in albumIds {
+            result[albumId] = counts[albumId] ?? 0
+        }
+        
+        return result
     }
 }
 

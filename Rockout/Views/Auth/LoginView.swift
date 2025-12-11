@@ -7,6 +7,17 @@ struct LoginView: View {
 
     var body: some View {
         VStack(spacing: 30) {
+            // Logo and Title
+            VStack(spacing: 6) {
+                Image("authIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
+                Text("RockOut")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .padding(.top, 20)
 
             LoginForm()
 
@@ -19,21 +30,6 @@ struct LoginView: View {
                 showSignUp = true
             }
             .foregroundColor(.blue)
-
-            // Google Login Button
-            Button {
-                authVM.loginWithGoogle()
-            } label: {
-                HStack {
-                    Image(systemName: "globe")
-                    Text("Continue with Google")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(10)
-            }
         }
         .padding()
         .sheet(isPresented: $showSignUp) {

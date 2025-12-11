@@ -9,7 +9,7 @@ struct AuthFlowView: View {
 
             // LOGO
             VStack(spacing: 6) {
-                Image("authicon")
+                Image("authIcon")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 48, height: 48)
@@ -37,10 +37,6 @@ struct AuthFlowView: View {
                 }
             }
             .padding(.horizontal)
-
-            // GOOGLE BUTTON
-            GoogleLoginButton()
-                .padding(.horizontal)
 
             Spacer()
         }

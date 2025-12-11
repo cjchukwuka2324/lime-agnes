@@ -19,6 +19,17 @@ struct AudioFeatures: Codable {
     let liveness: Double?
     let speechiness: Double?
     
+    enum CodingKeys: String, CodingKey {
+        case danceability
+        case energy
+        case valence
+        case tempo
+        case acousticness
+        case instrumentalness
+        case liveness
+        case speechiness
+    }
+    
     init(
         danceability: Double? = nil,
         energy: Double? = nil,
@@ -37,6 +48,19 @@ struct AudioFeatures: Codable {
         self.instrumentalness = instrumentalness
         self.liveness = liveness
         self.speechiness = speechiness
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Spotify uses the same field names (danceability, energy, etc.), so direct decoding works
+        danceability = try container.decodeIfPresent(Double.self, forKey: .danceability)
+        energy = try container.decodeIfPresent(Double.self, forKey: .energy)
+        valence = try container.decodeIfPresent(Double.self, forKey: .valence)
+        tempo = try container.decodeIfPresent(Double.self, forKey: .tempo)
+        acousticness = try container.decodeIfPresent(Double.self, forKey: .acousticness)
+        instrumentalness = try container.decodeIfPresent(Double.self, forKey: .instrumentalness)
+        liveness = try container.decodeIfPresent(Double.self, forKey: .liveness)
+        speechiness = try container.decodeIfPresent(Double.self, forKey: .speechiness)
     }
 }
 

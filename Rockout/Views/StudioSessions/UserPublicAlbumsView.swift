@@ -70,7 +70,13 @@ struct UserPublicAlbumsView: View {
                                 album: album,
                                 isSaved: viewModel.isAlbumSaved(album),
                                 onAddToDiscoveries: {
-                                    viewModel.saveDiscoveredAlbum(album)
+                                    Task {
+                                        if viewModel.isAlbumSaved(album) {
+                                            await viewModel.removeDiscoveredAlbum(album)
+                                        } else {
+                                            await viewModel.saveDiscoveredAlbum(album)
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -87,7 +93,9 @@ struct UserPublicAlbumsView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear {
             loadPublicAlbums()
-            viewModel.loadDiscoveredAlbums() // Load saved albums to check which are already saved
+            Task {
+                await viewModel.loadDiscoveredAlbums() // Load saved albums to check which are already saved
+            }
         }
     }
     
@@ -107,129 +115,6 @@ struct UserPublicAlbumsView: View {
                     errorMessage = error.localizedDescription
                 }
             }
-        }
-    }
-}
-
-// MARK: - Public Album Card
-struct PublicAlbumCard: View {
-    let album: StudioAlbumRecord
-    let isSaved: Bool
-    let onAddToDiscoveries: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Cover Art with Add button overlay
-            ZStack(alignment: .topTrailing) {
-                NavigationLink {
-                    AlbumDetailView(album: album, deleteContext: nil)
-                } label: {
-                    Group {
-                        if let urlString = album.cover_art_url,
-                           let url = URL(string: urlString) {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .empty:
-                                    albumPlaceholder
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                case .failure:
-                                    albumPlaceholder
-                                @unknown default:
-                                    albumPlaceholder
-                                }
-                            }
-                        } else {
-                            albumPlaceholder
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(1, contentMode: .fit)
-                    .cornerRadius(12)
-                    .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-                }
-                .buttonStyle(PlainButtonStyle())
-                
-                // Add to Discoveries button
-                if !isSaved {
-                    Button {
-                        onAddToDiscoveries()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.caption)
-                            Text("Add to Discoveries")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue)
-                        .cornerRadius(16)
-                    }
-                    .padding(8)
-                } else {
-                    // Already saved indicator
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption)
-                        Text("Saved")
-                            .font(.caption)
-                    }
-                    .foregroundColor(.green)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.green.opacity(0.2))
-                    .cornerRadius(16)
-                    .padding(8)
-                }
-            }
-            
-            // Album Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(album.title)
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                
-                if let artistName = album.artist_name, !artistName.isEmpty {
-                    Text(artistName)
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-                
-                // Public indicator
-                HStack(spacing: 4) {
-                    Image(systemName: "globe")
-                        .font(.caption2)
-                        .foregroundColor(.green)
-                    Text("Public")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                }
-                .padding(.top, 2)
-            }
-        }
-    }
-    
-    private var albumPlaceholder: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.2, green: 0.2, blue: 0.3), Color(red: 0.1, green: 0.1, blue: 0.2)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            
-            Image(systemName: "music.note")
-                .font(.system(size: 40))
-                .foregroundColor(.white.opacity(0.3))
         }
     }
 }

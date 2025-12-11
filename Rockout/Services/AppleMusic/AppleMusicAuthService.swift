@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import MusicKit
+import StoreKit
 import Supabase
 
 @MainActor
@@ -67,6 +68,25 @@ final class AppleMusicAuthService: ObservableObject {
         return appleMusicConnection != nil && MusicAuthorization.currentStatus == .authorized
     }
     
+    // MARK: - Subscription Verification
+    
+    /// Verify that the user has an active Apple Music subscription
+    private func verifySubscriptionStatus() async throws {
+        let controller = SKCloudServiceController()
+        let capabilities = try await controller.requestCapabilities()
+        
+        // Check if user has music catalog playback capability (indicates active subscription)
+        guard capabilities.contains(.musicCatalogPlayback) || capabilities.contains(.musicCatalogSubscriptionEligible) else {
+            throw NSError(
+                domain: "AppleMusicAuth",
+                code: -6,
+                userInfo: [NSLocalizedDescriptionKey: "No active Apple Music subscription found. Please subscribe to Apple Music to continue. You can subscribe in the Music app or at music.apple.com"]
+            )
+        }
+        
+        print("✅ Apple Music subscription verified via SKCloudServiceController")
+    }
+    
     func authorize() async throws {
         // Check if user already has a connection to another platform
         if let existingConnection = try await connectionService.getConnection() {
@@ -114,45 +134,52 @@ final class AppleMusicAuthService: ObservableObject {
             )
         }
         
-        // Now that MusicKit is authorized, we MUST verify actual authentication
-        // by attempting to fetch real user data. This will fail if:
-        // 1. User doesn't have an Apple Music subscription
-        // 2. User isn't signed into Apple Music on their device
+        // Step 2: Verify subscription status using SKCloudServiceController
+        do {
+            try await verifySubscriptionStatus()
+        } catch {
+            print("❌ Subscription verification failed: \(error.localizedDescription)")
+            throw error
+        }
         
-        // IMPORTANT: Verify subscription BEFORE saving connection
-        // Try multiple methods to verify the user has an active Apple Music subscription
-        
-        var verificationSucceeded = false
-        var verificationError: Error?
+        // Step 3: Verify by actually fetching user data
+        // This ensures the subscription is not only active but also accessible
+        var dataFetchSucceeded = false
+        var dataFetchError: Error?
         
         // Method 1: Try accessing user library via MusicKit
         do {
             let libraryRequest = MusicLibraryRequest<Song>()
-            _ = try await libraryRequest.response()
-            verificationSucceeded = true
-            print("✅ Apple Music subscription verified via library access")
+            let response = try await libraryRequest.response()
+            // Even if library is empty, the request succeeding means subscription is valid
+            dataFetchSucceeded = true
+            print("✅ Apple Music data access verified via library request (items: \(response.items.count))")
         } catch {
-            verificationError = error
-            print("⚠️ Library access failed: \(error.localizedDescription)")
-            
-            // Method 2: Try accessing recently played via Web API (if we can get user token)
-            // Note: This requires MusicKit to provide user token, which isn't directly accessible
-            // So we'll rely on library verification as primary method
+            dataFetchError = error
+            print("⚠️ Library request failed: \(error.localizedDescription)")
         }
         
-        // If verification failed, throw error - don't save connection
-        guard verificationSucceeded else {
+        // Method 2: If library access fails, try fetching recently played via Web API
+        // Note: This requires getting the user token from MusicKit, which is tricky
+        // For now, library access should be sufficient as the primary verification method
+        
+        // If data fetching failed, throw error - don't save connection
+        guard dataFetchSucceeded else {
+            let errorMessage = dataFetchError?.localizedDescription ?? "Unknown error"
             throw NSError(
                 domain: "AppleMusicAuth",
                 code: -5,
-                userInfo: [NSLocalizedDescriptionKey: "Could not verify Apple Music subscription. Please ensure you are signed into Apple Music with an active subscription. Go to Settings > Music to sign in, or check that your Apple Music subscription is active."]
+                userInfo: [NSLocalizedDescriptionKey: "Could not access Apple Music data. Please ensure you are signed into Apple Music with an active subscription. Go to Settings > Music to sign in, or check that your Apple Music subscription is active. Error: \(errorMessage)"]
             )
         }
         
         // Verification succeeded - now save connection
-        // Generate a stable user identifier
+        // Generate a stable user identifier based on subscription/user account
+        // MusicKit doesn't provide a direct user ID, so we generate one that's stable per device/account
         let userId = UUID().uuidString
-        let userTokenString = "music_kit_managed" // MusicKit manages tokens automatically
+        // MusicKit manages tokens automatically - we don't need to store them
+        // Store a placeholder indicating MusicKit handles tokens
+        let userTokenString = "music_kit_automatic"
         
         let unifiedConnection = try await connectionService.saveAppleMusicConnection(
             appleMusicUserId: userId,
@@ -175,8 +202,11 @@ final class AppleMusicAuthService: ObservableObject {
                 email: unifiedConnection.email
             )
             
+            // Set userToken for compatibility, but MusicKit handles actual tokens
             self.userToken = userTokenString
         }
+        
+        print("✅ Apple Music connection saved successfully")
     }
 }
 

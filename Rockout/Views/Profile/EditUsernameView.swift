@@ -8,6 +8,10 @@ struct EditUsernameView: View {
     @State private var isLoading = false
     @State private var isLoadingProfile = false
     @State private var message: String?
+    @State private var messageType: MessageType = .error
+    @State private var isCheckingAvailability = false
+    @State private var availabilityStatus: UsernameAvailabilityStatus = .none
+    @State private var checkAvailabilityTask: Task<Void, Never>?
     
     var body: some View {
         NavigationStack {
@@ -50,12 +54,35 @@ struct EditUsernameView: View {
                                     .padding()
                                     .background(Color.white.opacity(0.15))
                                     .cornerRadius(8)
+                                    .onChange(of: username) { _, newValue in
+                                        checkUsernameAvailability(newValue)
+                                    }
                             }
                             
+                            // Username availability status
+                            if availabilityStatus != .none {
+                                HStack(spacing: 8) {
+                                    if isCheckingAvailability {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                            .tint(.white.opacity(0.7))
+                                        Text("Checking availability...")
+                                            .font(.caption)
+                                            .foregroundColor(.white.opacity(0.7))
+                                    } else {
+                                        Image(systemName: availabilityStatus == .available ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                            .foregroundColor(availabilityStatus == .available ? .green : .red)
+                                            .font(.caption)
+                                        Text(availabilityStatus == .available ? "Available" : "Already taken")
+                                            .font(.caption)
+                                            .foregroundColor(availabilityStatus == .available ? .green : .red)
+                                    }
+                                }
+                            }
+                            
+                            // Error/success message banner
                             if let message = message {
-                                Text(message)
-                                    .font(.caption)
-                                    .foregroundColor(message.contains("success") ? .green : .red)
+                                ErrorMessageBanner(message, type: messageType)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -82,7 +109,7 @@ struct EditUsernameView: View {
                         )
                         .cornerRadius(12)
                         .padding(.horizontal, 20)
-                        .disabled(username.isEmpty || !isValidUsername(username) || isLoading)
+                        .disabled(username.isEmpty || !isValidUsername(username) || isLoading || availabilityStatus == .taken)
                         
                         Spacer()
                     }
@@ -122,7 +149,72 @@ struct EditUsernameView: View {
                 username = profile.username ?? ""
             }
         } catch {
-            message = "Failed to load profile: \(error.localizedDescription)"
+            message = formatErrorMessage(error, username: "")
+            messageType = .error
+        }
+    }
+    
+    enum UsernameAvailabilityStatus {
+        case none
+        case available
+        case taken
+        case checking
+    }
+    
+    private func checkUsernameAvailability(_ input: String) {
+        // Cancel previous check task
+        checkAvailabilityTask?.cancel()
+        
+        let trimmed = input.trimmingCharacters(in: .whitespaces).lowercased()
+        
+        // Reset status if empty or invalid
+        guard !trimmed.isEmpty else {
+            availabilityStatus = .none
+            message = nil
+            return
+        }
+        
+        guard isValidUsername(trimmed) else {
+            availabilityStatus = .none
+            message = nil
+            return
+        }
+        
+        // Debounce the check
+        checkAvailabilityTask = Task {
+            // Wait 500ms after user stops typing
+            try? await Task.sleep(for: .milliseconds(500))
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                isCheckingAvailability = true
+                availabilityStatus = .checking
+            }
+            
+            do {
+                let isAvailable = try await profileService.checkUsernameAvailability(trimmed)
+                
+                // Check again if task was cancelled
+                guard !Task.isCancelled else { return }
+                
+                await MainActor.run {
+                    isCheckingAvailability = false
+                    availabilityStatus = isAvailable ? .available : .taken
+                    message = nil // Clear any previous error messages
+                }
+            } catch {
+                // Check again if task was cancelled
+                guard !Task.isCancelled else { return }
+                
+                await MainActor.run {
+                    isCheckingAvailability = false
+                    availabilityStatus = .none
+                    // Don't show error for availability check failures - just reset status
+                    print("⚠️ Username availability check failed: \(error.localizedDescription)")
+                }
+            }
         }
     }
     
@@ -131,34 +223,53 @@ struct EditUsernameView: View {
         
         guard !trimmedUsername.isEmpty else {
             message = "Please enter a username"
+            messageType = .error
             return
         }
         
         guard isValidUsername(trimmedUsername) else {
             message = "Username must be 3-20 characters and contain only letters, numbers, and underscores"
+            messageType = .error
+            return
+        }
+        
+        // Check availability status before updating
+        if availabilityStatus == .taken {
+            message = "This username (@\(trimmedUsername)) is already taken. Please choose another one."
+            messageType = .error
             return
         }
         
         Task {
             isLoading = true
+            message = nil // Clear previous messages
             defer { isLoading = false }
             
             do {
                 try await profileService.updateUsername(trimmedUsername)
                 message = "Username updated successfully"
+                messageType = .success
                 
                 // Dismiss after a short delay
                 try? await Task.sleep(for: .milliseconds(800))
                 dismiss()
             } catch {
-                let errorMessage = error.localizedDescription
-                if errorMessage.contains("already taken") {
-                    message = "This username is already taken. Please choose another one."
-                } else {
-                    message = "Failed to update username: \(errorMessage)"
-                }
+                message = formatErrorMessage(error, username: trimmedUsername)
+                messageType = .error
             }
         }
+    }
+    
+    private func formatErrorMessage(_ error: Error, username: String) -> String {
+        // Use the service's error formatting helper
+        let baseMessage = profileService.formatSupabaseError(error, context: "update username")
+        
+        // Enhance username-specific errors with the @ symbol
+        if baseMessage.contains("already taken") && !username.isEmpty {
+            return "This username (@\(username)) is already taken. Please choose another one."
+        }
+        
+        return baseMessage
     }
 }
 

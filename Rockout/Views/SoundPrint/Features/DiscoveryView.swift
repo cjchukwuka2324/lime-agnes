@@ -1,14 +1,13 @@
 import SwiftUI
 
 struct DiscoveryView: View {
-    let discoverWeekly: DiscoverWeekly?
-    let releaseRadar: ReleaseRadar?
-    let recentlyDiscovered: [RecentlyDiscovered]
     let realYouMix: RealYouMix?
     let soundprintForecast: SoundprintForecast?
-    let discoveryBundle: DiscoveryBundle?
+    let moreFromYourFaves: MoreFromYourFaves?
+    let genreDive: GenreDive?
+    let throwbackDiscovery: ThrowbackDiscovery?
+    let moodPlaylists: [MoodPlaylist]
     let onOpenInSpotify: (String, [UnifiedTrack]) -> Void
-    let onOpenPlaylist: (String) -> Void
     
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -33,96 +32,48 @@ struct DiscoveryView: View {
                     )
                 }
                 
-                // Discovery Bundle
-                if let bundle = discoveryBundle {
-                    if !bundle.newTracks.isEmpty {
-                        PlaylistCard(
-                            title: "Discovery Bundle",
-                            description: "\(bundle.newTracks.count) new tracks, \(bundle.newArtists.count) new artists, \(bundle.newGenres.count) new genres",
-                            tracks: bundle.newTracks,
-                            onOpenInSpotify: { onOpenInSpotify("Discovery Bundle", bundle.newTracks) }
-                        )
-                    } else {
-                        // Show empty state for Discovery Bundle
-                        EmptyPlaylistCard(
-                            title: "Discovery Bundle",
-                            description: "No new discoveries yet. Keep listening to discover new music!"
-                        )
-                    }
-                }
-                
-                // Discover Weekly
-                if let weekly = discoverWeekly {
-                    if !weekly.tracks.isEmpty {
-                        if let playlistId = weekly.playlistId {
-                            // Open existing Spotify playlist
-                            NativePlaylistCard(
-                                title: "Discover Weekly",
-                                description: "Your personalized weekly mix",
-                                tracks: weekly.tracks,
-                                onOpenPlaylist: { onOpenPlaylist(playlistId) }
-                            )
-                        } else {
-                            // Create new playlist if ID not found
-                            PlaylistCard(
-                                title: "Discover Weekly",
-                                description: "Your personalized weekly mix",
-                                tracks: weekly.tracks,
-                                onOpenInSpotify: { onOpenInSpotify("Discover Weekly", weekly.tracks) }
-                            )
-                        }
-                    } else {
-                        EmptyPlaylistCard(
-                            title: "Discover Weekly",
-                            description: "Your weekly mix will appear here once available"
-                        )
-                    }
-                }
-                
-                // Release Radar
-                if let radar = releaseRadar {
-                    if !radar.tracks.isEmpty {
-                        if let playlistId = radar.playlistId {
-                            // Open existing Spotify playlist
-                            NativePlaylistCard(
-                                title: "Release Radar",
-                                description: "New releases from artists you follow",
-                                tracks: radar.tracks,
-                                onOpenPlaylist: { onOpenPlaylist(playlistId) }
-                            )
-                        } else {
-                            // Create new playlist if ID not found
-                            PlaylistCard(
-                                title: "Release Radar",
-                                description: "New releases from artists you follow",
-                                tracks: radar.tracks,
-                                onOpenInSpotify: { onOpenInSpotify("Release Radar", radar.tracks) }
-                            )
-                        }
-                    } else {
-                        EmptyPlaylistCard(
-                            title: "Release Radar",
-                            description: "New releases will appear here when available"
-                        )
-                    }
-                }
-                
-                // Recently Discovered Artists
-                if !recentlyDiscovered.isEmpty {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Recently Discovered")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                        
-                        ForEach(recentlyDiscovered.prefix(10), id: \.artist.id) { discovery in
-                            RecentlyDiscoveredRow(discovery: discovery)
-                        }
-                    }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.white.opacity(0.1))
+                // More from your faves
+                if let moreFaves = moreFromYourFaves, !moreFaves.tracks.isEmpty {
+                    PlaylistCard(
+                        title: "More from your faves",
+                        description: "Lesser-known tracks from your favorite artists",
+                        tracks: moreFaves.tracks,
+                        onOpenInSpotify: { onOpenInSpotify("More from your faves", moreFaves.tracks) }
                     )
+                }
+                
+                // Genre Dive
+                if let dive = genreDive, !dive.tracks.isEmpty {
+                    PlaylistCard(
+                        title: "Genre Dive: \(dive.genre)",
+                        description: dive.description,
+                        tracks: dive.tracks,
+                        onOpenInSpotify: { onOpenInSpotify("Genre Dive: \(dive.genre)", dive.tracks) }
+                    )
+                }
+                
+                // Throwback Discovery
+                if let throwback = throwbackDiscovery, !throwback.tracks.isEmpty {
+                    PlaylistCard(
+                        title: "Throwback Discovery",
+                        description: throwback.description,
+                        tracks: throwback.tracks,
+                        onOpenInSpotify: { onOpenInSpotify("Throwback Discovery", throwback.tracks) }
+                    )
+                }
+                
+                // Mood Playlists
+                if !moodPlaylists.isEmpty {
+                    ForEach(moodPlaylists, id: \.mood) { playlist in
+                        if !playlist.tracks.isEmpty {
+                            PlaylistCard(
+                                title: playlist.mood,
+                                description: playlist.description,
+                                tracks: playlist.tracks,
+                                onOpenInSpotify: { onOpenInSpotify(playlist.mood, playlist.tracks) }
+                            )
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 20)

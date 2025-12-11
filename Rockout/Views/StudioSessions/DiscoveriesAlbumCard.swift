@@ -43,7 +43,9 @@ struct DiscoveriesAlbumCard: View {
                     Text(album.title)
                         .font(.headline)
                         .foregroundColor(.white)
-                        .lineLimit(2)
+                        .lineLimit(nil)
+                        .minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
                     
                     if let artistName = album.artist_name, !artistName.isEmpty {
@@ -51,6 +53,7 @@ struct DiscoveriesAlbumCard: View {
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.7))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
             }

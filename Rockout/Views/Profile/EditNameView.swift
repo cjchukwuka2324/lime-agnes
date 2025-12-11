@@ -55,11 +55,8 @@ struct EditNameView: View {
                                         )
                                     
                                     if let message = message {
-                                        Text(message)
-                                            .foregroundColor(message.contains("success") || message.contains("updated") ? .green : .red)
-                                            .font(.caption)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal)
+                                        let messageType: MessageType = (message.contains("success") || message.contains("updated")) ? .success : .error
+                                        ErrorMessageBanner(message, type: messageType)
                                     }
                                     
                                     Button(action: updateName) {
@@ -117,9 +114,9 @@ struct EditNameView: View {
                 firstName = profile.firstName ?? ""
                 lastName = profile.lastName ?? ""
             }
-        } catch {
-            message = "Failed to load profile: \(error.localizedDescription)"
-        }
+            } catch {
+                message = profileService.formatSupabaseError(error, context: "load profile")
+            }
     }
     
     private func updateName() {
@@ -144,7 +141,7 @@ struct EditNameView: View {
                 try? await Task.sleep(for: .milliseconds(800))
                 dismiss()
             } catch {
-                message = "Failed to update name: \(error.localizedDescription)"
+                message = profileService.formatSupabaseError(error, context: "update name")
             }
         }
     }

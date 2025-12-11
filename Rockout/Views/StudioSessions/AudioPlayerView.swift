@@ -11,9 +11,6 @@ struct AudioPlayerView: View {
     }
     
     @State private var showControls = false
-    @State private var showPitchControls = false
-    @State private var showLoopControls = false
-    @State private var showTrimControls = false
     @State private var isDragging = false
     
     var body: some View {
@@ -292,101 +289,14 @@ struct AudioPlayerView: View {
     
     // MARK: - Secondary Controls View
     private var secondaryControlsView: some View {
-        HStack(spacing: 32) {
-            // Playback Rate
-            Menu {
-                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
-                    Button {
-                        playerVM.setPlaybackRate(Float(rate))
-                    } label: {
-                        HStack {
-                            Text("\(rate, specifier: "%.2f")x")
-                            if abs(playerVM.playbackRate - Float(rate)) < 0.01 {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "speedometer")
-                        .font(.system(size: 20))
-                    Text("\(playerVM.playbackRate, specifier: "%.2f")x")
-                        .font(.caption2)
-                }
-                .foregroundColor(.white.opacity(0.8))
-                .frame(width: 60)
-            }
-            
-            // Loop
-            Button {
-                playerVM.toggleLoop()
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: playerVM.isLooping ? "repeat.circle.fill" : "repeat.circle")
-                        .font(.system(size: 20))
-                    Text("Loop")
-                        .font(.caption2)
-                }
-                .foregroundColor(playerVM.isLooping ? .white : .white.opacity(0.8))
-                .frame(width: 60)
-            }
-            
-            // Pitch
-            Button {
-                showPitchControls.toggle()
-                showLoopControls = false
-                showTrimControls = false
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 20))
-                    Text("Pitch")
-                        .font(.caption2)
-                }
-                .foregroundColor(showPitchControls ? .white : .white.opacity(0.8))
-                .frame(width: 60)
-            }
-            
-            // Trim
-            Button {
-                showTrimControls.toggle()
-                showPitchControls = false
-                showLoopControls = false
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "scissors")
-                        .font(.system(size: 20))
-                    Text("Trim")
-                        .font(.caption2)
-                }
-                .foregroundColor(showTrimControls ? .white : .white.opacity(0.8))
-                .frame(width: 60)
-            }
-        }
+        // Removed all secondary controls for now
+        EmptyView()
     }
     
     // MARK: - Advanced Controls View
     private var advancedControlsView: some View {
-        VStack(spacing: 20) {
-            // Pitch Controls
-            if showPitchControls {
-                pitchControlView
-            }
-            
-            // Loop Controls
-            if showLoopControls {
-                loopControlView
-            }
-            
-            // Trim Controls
-            if showTrimControls {
-                TrimTrackView(playerVM: playerVM, track: track)
-            }
-        }
-        .animation(.easeInOut, value: showPitchControls)
-        .animation(.easeInOut, value: showLoopControls)
-        .animation(.easeInOut, value: showTrimControls)
+        // Removed loop, pitch, and trim controls
+        EmptyView()
     }
     
     // MARK: - Pitch Control View
@@ -430,9 +340,17 @@ struct AudioPlayerView: View {
     // MARK: - Loop Control View
     private var loopControlView: some View {
         VStack(spacing: 16) {
-            Toggle("Enable Loop", isOn: $playerVM.isLooping)
-                .tint(.white)
-                .foregroundColor(.white)
+            Toggle("Enable Loop", isOn: Binding(
+                get: { playerVM.isLooping },
+                set: { newValue in
+                    playerVM.isLooping = newValue
+                    if newValue && playerVM.loopEnd == 0 {
+                        playerVM.loopEnd = playerVM.duration
+                    }
+                }
+            ))
+            .tint(.white)
+            .foregroundColor(.white)
             
             if playerVM.isLooping {
                 VStack(spacing: 12) {

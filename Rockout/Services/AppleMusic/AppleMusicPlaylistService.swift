@@ -17,10 +17,11 @@ final class AppleMusicPlaylistService {
         trackIds: [String],
         isPublic: Bool = false // Apple Music doesn't have public playlists in the same way
     ) async throws -> String {
-        let userToken = await MainActor.run {
-            authService.userToken
+        // Verify authorization (MusicDataRequest will handle tokens automatically)
+        let connection = await MainActor.run {
+            authService.appleMusicConnection
         }
-        guard let userToken = userToken else {
+        guard connection != nil else {
             throw NSError(
                 domain: "AppleMusicPlaylistService",
                 code: -1,
@@ -28,9 +29,9 @@ final class AppleMusicPlaylistService {
             )
         }
         
-        // Create playlist
+        // Create playlist (pass nil for userToken - MusicDataRequest handles it automatically)
         let playlistId = try await webAPI.createPlaylist(
-            userToken: userToken,
+            userToken: nil,
             name: name,
             description: description
         )
@@ -41,7 +42,7 @@ final class AppleMusicPlaylistService {
             let endIndex = min(i + batchSize, trackIds.count)
             let batch = Array(trackIds[i..<endIndex])
             try await webAPI.addTracksToPlaylist(
-                userToken: userToken,
+                userToken: nil,
                 playlistId: playlistId,
                 trackIds: batch
             )
@@ -53,7 +54,7 @@ final class AppleMusicPlaylistService {
     // MARK: - My Weekly Discovery Playlist
     
     /// Creates/updates "My Weekly Discovery" playlist (equivalent to Spotify's Discover Weekly)
-    func createOrUpdateWeeklyDiscovery(userToken: String) async throws -> String {
+    func createOrUpdateWeeklyDiscovery() async throws -> String {
         // Get user's top artists and tracks for recommendations
         let topArtistsResponse = try await appleMusicAPI.getTopArtists(limit: 20)
         let topTracksResponse = try await appleMusicAPI.getTopTracks(limit: 20)
@@ -68,7 +69,7 @@ final class AppleMusicPlaylistService {
         for genre in allGenres.prefix(5) {
             do {
                 let searchResults = try await webAPI.search(
-                    userToken: userToken,
+                    userToken: nil,
                     query: genre,
                     types: ["songs"],
                     limit: 10
@@ -87,7 +88,7 @@ final class AppleMusicPlaylistService {
         for artist in topArtistsResponse.items.prefix(5) {
             do {
                 let searchResults = try await webAPI.search(
-                    userToken: userToken,
+                    userToken: nil,
                     query: artist.name,
                     types: ["songs"],
                     limit: 5
@@ -123,7 +124,7 @@ final class AppleMusicPlaylistService {
     // MARK: - New Release Radar Playlist
     
     /// Creates/updates "New Release Radar" playlist (equivalent to Spotify's Release Radar)
-    func createOrUpdateReleaseRadar(userToken: String) async throws -> String {
+    func createOrUpdateReleaseRadar() async throws -> String {
         // Get user's top artists
         let topArtistsResponse = try await appleMusicAPI.getTopArtists(limit: 50)
         
@@ -139,7 +140,7 @@ final class AppleMusicPlaylistService {
         for artist in topArtistsResponse.items.prefix(20) {
             do {
                 let searchResults = try await webAPI.search(
-                    userToken: userToken,
+                    userToken: nil,
                     query: "\(artist.name) new",
                     types: ["songs"],
                     limit: 10

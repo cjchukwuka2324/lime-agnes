@@ -19,6 +19,8 @@ struct AlbumDetailView: View {
     @State private var showSavedUsers = false
     @State private var isAlbumSaved = false
     @State private var currentUserId: UUID?
+    @State private var showSaveConfirmation = false
+    @State private var saveConfirmationMessage = ""
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playerVM = AudioPlayerViewModel.shared
     @StateObject private var viewModel = StudioSessionsViewModel()
@@ -42,15 +44,41 @@ struct AlbumDetailView: View {
         if deleteContext == .sharedWithYou {
             return false
         }
-        // Owners and collaborators can see play counts
-        // If deleteContext is nil, assume it's user's own album (myAlbums scenario)
-        return deleteContext == nil || deleteContext == .myAlbums || deleteContext == .collaborations
+        // Explicit contexts: myAlbums and collaborations always allow play counts
+        if deleteContext == .myAlbums || deleteContext == .collaborations {
+            return true
+        }
+        // If deleteContext is nil (public albums from discover), only show if user is owner
+        // Public viewers should NOT see play counts
+        if deleteContext == nil {
+            return isOwner
+        }
+        // Default: deny access
+        return false
     }
     
     // Check if user is album owner
     private var isOwner: Bool {
         guard let currentUserId = currentUserId else { return false }
         return currentUserId == album.artist_id
+    }
+    
+    // Check if user can delete album
+    private var canDeleteAlbum: Bool {
+        // Cannot delete discovered albums (public albums from discover)
+        if deleteContext == nil && !isOwner {
+            return false
+        }
+        // Can delete if it's in myAlbums or collaborations context
+        if deleteContext == .myAlbums || deleteContext == .collaborations {
+            return true
+        }
+        // Can delete if user is owner (even in other contexts)
+        if isOwner {
+            return true
+        }
+        // Default: cannot delete
+        return false
     }
     
     // Check if user is owner or collaborator (can see analytics)
@@ -83,6 +111,37 @@ struct AlbumDetailView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            
+            // Save Confirmation Toast
+            if showSaveConfirmation {
+                VStack {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.title3)
+                        Text(saveConfirmationMessage)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.15))
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.ultraThinMaterial)
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+                    .padding(.horizontal, 20)
+                    
+                    Spacer()
+                }
+                .padding(.top, 60)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(1000)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.black, for: .navigationBar)
@@ -137,8 +196,8 @@ struct AlbumDetailView: View {
                         .foregroundColor(.white)
                 }
                 
-                // Saved users analytics button (only for owners/collaborators)
-                if canViewAnalytics {
+                // Saved users analytics button (only for owners/collaborators and public albums)
+                if canViewAnalytics && album.is_public == true {
                     Button {
                         showSavedUsers = true
                     } label: {
@@ -150,12 +209,38 @@ struct AlbumDetailView: View {
                 // Save/Unsave button for Discover context (if not owner and public album)
                 if deleteContext == nil && !isOwner && album.is_public == true {
                     Button {
-                        if isAlbumSaved {
-                            viewModel.removeDiscoveredAlbum(album)
-                            isAlbumSaved = false
-                        } else {
-                            viewModel.saveDiscoveredAlbum(album)
-                            isAlbumSaved = true
+                        Task {
+                            let wasSaved = isAlbumSaved
+                            
+                            if wasSaved {
+                                await viewModel.removeDiscoveredAlbum(album)
+                            } else {
+                                await viewModel.saveDiscoveredAlbum(album)
+                            }
+                            
+                            // Update saved state after operation
+                            isAlbumSaved = viewModel.isAlbumSaved(album)
+                            
+                            // Check if operation succeeded (state changed as expected)
+                            if isAlbumSaved != wasSaved {
+                                // Success - show confirmation
+                                saveConfirmationMessage = wasSaved ? "Removed from Discoveries" : "Saved to Discoveries"
+                            } else {
+                                // Failed - show error
+                                saveConfirmationMessage = viewModel.errorMessage ?? "Failed to update. Please try again."
+                            }
+                            
+                            // Show confirmation
+                            withAnimation(.spring(response: 0.3)) {
+                                showSaveConfirmation = true
+                            }
+                            
+                            // Hide confirmation after 2 seconds
+                            try? await Task.sleep(for: .seconds(2))
+                            
+                            withAnimation(.spring(response: 0.3)) {
+                                showSaveConfirmation = false
+                            }
                         }
                     } label: {
                         Image(systemName: isAlbumSaved ? "bookmark.fill" : "bookmark")
@@ -163,31 +248,34 @@ struct AlbumDetailView: View {
                     }
                 }
                 
-                Menu {
-                    if isCollaboration {
-                        // For collaborations, show both options
-                        Button {
-                            showLeaveCollaborationConfirmation = true
-                        } label: {
-                            Label("Leave Collaboration", systemImage: "person.2.slash")
+                // Only show delete menu if user can delete (not for discovered albums)
+                if canDeleteAlbum {
+                    Menu {
+                        if isCollaboration {
+                            // For collaborations, show both options
+                            Button {
+                                showLeaveCollaborationConfirmation = true
+                            } label: {
+                                Label("Leave Collaboration", systemImage: "person.2.slash")
+                            }
+                            
+                            Button(role: .destructive) {
+                                showDeleteAlbumConfirmation = true
+                            } label: {
+                                Label("Delete Album", systemImage: "trash")
+                            }
+                        } else {
+                            // For other contexts, just show delete
+                            Button(role: .destructive) {
+                                showDeleteAlbumConfirmation = true
+                            } label: {
+                                Label("Delete Album", systemImage: "trash")
+                            }
                         }
-                        
-                        Button(role: .destructive) {
-                            showDeleteAlbumConfirmation = true
-                        } label: {
-                            Label("Delete Album", systemImage: "trash")
-                        }
-                    } else {
-                        // For other contexts, just show delete
-                        Button(role: .destructive) {
-                            showDeleteAlbumConfirmation = true
-                        } label: {
-                            Label("Delete Album", systemImage: "trash")
-                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .foregroundColor(.white)
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundColor(.white)
                 }
             }
         }
@@ -249,6 +337,8 @@ struct AlbumDetailView: View {
             
             // Check if album is saved (for Discover context)
             if deleteContext == nil && !isOwner {
+                // Load discovered albums first to ensure accurate state
+                await viewModel.loadDiscoveredAlbums()
                 isAlbumSaved = viewModel.isAlbumSaved(album)
             }
             

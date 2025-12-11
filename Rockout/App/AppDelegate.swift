@@ -94,14 +94,50 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             }
         }
         
-        // Handle Spotify OAuth: rockout://auth
+        // Handle auth callbacks: rockout://auth/callback (email confirmation) or rockout://auth (OAuth)
+        // Note: Primary handling is done in RockOutApp.onOpenURL, but AppDelegate is a fallback
         if url.host == "auth" {
-            Task {
+            // Check if this is an email confirmation link (has callback path or query params)
+            if url.path.contains("callback") || url.query != nil {
+                // This is likely an email confirmation or password reset link
+                // Handle by restoring session directly via Supabase client
+                print("🔐 AppDelegate: Handling as email confirmation/password reset link")
+                Task { @MainActor in
+                    do {
+                        let supabase = SupabaseService.shared.client
+                        let session = try await supabase.auth.session(from: url)
+                        print("✅ AppDelegate: Session restored from URL for:", session.user.email ?? "nil")
+                        // Post notification so AuthViewModel can pick it up
+                        NotificationCenter.default.post(name: NSNotification.Name("SessionRestored"), object: nil)
+                    } catch {
+                        print("⚠️ AppDelegate: Could not restore session from URL:", error.localizedDescription)
+                    }
+                }
+            } else {
+                // Spotify OAuth callback
+                Task {
+                    do {
+                        try await SpotifyAuthService.shared.handleRedirectURL(url)
+                        print("✅ Spotify OAuth successful")
+                    } catch {
+                        print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
+                    }
+                }
+            }
+            return true
+        }
+        
+        // Handle password reset: rockout://password-reset
+        if url.host == "password-reset" || url.path.contains("password-reset") {
+            print("🔐 AppDelegate: Handling as password reset link")
+            Task { @MainActor in
                 do {
-                    try await SpotifyAuthService.shared.handleRedirectURL(url)
-                    print("✅ Spotify OAuth successful")
+                    let supabase = SupabaseService.shared.client
+                    let session = try await supabase.auth.session(from: url)
+                    print("✅ AppDelegate: Session restored from password reset URL")
+                    NotificationCenter.default.post(name: NSNotification.Name("SessionRestored"), object: nil)
                 } catch {
-                    print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
+                    print("⚠️ AppDelegate: Could not restore session from password reset URL:", error.localizedDescription)
                 }
             }
             return true

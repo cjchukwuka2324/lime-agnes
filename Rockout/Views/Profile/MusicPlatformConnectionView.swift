@@ -3,9 +3,7 @@ import AuthenticationServices
 
 struct MusicPlatformConnectionView: View {
     @StateObject private var spotifyAuth = SpotifyAuthService.shared
-    @StateObject private var appleMusicAuth = AppleMusicAuthService.shared
     @State private var isConnectingSpotify = false
-    @State private var isConnectingAppleMusic = false
     @State private var errorMessage: String?
     @State private var authSession: ASWebAuthenticationSession?
     @State private var currentPlatform: String? = nil
@@ -64,48 +62,17 @@ struct MusicPlatformConnectionView: View {
                     }
                     
                     if let email = connection.email {
-                        Text(email)
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.6))
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(email)
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.6))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                 }
                 
-                Text("Platform connection is permanent and cannot be changed.")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-        } else if platform == "apple_music" {
-            VStack(spacing: 12) {
-                Image("apple-music-icon")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 50, height: 50)
-                    .padding(.top, 20)
-                
-                Text("Connected to Apple Music")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                
-                if let connection = appleMusicAuth.appleMusicConnection {
-                    if let displayName = connection.display_name {
-                        Text(displayName)
-                            .font(.headline)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
-                    
-                    if let email = connection.email {
-                        Text(email)
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.6))
-                    }
-                }
-                
-                Text("Platform connection is permanent and cannot be changed.")
+                Text("Music streaming platform connection is permanent and cannot be changed.")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
@@ -164,48 +131,7 @@ struct MusicPlatformConnectionView: View {
                     .stroke(Color(red: 0.12, green: 0.72, blue: 0.33), lineWidth: 2)
             )
             .cornerRadius(12)
-            .disabled(isConnectingSpotify || isConnectingAppleMusic)
-            
-            // Apple Music Button
-            Button {
-                Task {
-                    await connectAppleMusic()
-                }
-            } label: {
-                Group {
-                    if isConnectingAppleMusic {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        HStack(spacing: 12) {
-                            Image("apple-music-icon")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 24, height: 24)
-                            Text("Connect to Apple Music")
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                        }
-                    }
-                }
-                .frame(height: 20)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .padding()
-            .background(
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color(red: 1.0, green: 0.28, blue: 0.47), // Pink
-                        Color(red: 0.34, green: 0.18, blue: 0.96), // Purple
-                        Color(red: 0.0, green: 0.6, blue: 1.0)     // Blue
-                    ]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .cornerRadius(12)
-            .disabled(isConnectingSpotify || isConnectingAppleMusic)
+            .disabled(isConnectingSpotify)
         }
     }
     
@@ -221,8 +147,6 @@ struct MusicPlatformConnectionView: View {
                 // Load the appropriate auth service
                 if connection.platform == "spotify" {
                     await spotifyAuth.loadConnection()
-                } else {
-                    await appleMusicAuth.loadConnection()
                 }
             }
         } catch {
@@ -300,45 +224,6 @@ struct MusicPlatformConnectionView: View {
             session.prefersEphemeralWebBrowserSession = false
             authSession = session
             _ = session.start()
-        }
-    }
-    
-    private func connectAppleMusic() async {
-        await MainActor.run {
-            isConnectingAppleMusic = true
-            errorMessage = nil
-        }
-        
-        defer {
-            Task { @MainActor in
-                isConnectingAppleMusic = false
-            }
-        }
-        
-        do {
-            // Authorize MusicKit and verify subscription
-            // This will throw an error if user doesn't have active Apple Music subscription
-            try await appleMusicAuth.authorize()
-            
-            // If authorization succeeds, connection is saved and verified
-            await appleMusicAuth.loadConnection()
-            await loadConnectionStatus()
-        } catch {
-            await MainActor.run {
-                if let nsError = error as NSError? {
-                    switch nsError.code {
-                    case -1:
-                        errorMessage = "You already have a connection to another platform. Platform connections are permanent."
-                    case -5:
-                        // Verification failed - user doesn't have subscription
-                        errorMessage = nsError.localizedDescription
-                    default:
-                        errorMessage = error.localizedDescription
-                    }
-                } else {
-                    errorMessage = error.localizedDescription
-                }
-            }
         }
     }
 }

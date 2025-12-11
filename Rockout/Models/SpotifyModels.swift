@@ -40,10 +40,29 @@ struct SpotifyAlbum: Codable, Identifiable {
     let id: String
     let name: String
     let images: [SpotifyImage]?
+    let release_date: String?
+    let release_date_precision: String? // "year", "month", "day"
+    let album_type: String? // "album", "single", "compilation"
 
     var imageURL: URL? {
         guard let url = images?.first?.url else { return nil }
         return URL(string: url)
+    }
+    
+    var releaseDate: Date? {
+        guard let release_date = release_date else { return nil }
+        let formatter = DateFormatter()
+        if release_date_precision == "day" {
+            formatter.dateFormat = "yyyy-MM-dd"
+        } else if release_date_precision == "month" {
+            formatter.dateFormat = "yyyy-MM"
+        } else if release_date_precision == "year" {
+            formatter.dateFormat = "yyyy"
+        } else {
+            // Default to day format
+            formatter.dateFormat = "yyyy-MM-dd"
+        }
+        return formatter.date(from: release_date)
     }
 }
 

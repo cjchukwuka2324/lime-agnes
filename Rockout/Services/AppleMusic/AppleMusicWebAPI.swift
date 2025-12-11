@@ -12,9 +12,38 @@ final class AppleMusicWebAPI {
     // MARK: - Storefront
     
     /// Get user's storefront (country code for API requests)
-    /// This would typically be fetched from MusicKit or user preferences
+    /// Fetches the actual storefront from Apple Music API
     func getUserStorefront() async throws -> String {
-        // Default to US, but should ideally come from user's account
+        // Try to fetch actual storefront from /me/storefront endpoint
+        do {
+            let data = try await request(path: "/me/storefront", userToken: nil)
+            
+            struct StorefrontResponse: Codable {
+                let data: [StorefrontData]
+            }
+            
+            struct StorefrontData: Codable {
+                let id: String
+                let type: String
+                let attributes: StorefrontAttributes
+            }
+            
+            struct StorefrontAttributes: Codable {
+                let name: String
+                let defaultLanguageTag: String
+                let supportedLanguageTags: [String]
+            }
+            
+            let response = try JSONDecoder().decode(StorefrontResponse.self, from: data)
+            if let storefront = response.data.first {
+                print("✅ Apple Music storefront: \(storefront.id) (\(storefront.attributes.name))")
+                return storefront.id
+            }
+        } catch {
+            print("⚠️ Failed to fetch storefront, using default: \(error.localizedDescription)")
+        }
+        
+        // Fallback to US if fetch fails
         return "us"
     }
     
@@ -45,71 +74,58 @@ final class AppleMusicWebAPI {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         
-        // Add user token if provided (for personalized requests)
-        if let userToken = userToken {
-            urlRequest.setValue(userToken, forHTTPHeaderField: "Music-User-Token")
-        }
-        
         if let body = body {
             urlRequest.httpBody = body
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         
-        // Developer token is required for all Web API requests to api.music.apple.com
-        // 
-        // IMPORTANT: Automatic developer token generation in MusicKit works for
-        // MusicKit catalog APIs (like MusicCatalogResourceRequest), but NOT for
-        // direct HTTP calls to the Web API.
-        //
-        // For direct Web API calls, you have two options:
-        // 1. Provide a developer token manually (via Secrets.swift or another method)
-        // 2. Use MusicKit catalog APIs instead of direct HTTP calls (recommended)
-        //
-        // If you have automatic token generation configured in your App ID,
-        // you can still use it by switching to MusicKit catalog APIs.
-        // For now, we'll check if a token is available in Secrets as a fallback.
-        
-        // Check if developer token is available (optional for automatic token generation setups)
-        // Uncomment the following lines if you want to provide a token manually:
-        /*
-        if let devToken = Secrets.appleMusicDeveloperToken {
-            urlRequest.setValue("Bearer \(devToken)", forHTTPHeaderField: "Authorization")
-        }
-        */
-        
-        // Make the request
-        // Note: Without a developer token, this will return 401 Unauthorized
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "AppleMusicWebAPI", code: -3, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])
-        }
-        
-        if !(200...299).contains(httpResponse.statusCode) {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+        // Use MusicDataRequest to automatically handle both developer token and Music User Token
+        // MusicDataRequest wraps URLRequest and automatically adds:
+        // 1. Authorization header with developer token (automatic token generation)
+        // 2. Music-User-Token header for personalized requests (if MusicKit is authorized)
+        // Note: userToken parameter is kept for backward compatibility but typically not needed
+        // as MusicDataRequest automatically handles Music-User-Token when MusicKit is authorized
+        if #available(iOS 16.0, *) {
+            let musicRequest = MusicDataRequest(urlRequest: urlRequest)
+            let response = try await musicRequest.response()
             
-            // If we get 401 Unauthorized, it means we need a developer token
-            if httpResponse.statusCode == 401 {
+            guard let httpResponse = response.urlResponse as? HTTPURLResponse else {
+                throw NSError(domain: "AppleMusicWebAPI", code: -3, userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"])
+            }
+            
+            if !(200...299).contains(httpResponse.statusCode) {
+                let errorBody = String(data: response.data, encoding: .utf8) ?? "Unknown error"
+                
+                if httpResponse.statusCode == 401 {
+                    throw NSError(
+                        domain: "AppleMusicWebAPI",
+                        code: 401,
+                        userInfo: [NSLocalizedDescriptionKey: "Unauthorized: Could not authenticate with Apple Music. Please ensure MusicKit is properly configured and you have an active Apple Music subscription."]
+                    )
+                }
+                
                 throw NSError(
                     domain: "AppleMusicWebAPI",
-                    code: 401,
-                    userInfo: [NSLocalizedDescriptionKey: "Unauthorized: Developer token required. For native iOS apps, ensure MusicKit is properly configured in your App ID capabilities, or provide a developer token. Note: Automatic token generation works with MusicKit catalog APIs, not direct HTTP calls to the Web API."]
+                    code: httpResponse.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "API error (\(httpResponse.statusCode)): \(errorBody)"]
                 )
             }
             
+            return response.data
+        } else {
+            // Fallback for iOS < 16: Use URLSession (requires manual developer token)
+            // This should not be used in production, but included for compatibility
             throw NSError(
                 domain: "AppleMusicWebAPI",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "API error (\(httpResponse.statusCode)): \(errorBody)"]
+                code: -4,
+                userInfo: [NSLocalizedDescriptionKey: "Apple Music Web API requires iOS 16.0 or later for automatic token generation."]
             )
         }
-        
-        return data
     }
     
     // MARK: - User Library
     
-    func getUserLibrarySongs(userToken: String, limit: Int = 100) async throws -> [AppleMusicWebAPISong] {
+    func getUserLibrarySongs(userToken: String? = nil, limit: Int = 100) async throws -> [AppleMusicWebAPISong] {
         let storefront = try await getUserStorefront()
         let data = try await request(
             path: "/me/library/songs?limit=\(limit)",
@@ -133,7 +149,7 @@ final class AppleMusicWebAPI {
     
     // MARK: - Heavy Rotation Charts
     
-    func getHeavyRotationArtists(userToken: String, limit: Int = 20) async throws -> [AppleMusicWebAPIArtist] {
+    func getHeavyRotationArtists(userToken: String? = nil, limit: Int = 20) async throws -> [AppleMusicWebAPIArtist] {
         let storefront = try await getUserStorefront()
         let data = try await request(
             path: "/catalog/\(storefront)/charts?types=artists&limit=\(limit)",
@@ -156,7 +172,7 @@ final class AppleMusicWebAPI {
         return response.results.artists?.first?.data ?? []
     }
     
-    func getHeavyRotationSongs(userToken: String, limit: Int = 20) async throws -> [AppleMusicWebAPISong] {
+    func getHeavyRotationSongs(userToken: String? = nil, limit: Int = 20) async throws -> [AppleMusicWebAPISong] {
         let storefront = try await getUserStorefront()
         let data = try await request(
             path: "/catalog/\(storefront)/charts?types=songs&limit=\(limit)",
@@ -181,7 +197,7 @@ final class AppleMusicWebAPI {
     
     // MARK: - Recently Played
     
-    func getRecentlyPlayed(userToken: String, limit: Int = 50) async throws -> [AppleMusicWebAPIPlayHistory] {
+    func getRecentlyPlayed(userToken: String? = nil, limit: Int = 50) async throws -> [AppleMusicWebAPIPlayHistory] {
         let data = try await request(
             path: "/me/recent/played?limit=\(limit)",
             userToken: userToken
@@ -217,7 +233,7 @@ final class AppleMusicWebAPI {
     
     // MARK: - Playlist Operations
     
-    func createPlaylist(userToken: String, name: String, description: String?) async throws -> String {
+    func createPlaylist(userToken: String? = nil, name: String, description: String?) async throws -> String {
         let body: [String: Any] = [
             "attributes": [
                 "name": name,
@@ -248,7 +264,7 @@ final class AppleMusicWebAPI {
         return playlistId
     }
     
-    func addTracksToPlaylist(userToken: String, playlistId: String, trackIds: [String]) async throws {
+    func addTracksToPlaylist(userToken: String? = nil, playlistId: String, trackIds: [String]) async throws {
         let storefront = try await getUserStorefront()
         
         let tracks = trackIds.map { [
@@ -271,7 +287,7 @@ final class AppleMusicWebAPI {
     
     // MARK: - Search
     
-    func search(userToken: String, query: String, types: [String] = ["songs", "artists"], limit: Int = 20) async throws -> AppleMusicWebAPISearchResponse {
+    func search(userToken: String? = nil, query: String, types: [String] = ["songs", "artists"], limit: Int = 20) async throws -> AppleMusicWebAPISearchResponse {
         let storefront = try await getUserStorefront()
         let typesString = types.joined(separator: ",")
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query

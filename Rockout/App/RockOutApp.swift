@@ -6,37 +6,37 @@ struct RockoutApp: App {
     @StateObject private var authVM = AuthViewModel()
 
     init() {
-        // Configure Navigation Bar Appearance
-        let navAppearance = UINavigationBarAppearance()
-        navAppearance.configureWithOpaqueBackground()
-        navAppearance.backgroundColor = UIColor.black
+            // Configure Navigation Bar Appearance
+            let navAppearance = UINavigationBarAppearance()
+            navAppearance.configureWithOpaqueBackground()
+            navAppearance.backgroundColor = UIColor.black
 
-        navAppearance.titleTextAttributes = [
-            .foregroundColor: UIColor.white,
-            .font: UIFont.systemFont(ofSize: 20, weight: .bold)
-        ]
+            navAppearance.titleTextAttributes = [
+                .foregroundColor: UIColor.white,
+                .font: UIFont.systemFont(ofSize: 20, weight: .bold)
+            ]
 
-        UINavigationBar.appearance().standardAppearance = navAppearance
-        UINavigationBar.appearance().compactAppearance = navAppearance
-        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
-        UINavigationBar.appearance().tintColor = .white
-        
-        // Configure Tab Bar Appearance
-        let tabBarAppearance = UITabBarAppearance()
-        tabBarAppearance.configureWithOpaqueBackground()
-        tabBarAppearance.backgroundColor = UIColor.black
-        
-        tabBarAppearance.stackedLayoutAppearance.normal.iconColor = UIColor.white.withAlphaComponent(0.6)
-        tabBarAppearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.white.withAlphaComponent(0.6)]
-        
-        tabBarAppearance.stackedLayoutAppearance.selected.iconColor = UIColor.white
-        tabBarAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
-        
-        UITabBar.appearance().standardAppearance = tabBarAppearance
-        if #available(iOS 15.0, *) {
-            UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+            UINavigationBar.appearance().standardAppearance = navAppearance
+            UINavigationBar.appearance().compactAppearance = navAppearance
+            UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+            UINavigationBar.appearance().tintColor = .white
+            
+            // Configure Tab Bar Appearance
+            let tabBarAppearance = UITabBarAppearance()
+            tabBarAppearance.configureWithOpaqueBackground()
+            tabBarAppearance.backgroundColor = UIColor.black
+            
+            tabBarAppearance.stackedLayoutAppearance.normal.iconColor = UIColor.white.withAlphaComponent(0.6)
+            tabBarAppearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.white.withAlphaComponent(0.6)]
+            
+            tabBarAppearance.stackedLayoutAppearance.selected.iconColor = UIColor.white
+            tabBarAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
+            
+            UITabBar.appearance().standardAppearance = tabBarAppearance
+            if #available(iOS 15.0, *) {
+                UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+            }
         }
-    }
 
     var body: some Scene {
         WindowGroup {
@@ -83,16 +83,32 @@ struct RockoutApp: App {
                         return
                     }
                     
-                    // Handle Spotify OAuth callback: rockout://auth
+                    // Handle auth callbacks: rockout://auth/callback (email confirmation) or rockout://auth (OAuth)
                     if url.host == "auth" {
-                        Task {
-                            do {
-                                try await SpotifyAuthService.shared.handleRedirectURL(url)
-                                print("✅ Spotify OAuth successful")
-                            } catch {
-                                print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
+                        // Check if this is an email confirmation link (has callback path or query params)
+                        if url.path.contains("callback") || url.query != nil {
+                            // This is likely an email confirmation or password reset link
+                            // Handle via AuthViewModel which will restore session
+                            print("🔐 Handling as email confirmation/password reset link")
+                            authVM.handleDeepLink(url)
+                        } else {
+                            // Spotify OAuth callback
+                            Task {
+                                do {
+                                    try await SpotifyAuthService.shared.handleRedirectURL(url)
+                                    print("✅ Spotify OAuth successful")
+                                } catch {
+                                    print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
+                                }
                             }
                         }
+                        return
+                    }
+                    
+                    // Handle password reset: rockout://password-reset
+                    if url.host == "password-reset" || url.path.contains("password-reset") {
+                        print("🔐 Handling as password reset link")
+                        authVM.handleDeepLink(url)
                         return
                     }
                     

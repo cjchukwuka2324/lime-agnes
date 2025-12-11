@@ -15,6 +15,8 @@ final class AuthViewModel: ObservableObject {
 
     @Published var authState: AuthState = .loading
     @Published var currentUserEmail: String?
+    @Published var hasUsername: Bool? = nil // nil = loading/unknown, true = has username, false = missing username
+    @Published var shouldShowProfile: Bool = false // Flag to navigate to profile tab after username setup
 
     private var supabase: SupabaseClient {
         SupabaseService.shared.client
@@ -25,6 +27,21 @@ final class AuthViewModel: ObservableObject {
 
     init() {
         Task { await loadInitialSession() }
+        
+        // Listen for session restoration notifications from AppDelegate
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("SessionRestored"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.checkForActiveSession()
+            }
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func loadInitialSession() async {
@@ -32,8 +49,11 @@ final class AuthViewModel: ObservableObject {
             let session = try await supabase.auth.session
             currentUserEmail = session.user.email
             authState = .authenticated
+            // Check username status after authentication
+            await checkUsernameStatus()
         } catch {
             authState = .unauthenticated
+            hasUsername = nil
         }
     }
 
@@ -64,22 +84,62 @@ final class AuthViewModel: ObservableObject {
     // MARK: - Deep Link Handler
     func handleDeepLink(_ url: URL) {
         print("🔥 Deep link received:", url.absoluteString)
+        print("   Full URL: \(url.absoluteString)")
+        print("   Host: \(url.host ?? "nil")")
+        print("   Path: \(url.path)")
+        if let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
+            print("   Query items: \(queryItems)")
+        }
 
         Task { @MainActor in
-            // First try to restore session from URL
-            do {
-                let session = try await supabase.auth.session(from: url)
-                print("✅ OAuth session restored from URL for:", session.user.email ?? "nil")
-                currentUserEmail = session.user.email
-                authState = .authenticated
-                print("✅ Auth state updated to authenticated")
-                return
-            } catch {
-                print("⚠️ Could not restore session from URL:", error.localizedDescription)
+            // Handle email confirmation and password reset links
+            // These come in as: rockout://auth/callback or rockout://password-reset
+            // with access_token and refresh_token in query parameters
+            if url.host == "auth" || url.host == "password-reset" || url.path.contains("auth/callback") {
+                do {
+                    // Try to restore session from URL (works for email confirmation and password reset)
+                    let session = try await supabase.auth.session(from: url)
+                    print("✅ Session restored from URL for:", session.user.email ?? "nil")
+                    currentUserEmail = session.user.email
+                    authState = .authenticated
+                    print("✅ Auth state updated to authenticated")
+                    
+                    // Refresh profile data after successful authentication
+                    // This will also check for and apply any stored signup data
+                    Task {
+                        do {
+                            _ = try await UserProfileService.shared.getCurrentUserProfile()
+                            print("✅ Profile refreshed after email confirmation")
+                            // Check username status after profile refresh
+                            await self.checkUsernameStatus()
+                        } catch {
+                            print("⚠️ Failed to refresh profile after email confirmation: \(error.localizedDescription)")
+                        }
+                    }
+                    return
+                } catch {
+                    print("⚠️ Could not restore session from URL:", error.localizedDescription)
+                    // Continue to fallback below
+                }
             }
             
             // Fallback: Check if session was already stored (with retry)
             await checkForActiveSessionWithRetry()
+            
+            // If we successfully got a session, refresh profile
+            // This will also check for and apply any stored signup data
+            if authState == .authenticated {
+                Task {
+                    do {
+                        _ = try await UserProfileService.shared.getCurrentUserProfile()
+                        print("✅ Profile refreshed after session check")
+                        // Check username status after profile refresh
+                        await self.checkUsernameStatus()
+                    } catch {
+                        print("⚠️ Failed to refresh profile: \(error.localizedDescription)")
+                    }
+                }
+            }
         }
     }
     
@@ -91,11 +151,15 @@ final class AuthViewModel: ObservableObject {
                 print("✅ Found active session on check")
                 currentUserEmail = session.user.email
                 authState = .authenticated
+                // Check username status after authentication
+                await checkUsernameStatus()
             } else {
                 print("⚠️ No active session found")
+                hasUsername = nil
             }
         } catch {
             print("⚠️ No session available:", error.localizedDescription)
+            hasUsername = nil
         }
     }
     
@@ -121,6 +185,8 @@ final class AuthViewModel: ObservableObject {
         try? await supabase.auth.signOut()
         currentUserEmail = nil
         authState = .unauthenticated
+        hasUsername = nil
+        shouldShowProfile = false
         // Reset onboarding so it shows again after logout
         UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
     }
@@ -137,10 +203,14 @@ final class AuthViewModel: ObservableObject {
         let session = try await supabase.auth.signIn(email: email, password: password)
         currentUserEmail = session.user.email
         authState = .authenticated
+        // Check username status after login
+        await checkUsernameStatus()
     }
     
-    func signup(email: String, password: String) async throws {
-        try await supabase.auth.signUp(email: email, password: password)
+    func signup(email: String, password: String) async throws -> UUID {
+        let response = try await supabase.auth.signUp(email: email, password: password)
+        // Return the user ID from the signup response
+        return response.user.id
     }
     
     func sendPasswordReset(email: String) async throws {
@@ -153,6 +223,30 @@ final class AuthViewModel: ObservableObject {
         let session = try await supabase.auth.session
         currentUserEmail = session.user.email
         authState = .authenticated
+    }
+    
+    // MARK: - Username Status Check
+    func checkUsernameStatus() async {
+        guard authState == .authenticated else {
+            hasUsername = nil
+            return
+        }
+        
+        do {
+            let profile = try await UserProfileService.shared.getCurrentUserProfile()
+            // Check if username exists and is not empty
+            if let username = profile?.username, !username.trimmingCharacters(in: .whitespaces).isEmpty {
+                hasUsername = true
+                print("✅ User has username: @\(username)")
+            } else {
+                hasUsername = false
+                print("⚠️ User does not have a username")
+            }
+        } catch {
+            print("⚠️ Failed to check username status: \(error.localizedDescription)")
+            // On error, assume username is missing to be safe
+            hasUsername = false
+        }
     }
 }
 

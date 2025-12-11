@@ -41,6 +41,8 @@ struct ProfileView: View {
                 
                 ScrollView {
                     VStack(spacing: 24) {
+                        ScrollViewOffsetReader()
+                        
                         // Profile Header with Picture
                         profileHeaderSection
                             .padding(.horizontal, 20)
@@ -67,6 +69,7 @@ struct ProfileView: View {
                             .frame(height: 20)
                     }
                 }
+                .detectScroll(collapseThreshold: 50)
                 .scrollContentBackground(.hidden)
             }
             .navigationTitle("Profile")
@@ -75,7 +78,7 @@ struct ProfileView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .background(Color.black)
             .onAppear {
-                // Ensure navigation bar is always opaque
+                // Ensure navigation bar is opaque for this view only
                 let appearance = UINavigationBarAppearance()
                 appearance.configureWithOpaqueBackground()
                 appearance.backgroundColor = .black
@@ -86,10 +89,10 @@ struct ProfileView: View {
                 UINavigationBar.appearance().compactAppearance = appearance
             }
             .onDisappear {
-                // Reset to global appearance when leaving
+                // Reset to global transparent appearance when leaving
                 let appearance = UINavigationBarAppearance()
-                appearance.configureWithOpaqueBackground()
-                appearance.backgroundColor = UIColor.black
+                appearance.configureWithTransparentBackground()
+                appearance.backgroundColor = UIColor.clear
                 appearance.shadowColor = .clear
                 
                 UINavigationBar.appearance().standardAppearance = appearance

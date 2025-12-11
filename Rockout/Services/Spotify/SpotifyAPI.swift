@@ -162,6 +162,43 @@ final class SpotifyAPI: ObservableObject {
         return try JSONDecoder().decode(SpotifyTopTracksResponse.self, from: data)
     }
     
+    // MARK: - Audio Features
+    
+    /// Fetch audio features for multiple tracks (up to 100 at a time)
+    /// - Parameter trackIds: Array of Spotify track IDs
+    /// - Returns: Array of AudioFeatures for the tracks (in same order as input)
+    func getAudioFeatures(trackIds: [String]) async throws -> [AudioFeatures] {
+        guard !trackIds.isEmpty else { return [] }
+        
+        // Spotify API allows up to 100 IDs at a time
+        var allFeatures: [AudioFeatures] = []
+        let chunkSize = 100
+        
+        for i in stride(from: 0, to: trackIds.count, by: chunkSize) {
+            let endIndex = min(i + chunkSize, trackIds.count)
+            let chunk = Array(trackIds[i..<endIndex])
+            let idsString = chunk.joined(separator: ",")
+            
+            let data = try await authedRequest(
+                path: "/audio-features",
+                queryItems: [
+                    URLQueryItem(name: "ids", value: idsString)
+                ]
+            )
+            
+            struct AudioFeaturesResponse: Codable {
+                let audio_features: [AudioFeatures?]
+            }
+            
+            let response = try JSONDecoder().decode(AudioFeaturesResponse.self, from: data)
+            // Filter out nil values (tracks without audio features)
+            let features = response.audio_features.compactMap { $0 }
+            allFeatures.append(contentsOf: features)
+        }
+        
+        return allFeatures
+    }
+    
     // MARK: - Get Artist(s)
     
     /// Fetch a single artist by ID
@@ -199,6 +236,115 @@ final class SpotifyAPI: ObservableObject {
         }
         
         return allArtists
+    }
+    
+    // MARK: - Get Artist Albums
+    
+    /// Fetch albums for an artist
+    func getArtistAlbums(artistId: String, includeGroups: [String] = ["album", "single"], limit: Int = 50, offset: Int = 0) async throws -> [SpotifyAlbum] {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "include_groups", value: includeGroups.joined(separator: ",")),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)")
+        ]
+        
+        let data = try await authedRequest(
+            path: "/artists/\(artistId)/albums",
+            queryItems: queryItems
+        )
+        
+        struct AlbumsResponse: Codable {
+            let items: [SpotifyAlbum]
+            let next: String?
+        }
+        
+        let response = try JSONDecoder().decode(AlbumsResponse.self, from: data)
+        return response.items
+    }
+    
+    /// Get all albums for an artist (handles pagination)
+    func getAllArtistAlbums(artistId: String, includeGroups: [String] = ["album", "single"]) async throws -> [SpotifyAlbum] {
+        var allAlbums: [SpotifyAlbum] = []
+        var offset = 0
+        let limit = 50
+        
+        while true {
+            let albums = try await getArtistAlbums(artistId: artistId, includeGroups: includeGroups, limit: limit, offset: offset)
+            allAlbums.append(contentsOf: albums)
+            
+            if albums.count < limit {
+                break
+            }
+            offset += limit
+        }
+        
+        return allAlbums
+    }
+    
+    /// Get album tracks (returns simplified tracks, need to enrich with album info)
+    func getAlbumTracks(albumId: String, limit: Int = 50, offset: Int = 0) async throws -> [SpotifyTrack] {
+        // First get the album to have album context
+        let album = try await getAlbum(id: albumId)
+        
+        let data = try await authedRequest(
+            path: "/albums/\(albumId)/tracks",
+            queryItems: [
+                URLQueryItem(name: "limit", value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)")
+            ]
+        )
+        
+        // Simplified track structure from album tracks endpoint
+        struct SimplifiedTrack: Codable {
+            let id: String
+            let name: String
+            let artists: [SpotifyArtist]
+            let duration_ms: Int?
+            let preview_url: String?
+        }
+        
+        struct TracksResponse: Codable {
+            let items: [SimplifiedTrack]
+            let next: String?
+        }
+        
+        let response = try JSONDecoder().decode(TracksResponse.self, from: data)
+        
+        // Convert simplified tracks to full SpotifyTrack with album context
+        return response.items.map { simplified in
+            SpotifyTrack(
+                id: simplified.id,
+                name: simplified.name,
+                album: album,
+                artists: simplified.artists,
+                popularity: nil,
+                duration_ms: simplified.duration_ms,
+                preview_url: simplified.preview_url
+            )
+        }
+    }
+    
+    /// Get artist's top tracks in a specific market
+    func getArtistTopTracks(artistId: String, market: String = "US") async throws -> [SpotifyTrack] {
+        let data = try await authedRequest(
+            path: "/artists/\(artistId)/top-tracks",
+            queryItems: [
+                URLQueryItem(name: "market", value: market)
+            ]
+        )
+        
+        struct TopTracksResponse: Codable {
+            let tracks: [SpotifyTrack]
+        }
+        
+        let response = try JSONDecoder().decode(TopTracksResponse.self, from: data)
+        return response.tracks
+    }
+    
+    /// Get album by ID (for release date info)
+    func getAlbum(id: String) async throws -> SpotifyAlbum {
+        let data = try await authedRequest(path: "/albums/\(id)")
+        return try JSONDecoder().decode(SpotifyAlbum.self, from: data)
     }
 }
 

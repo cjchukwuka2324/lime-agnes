@@ -253,50 +253,56 @@ struct FeedView: View {
     }
     
     private var postsList: some View {
-        ScrollView {
-            LazyVStack(spacing: 16) {
-                ForEach(viewModel.posts) { post in
-                    postCardView(for: post)
-                        .onAppear {
-                            // Trigger load more when near the end
-                            if let lastPost = viewModel.posts.last,
-                               post.id == lastPost.id,
-                               viewModel.hasMorePages && !viewModel.isLoadingMore {
-                                Task {
-                                    await viewModel.loadMore(feedType: selectedFeedType)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ScrollViewOffsetReader()
+                        .id("scrollTop")
+                    
+                    ForEach(viewModel.posts) { post in
+                        postCardView(for: post)
+                            .onAppear {
+                                // Trigger load more when near the end
+                                if let lastPost = viewModel.posts.last,
+                                   post.id == lastPost.id,
+                                   viewModel.hasMorePages && !viewModel.isLoadingMore {
+                                    Task {
+                                        await viewModel.loadMore(feedType: selectedFeedType)
+                                    }
                                 }
                             }
+                    }
+                    
+                    // Loading indicator at bottom
+                    if viewModel.isLoadingMore {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .tint(.white)
+                                .padding(.vertical, 20)
+                            Spacer()
                         }
-                }
-                
-                // Loading indicator at bottom
-                if viewModel.isLoadingMore {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .tint(.white)
-                            .padding(.vertical, 20)
-                        Spacer()
+                    }
+                    
+                    // End of feed indicator
+                    if !viewModel.hasMorePages && !viewModel.posts.isEmpty {
+                        HStack {
+                            Spacer()
+                            Text("You've reached the end")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.5))
+                                .padding(.vertical, 20)
+                            Spacer()
+                        }
                     }
                 }
-                
-                // End of feed indicator
-                if !viewModel.hasMorePages && !viewModel.posts.isEmpty {
-                    HStack {
-                        Spacer()
-                        Text("You've reached the end")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.5))
-                            .padding(.vertical, 20)
-                        Spacer()
-                    }
-                }
+                .padding(.top, 16)
+                .padding(.bottom, 100)
             }
-            .padding(.top, 16)
-            .padding(.bottom, 100)
-        }
-        .refreshable {
-            await viewModel.refresh(feedType: selectedFeedType)
+            .detectScroll(collapseThreshold: 50)
+            .refreshable {
+                await viewModel.refresh(feedType: selectedFeedType)
+            }
         }
     }
     

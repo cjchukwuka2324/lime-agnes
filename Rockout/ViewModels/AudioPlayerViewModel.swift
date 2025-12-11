@@ -3,6 +3,8 @@ import AVFoundation
 import Combine
 import SwiftUI
 import Supabase
+import MediaPlayer
+import UIKit
 
 @MainActor
 class AudioPlayerViewModel: ObservableObject {
@@ -21,6 +23,7 @@ class AudioPlayerViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var currentAlbum: StudioAlbumRecord?
     @Published var albumTracks: [StudioTrackRecord] = []
+    @Published var currentTrack: StudioTrackRecord?
     
     private var player: AVPlayer?
     private var timeObserver: Any?
@@ -32,14 +35,18 @@ class AudioPlayerViewModel: ObservableObject {
     private var rateNode: AVAudioUnitVarispeed?
     private var cancellables = Set<AnyCancellable>()
     
-    var currentTrack: StudioTrackRecord?
+    // Now Playing artwork cache
+    private var cachedArtwork: MPMediaItemArtwork?
+    private var currentArtworkAlbumId: UUID?
     
     // Play tracking
     private var thresholdRecordedForCurrentTrack: Bool = false
     private var lastTrackedAlbumForReplay: UUID? // Track which album we last incremented replay for
     private let trackPlayService = TrackPlayService.shared
     
-    private init() {}
+    private init() {
+        setupRemoteCommandCenter()
+    }
     
     // MARK: - Load Track
     func loadTrack(_ track: StudioTrackRecord, album: StudioAlbumRecord? = nil, tracks: [StudioTrackRecord]? = nil) {
@@ -59,6 +66,10 @@ class AudioPlayerViewModel: ObservableObject {
         }
         isLoading = true
         errorMessage = nil
+        
+        // Reset artwork cache to force reload when track changes
+        currentArtworkAlbumId = nil
+        cachedArtwork = nil
         
         // Reset play tracking for new track
         thresholdRecordedForCurrentTrack = false
@@ -84,8 +95,9 @@ class AudioPlayerViewModel: ObservableObject {
         // Remove time observer BEFORE stopping/creating new player
         removeTimeObserver()
         
-        // Stop current playback
+        // Stop current playback and audio engine
         stop()
+        stopAudioEngine()
         
         // Try to get a playable URL (signed URL if needed)
         Task {
@@ -98,10 +110,11 @@ class AudioPlayerViewModel: ObservableObject {
                     self.playerItem = AVPlayerItem(asset: asset)
                     self.player = AVPlayer(playerItem: self.playerItem)
                     
-                    // Configure audio session for playback
+                    // Configure audio session for playback with background and Bluetooth support
                     do {
-                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-                        try AVAudioSession.sharedInstance().setActive(true)
+                        let audioSession = AVAudioSession.sharedInstance()
+                        try audioSession.setCategory(.playback, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay])
+                        try audioSession.setActive(true)
                     } catch {
                         print("Failed to configure audio session: \(error)")
                     }
@@ -126,10 +139,14 @@ class AudioPlayerViewModel: ObservableObject {
                             guard let self = self else { return }
                             if status == .readyToPlay {
                                 self.isLoading = false
+                                // Update Now Playing info immediately when track is ready
+                                self.updateNowPlayingInfo()
                                 // Auto-play when ready
                                 self.player?.play()
                                 self.player?.rate = self.playbackRate
                                 self.isPlaying = true
+                                // Update again after starting playback to ensure playback rate is set
+                                self.updateNowPlayingInfo()
                             } else if status == .failed {
                                 // Try to get more detailed error info
                                 if let error = self.playerItem?.error {
@@ -147,6 +164,9 @@ class AudioPlayerViewModel: ObservableObject {
                     
                     // Setup time observer
                     self.setupTimeObserver()
+                    
+                    // Update remote command center availability after track loads
+                    self.updateRemoteCommandCenterAvailability()
                 }
             } catch {
                 await MainActor.run {
@@ -246,6 +266,14 @@ class AudioPlayerViewModel: ObservableObject {
     
     // MARK: - Playback Controls
     func play() {
+        // If using audio engine for pitch, use that
+        if pitch != 0, let playerNode = playerNode, let engine = audioEngine, engine.isRunning {
+            playerNode.play()
+            isPlaying = true
+            updateNowPlayingInfo()
+            return
+        }
+        
         guard let player = player, let playerItem = playerItem else {
             errorMessage = "Audio not loaded"
             return
@@ -256,6 +284,7 @@ class AudioPlayerViewModel: ObservableObject {
             player.play()
             player.rate = playbackRate
             isPlaying = true
+            updateNowPlayingInfo()
         } else if playerItem.status == .failed {
             errorMessage = "Failed to load audio file"
         } else {
@@ -267,6 +296,7 @@ class AudioPlayerViewModel: ObservableObject {
                         player.play()
                         player.rate = playbackRate
                         isPlaying = true
+                        updateNowPlayingInfo()
                     }
                 }
             }
@@ -274,8 +304,13 @@ class AudioPlayerViewModel: ObservableObject {
     }
     
     func pause() {
-        player?.pause()
+        if let playerNode = playerNode {
+            playerNode.pause()
+        } else {
+            player?.pause()
+        }
         isPlaying = false
+        updateNowPlayingInfo()
     }
     
     func stop() {
@@ -283,6 +318,28 @@ class AudioPlayerViewModel: ObservableObject {
         player?.seek(to: .zero)
         isPlaying = false
         currentTime = 0
+    }
+    
+    func dismiss() {
+        removeTimeObserver()
+        player?.pause()
+        player?.seek(to: .zero)
+        player = nil
+        playerItem = nil
+        isPlaying = false
+        currentTime = 0
+        duration = 0
+        currentTrack = nil
+        currentAlbum = nil
+        albumTracks = []
+        thresholdRecordedForCurrentTrack = false
+        lastTrackedAlbumForReplay = nil
+        
+        // Clear Now Playing info and artwork cache
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        cachedArtwork = nil
+        currentArtworkAlbumId = nil
+        updateRemoteCommandCenterAvailability()
     }
     
     func seek(to time: TimeInterval) {
@@ -294,26 +351,60 @@ class AudioPlayerViewModel: ObservableObject {
     // MARK: - Track Navigation
     func previousTrack() {
         guard let currentTrack = currentTrack,
-              !albumTracks.isEmpty else { return }
+              !albumTracks.isEmpty else {
+            print("⚠️ Cannot go to previous track: no current track or album tracks")
+            return
+        }
         
         let sortedTracks = albumTracks.sorted { ($0.track_number ?? 0) < ($1.track_number ?? 0) }
-        guard let currentIndex = sortedTracks.firstIndex(where: { $0.id == currentTrack.id }),
-              currentIndex > 0 else { return }
+        guard let currentIndex = sortedTracks.firstIndex(where: { $0.id == currentTrack.id }) else {
+            print("⚠️ Cannot find current track in album tracks")
+            return
+        }
         
-        let previousTrack = sortedTracks[currentIndex - 1]
-        loadTrack(previousTrack, album: currentAlbum, tracks: albumTracks)
+        if currentIndex > 0 {
+            // Go to previous track
+            let previousTrack = sortedTracks[currentIndex - 1]
+            print("▶️ Loading previous track: \(previousTrack.title)")
+            loadTrack(previousTrack, album: currentAlbum, tracks: albumTracks)
+        } else {
+            // At first track - restart current song
+            print("ℹ️ At first track, restarting current song")
+            seek(to: 0)
+            if !isPlaying {
+                play()
+            }
+            updateNowPlayingInfo()
+        }
     }
     
     func nextTrack() {
         guard let currentTrack = currentTrack,
-              !albumTracks.isEmpty else { return }
+              !albumTracks.isEmpty else {
+            print("⚠️ Cannot go to next track: no current track or album tracks")
+            return
+        }
         
         let sortedTracks = albumTracks.sorted { ($0.track_number ?? 0) < ($1.track_number ?? 0) }
-        guard let currentIndex = sortedTracks.firstIndex(where: { $0.id == currentTrack.id }),
-              currentIndex < sortedTracks.count - 1 else { return }
+        guard let currentIndex = sortedTracks.firstIndex(where: { $0.id == currentTrack.id }) else {
+            print("⚠️ Cannot find current track in album tracks")
+            return
+        }
         
-        let nextTrack = sortedTracks[currentIndex + 1]
-        loadTrack(nextTrack, album: currentAlbum, tracks: albumTracks)
+        if currentIndex < sortedTracks.count - 1 {
+            // Go to next track
+            let nextTrack = sortedTracks[currentIndex + 1]
+            print("▶️ Loading next track: \(nextTrack.title)")
+            loadTrack(nextTrack, album: currentAlbum, tracks: albumTracks)
+        } else {
+            // At last track - restart current song
+            print("ℹ️ At last track, restarting current song")
+            seek(to: 0)
+            if !isPlaying {
+                play()
+            }
+            updateNowPlayingInfo()
+        }
     }
     
     // MARK: - Playback Rate
@@ -325,8 +416,6 @@ class AudioPlayerViewModel: ObservableObject {
     // MARK: - Pitch Adjustment
     func setPitch(_ semitones: Float) {
         pitch = semitones.clamped(to: -12...12)
-        // For pitch adjustment, we'd need to use AVAudioEngine
-        // This is a simplified version - full implementation would use audio engine
         updateAudioEngine()
     }
     
@@ -400,6 +489,9 @@ class AudioPlayerViewModel: ObservableObject {
             guard let self = self else { return }
             self.currentTime = time.seconds
             
+            // Update only time-related Now Playing info (not full metadata)
+            self.updateNowPlayingTime()
+            
             // Check and record play if threshold reached
             self.checkAndRecordPlayIfNeeded()
             
@@ -435,6 +527,198 @@ class AudioPlayerViewModel: ObservableObject {
         // We need to access the properties directly without main actor isolation
         Task { @MainActor in
             self.removeTimeObserver()
+        }
+    }
+    
+    // MARK: - Remote Command Center
+    private func setupRemoteCommandCenter() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        // Play command
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.play()
+            }
+            return .success
+        }
+        
+        // Pause command
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.pause()
+            }
+            return .success
+        }
+        
+        // Toggle play/pause command
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                if self.isPlaying {
+                    self.pause()
+                } else {
+                    self.play()
+                }
+            }
+            return .success
+        }
+        
+        // Next track command
+        commandCenter.nextTrackCommand.isEnabled = true
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.nextTrack()
+            }
+            return .success
+        }
+        
+        // Previous track command
+        commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.previousTrack()
+            }
+            return .success
+        }
+        
+        // Change playback position command (scrubbing)
+        commandCenter.changePlaybackPositionCommand.isEnabled = true
+        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self = self,
+                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+            self.seek(to: positionEvent.positionTime)
+            return .success
+        }
+    }
+    
+    private func updateRemoteCommandCenterAvailability() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        let hasTrack = currentTrack != nil
+        
+        commandCenter.playCommand.isEnabled = hasTrack
+        commandCenter.pauseCommand.isEnabled = hasTrack
+        commandCenter.togglePlayPauseCommand.isEnabled = hasTrack
+        
+        // Always enable next/previous when there's a track
+        // They can navigate to next/previous track or restart current song at boundaries
+        commandCenter.nextTrackCommand.isEnabled = hasTrack
+        commandCenter.previousTrackCommand.isEnabled = hasTrack
+        
+        commandCenter.changePlaybackPositionCommand.isEnabled = hasTrack
+    }
+    
+    // MARK: - Now Playing Info
+    private func updateNowPlayingInfo() {
+        guard let track = currentTrack else {
+            // Clear Now Playing info if no track
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            cachedArtwork = nil
+            currentArtworkAlbumId = nil
+            return
+        }
+        
+        // Get existing info or create new
+        var nowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        
+        // Only update metadata if track/album changed (not on every time update)
+        let albumId = currentAlbum?.id
+        if currentArtworkAlbumId != albumId {
+            // Track title
+            nowPlayingInfo[MPMediaItemPropertyTitle] = track.title
+            
+            // Artist/Album name
+            if let album = currentAlbum {
+                if let artistName = album.artist_name, !artistName.isEmpty {
+                    nowPlayingInfo[MPMediaItemPropertyArtist] = artistName
+                } else {
+                    nowPlayingInfo[MPMediaItemPropertyArtist] = album.title
+                }
+                nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = album.title
+                
+                // Load artwork if album changed
+                loadArtworkForNowPlaying(albumId: album.id)
+            }
+            
+            currentArtworkAlbumId = albumId
+        }
+        
+        // Duration (only update if changed)
+        if duration > 0 {
+            nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        
+        // Current time (update frequently)
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        
+        // Playback rate (update when playing state changes)
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0.0
+        
+        // Use cached artwork if available
+        if let artwork = cachedArtwork {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+        }
+        
+        // Update Now Playing info
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        
+        // Update remote command center availability
+        updateRemoteCommandCenterAvailability()
+    }
+    
+    // Update only time-related properties (called frequently)
+    private func updateNowPlayingTime() {
+        guard currentTrack != nil else { return }
+        
+        var nowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackRate : 0.0
+        
+        // Preserve artwork if it exists
+        if let artwork = cachedArtwork {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+        }
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+    
+    private func loadArtworkForNowPlaying(albumId: UUID) {
+        // Clear cached artwork when album changes
+        cachedArtwork = nil
+        
+        guard let album = currentAlbum,
+              let urlString = album.cover_art_url,
+              let url = URL(string: urlString) else {
+            return
+        }
+        
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let image = UIImage(data: data) {
+                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    await MainActor.run {
+                        // Only update if we're still on the same album
+                        if self.currentAlbum?.id == albumId {
+                            self.cachedArtwork = artwork
+                            // Update Now Playing info with artwork
+                            var nowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork
+                            MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+                        }
+                    }
+                }
+            } catch {
+                print("⚠️ Failed to load album artwork for Now Playing: \(error.localizedDescription)")
+            }
         }
     }
     
@@ -494,8 +778,107 @@ class AudioPlayerViewModel: ObservableObject {
     }
     
     private func updateAudioEngine() {
-        // Full audio engine implementation for pitch would go here
-        // This is a placeholder - you'd need to set up AVAudioEngine with pitch node
+        // If pitch is 0, we don't need the audio engine - use AVPlayer directly
+        guard pitch != 0, let playerItem = playerItem else {
+            // Clean up engine if pitch is back to 0
+            stopAudioEngine()
+            return
+        }
+        
+        // Set up audio engine for pitch adjustment
+        setupAudioEngineForPitch()
+    }
+    
+    private func setupAudioEngineForPitch() {
+        guard let playerItem = playerItem,
+              let asset = playerItem.asset as? AVURLAsset else {
+            return
+        }
+        
+        // Stop existing engine
+        stopAudioEngine()
+        
+        Task {
+            do {
+                // For remote URLs, we need to download the file first
+                let url = asset.url
+                var localURL: URL
+                
+                if url.isFileURL {
+                    localURL = url
+                } else {
+                    // Download remote file to temporary location
+                    let (tempURL, _) = try await URLSession.shared.download(from: url)
+                    localURL = tempURL
+                }
+                
+                // Create audio engine
+                let engine = AVAudioEngine()
+                let playerNode = AVAudioPlayerNode()
+                let pitchNode = AVAudioUnitTimePitch()
+                
+                // Set pitch (semitones to cents: 1 semitone = 100 cents)
+                pitchNode.pitch = pitch * 100
+                
+                // Attach nodes
+                engine.attach(playerNode)
+                engine.attach(pitchNode)
+                
+                // Load audio file
+                let audioFile = try AVAudioFile(forReading: localURL)
+                let format = audioFile.processingFormat
+                
+                // Connect nodes: playerNode -> pitchNode -> output
+                engine.connect(playerNode, to: pitchNode, format: format)
+                engine.connect(pitchNode, to: engine.mainMixerNode, format: format)
+                
+                // Schedule the file
+                playerNode.scheduleFile(audioFile, at: nil) {
+                    // Handle completion
+                    Task { @MainActor in
+                        if self.isLooping {
+                            // If looping, reschedule
+                            if let file = try? AVAudioFile(forReading: localURL) {
+                                self.playerNode?.scheduleFile(file, at: nil)
+                            }
+                        } else {
+                            self.isPlaying = false
+                        }
+                    }
+                }
+                
+                // Start engine
+                try engine.start()
+                
+                await MainActor.run {
+                    self.audioEngine = engine
+                    self.playerNode = playerNode
+                    self.pitchNode = pitchNode
+                    // Pause AVPlayer since we're using engine now
+                    self.player?.pause()
+                    self.isPlaying = false // Will be set to true when play() is called
+                }
+            } catch {
+                print("⚠️ Failed to set up audio engine for pitch: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.errorMessage = "Failed to apply pitch adjustment: \(error.localizedDescription)"
+                    // Fall back to AVPlayer
+                    self.pitch = 0
+                }
+            }
+        }
+    }
+    
+    private func stopAudioEngine() {
+        if let playerNode = playerNode {
+            playerNode.stop()
+        }
+        if let engine = audioEngine, engine.isRunning {
+            engine.stop()
+        }
+        audioEngine = nil
+        playerNode = nil
+        pitchNode = nil
     }
     
     deinit {

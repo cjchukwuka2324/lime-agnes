@@ -5,9 +5,9 @@ struct SignUpForm: View {
 
     @State private var email = ""
     @State private var password = ""
+    @State private var confirmPassword = ""
     @State private var firstName = ""
     @State private var lastName = ""
-    @State private var username = ""
     @State private var errorMessage: String?
 
     var body: some View {
@@ -26,13 +26,6 @@ struct SignUpForm: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(8)
 
-            TextField("Username", text: $username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(8)
-
             TextField("Email", text: $email)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -40,14 +33,41 @@ struct SignUpForm: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(8)
 
-            SecureField("Password", text: $password)
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(8)
+            VStack(alignment: .leading, spacing: 8) {
+                SecureField("Password", text: $password)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                
+                if !password.isEmpty {
+                    Text(password.count < 6 ? "Password must be at least 6 characters" : "✓ Password meets requirements")
+                        .font(.caption)
+                        .foregroundColor(password.count < 6 ? .red : .green)
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                SecureField("Confirm Password", text: $confirmPassword)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                
+                if !confirmPassword.isEmpty && !password.isEmpty {
+                    if password != confirmPassword {
+                        Text("Passwords do not match")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    } else {
+                        Text("✓ Passwords match")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                }
+            }
 
             if let errorMessage = errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
+                let messageType: MessageType = errorMessage.lowercased().contains("check your email") || errorMessage.lowercased().contains("account created") ? .info : .error
+                ErrorMessageBanner(errorMessage, type: messageType)
             }
 
             Button {
@@ -55,7 +75,6 @@ struct SignUpForm: View {
                     errorMessage = nil
                     let trimmedFirstName = firstName.trimmingCharacters(in: .whitespaces)
                     let trimmedLastName = lastName.trimmingCharacters(in: .whitespaces)
-                    let trimmedUsername = username.trimmingCharacters(in: .whitespaces).lowercased()
                     
                     guard !trimmedFirstName.isEmpty,
                           !trimmedLastName.isEmpty else {
@@ -63,30 +82,71 @@ struct SignUpForm: View {
                         return
                     }
                     
-                    guard !trimmedUsername.isEmpty else {
-                        errorMessage = "Please enter a username"
+                    // Validate password
+                    guard !password.isEmpty else {
+                        errorMessage = "Please enter a password"
                         return
                     }
                     
-                    // Validate username format (alphanumeric and underscore only, 3-20 characters)
-                    let usernameRegex = "^[a-z0-9_]{3,20}$"
-                    let usernamePredicate = NSPredicate(format: "SELF MATCHES %@", usernameRegex)
-                    guard usernamePredicate.evaluate(with: trimmedUsername) else {
-                        errorMessage = "Username must be 3-20 characters and contain only letters, numbers, and underscores"
+                    guard password.count >= 6 else {
+                        errorMessage = "Password must be at least 6 characters long"
+                        return
+                    }
+                    
+                    guard password == confirmPassword else {
+                        errorMessage = "Passwords do not match"
                         return
                     }
                     
                     do {
-                        try await authVM.signup(email: email, password: password)
-                        try await authVM.login(email: email, password: password)
+                        // Step 1: Sign up the user and get the user ID
+                        let userId = try await authVM.signup(email: email, password: password)
                         
-                        // Create user profile with first name, last name, username, and email
-                        try await UserProfileService.shared.createOrUpdateProfile(
-                            firstName: trimmedFirstName,
-                            lastName: trimmedLastName,
-                            username: trimmedUsername,
-                            email: email
-                        )
+                        // Step 2: Try to login immediately after signup (may fail if email confirmation required)
+                        var hasActiveSession = false
+                        do {
+                            try await authVM.login(email: email, password: password)
+                            hasActiveSession = true
+                        } catch {
+                            // Login failed - likely email confirmation required
+                            print("⚠️ Login failed after signup: \(error.localizedDescription)")
+                        }
+                        
+                        // Step 3: Update user profile with the provided data
+                        // If we have a session, update now. Otherwise, save for later update
+                        if hasActiveSession {
+                            do {
+                                try await UserProfileService.shared.createOrUpdateProfileAfterSignup(
+                                    userId: userId,
+                                    firstName: trimmedFirstName,
+                                    lastName: trimmedLastName,
+                                    email: email
+                                )
+                                print("✅ Profile created successfully with name")
+                                // Username setup will be handled automatically by RootAppView routing
+                                errorMessage = "Account created! Please set your username to continue."
+                            } catch {
+                                // Profile update failed, but account is created
+                                print("⚠️ Profile update failed: \(error.localizedDescription)")
+                                // Save for later update
+                                UserProfileService.shared.savePendingSignupData(
+                                    userId: userId,
+                                    firstName: trimmedFirstName,
+                                    lastName: trimmedLastName,
+                                    email: email
+                                )
+                                errorMessage = "Account created! Please check your email and confirm your account. Your profile will be updated when you log in."
+                            }
+                        } else {
+                            // Email confirmation required - save profile data for later update
+                            UserProfileService.shared.savePendingSignupData(
+                                userId: userId,
+                                firstName: trimmedFirstName,
+                                lastName: trimmedLastName,
+                                email: email
+                            )
+                            errorMessage = "Account created! Please check your email and confirm your account. Your profile will be updated when you log in."
+                        }
                     } catch {
                         // Provide user-friendly error messages
                         errorMessage = formatAuthError(error)
@@ -100,9 +160,14 @@ struct SignUpForm: View {
                     .cornerRadius(8)
                     .foregroundColor(.white)
             }
-            .disabled(firstName.trimmingCharacters(in: .whitespaces).isEmpty || 
-                     lastName.trimmingCharacters(in: .whitespaces).isEmpty ||
-                     username.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(
+                firstName.trimmingCharacters(in: .whitespaces).isEmpty || 
+                lastName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                password.isEmpty ||
+                confirmPassword.isEmpty ||
+                password.count < 6 ||
+                password != confirmPassword
+            )
         }
     }
     

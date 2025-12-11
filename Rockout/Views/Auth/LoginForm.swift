@@ -23,8 +23,8 @@ struct LoginForm: View {
                 .cornerRadius(8)
 
             if let errorMessage = errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
+                let messageType: MessageType = errorMessage.lowercased().contains("check your email") ? .info : .error
+                ErrorMessageBanner(errorMessage, type: messageType)
             }
 
             Button {

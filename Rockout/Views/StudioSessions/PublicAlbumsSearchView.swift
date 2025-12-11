@@ -154,7 +154,13 @@ struct PublicAlbumsSearchView: View {
                                             album: album,
                                             isSaved: viewModel.isAlbumSaved(album),
                                             onAddToDiscoveries: {
-                                                viewModel.saveDiscoveredAlbum(album)
+                                                Task {
+                                                    if viewModel.isAlbumSaved(album) {
+                                                        await viewModel.removeDiscoveredAlbum(album)
+                                                    } else {
+                                                        await viewModel.saveDiscoveredAlbum(album)
+                                                    }
+                                                }
                                             }
                                         )
                                     }
@@ -232,7 +238,7 @@ struct PublicAlbumsSearchView: View {
         }
         .task {
             // Load discovered albums first so isAlbumSaved works correctly
-            viewModel.loadDiscoveredAlbums()
+            await viewModel.loadDiscoveredAlbums()
             await loadDiscoverFeed()
         }
     }

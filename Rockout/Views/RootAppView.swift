@@ -27,12 +27,24 @@ struct RootAppView: View {
                     AuthFlowView()
 
                 case .authenticated:
-                    MainTabView()
-                        .environmentObject(shareHandler)
-                        .task {
-                            // Load feed on app startup when authenticated
-                            await loadFeedOnStartup()
-                        }
+                    // Check if user has username - show SetUsernameView if missing
+                    // Show loading state while checking username status
+                    if authVM.hasUsername == nil {
+                        ProgressView("Loading…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.black)
+                    } else if authVM.hasUsername == false {
+                        SetUsernameView()
+                            .environmentObject(authVM)
+                    } else {
+                        MainTabView()
+                            .environmentObject(shareHandler)
+                            .environmentObject(authVM)
+                            .task {
+                                // Load feed on app startup when authenticated
+                                await loadFeedOnStartup()
+                            }
+                    }
                         
                 case .passwordReset:
                     ResetPasswordView()
@@ -50,6 +62,10 @@ struct RootAppView: View {
                     hasCompletedOnboarding = false
                 }
             }
+            // Check username status if authenticated
+            if authVM.authState == .authenticated {
+                await authVM.checkUsernameStatus()
+            }
         }
         .onChange(of: authVM.authState) { oldState, newState in
             // When user becomes authenticated, ensure we're registered for remote notifications
@@ -60,6 +76,10 @@ struct RootAppView: View {
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
                     print("✅ User authenticated - re-registering for remote notifications")
+                }
+                // Check username status when user becomes authenticated
+                Task {
+                    await authVM.checkUsernameStatus()
                 }
             }
         }
@@ -72,6 +92,9 @@ struct RootAppView: View {
                     // This handles app refresh/restart while on login screen
                     if authVM.authState == .unauthenticated {
                         hasCompletedOnboarding = false
+                    } else if authVM.authState == .authenticated {
+                        // Check username status when app becomes active and user is authenticated
+                        await authVM.checkUsernameStatus()
                     }
                 }
             }
@@ -113,9 +136,22 @@ struct RootAppView: View {
             return
         }
         
-        // Handle Spotify OAuth callback: rockout://auth
+        // Handle auth callbacks: rockout://auth/callback (email confirmation) or rockout://auth (OAuth)
         if url.host == "auth" {
-            // Spotify OAuth is handled in RockOutApp
+            // Check if this is an email confirmation link (has callback path or query params)
+            if url.path.contains("callback") || url.query != nil {
+                // This is likely an email confirmation or password reset link
+                // Handle via AuthViewModel which will restore session
+                authVM.handleDeepLink(url)
+            } else {
+                // Spotify OAuth is handled in RockOutApp
+                return
+            }
+        }
+        
+        // Handle password reset: rockout://password-reset
+        if url.host == "password-reset" || url.path.contains("password-reset") {
+            authVM.handleDeepLink(url)
             return
         }
     }

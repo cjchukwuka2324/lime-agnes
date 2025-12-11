@@ -17,6 +17,13 @@ struct AppleMusicUserProfile: Codable, Identifiable {
     }
 }
 
+struct AppleMusicAccountInfo: Codable {
+    let storefront: String
+    let canPlayCatalogContent: Bool
+    let hasCloudLibrary: Bool
+    let connectedAt: Date?
+}
+
 struct AppleMusicArtist: Codable, Identifiable {
     let id: String
     let name: String
