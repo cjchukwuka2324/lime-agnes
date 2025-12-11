@@ -395,6 +395,34 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- ============================================================================
+-- TRIGGER 7: Cascade Delete Echoes When Post is Deleted
+-- ============================================================================
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trg_cascade_delete_echoes ON posts;
+
+CREATE OR REPLACE FUNCTION cascade_delete_echoes()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- When a post is deleted (deleted_at is set), mark all echo posts as deleted
+    IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+        UPDATE posts
+        SET deleted_at = NEW.deleted_at
+        WHERE reshared_post_id = NEW.id
+          AND deleted_at IS NULL;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_cascade_delete_echoes
+    AFTER UPDATE ON posts
+    FOR EACH ROW
+    WHEN (NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL)
+    EXECUTE FUNCTION cascade_delete_echoes();
+
 COMMENT ON FUNCTION notify_new_follower() IS 'Creates notification when a user gains a new follower';
 COMMENT ON FUNCTION notify_post_like() IS 'Creates notification when a post is liked';
 COMMENT ON FUNCTION notify_post_reply() IS 'Creates notification when someone replies to a post';
@@ -402,4 +430,5 @@ COMMENT ON FUNCTION notify_rocklist_rank_improvement() IS 'Creates notification 
 COMMENT ON FUNCTION notify_new_post_from_followed() IS 'Creates notification when followed user posts (if enabled)';
 COMMENT ON FUNCTION notify_post_echo() IS 'Creates notification when someone echoes (reposts) a post';
 COMMENT ON FUNCTION notify_post_mention() IS 'Creates notification when a user is mentioned in a post';
+COMMENT ON FUNCTION cascade_delete_echoes() IS 'Cascades deletion to all echo posts when original post is deleted';
 

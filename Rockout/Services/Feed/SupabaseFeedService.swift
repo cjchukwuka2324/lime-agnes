@@ -2294,6 +2294,8 @@ final class SupabaseFeedService: FeedService {
             .order("created_at", ascending: false)
             .execute()
         
+        // Note: We filter for reshared_post_id IS NOT NULL client-side below
+        
         struct PostRow: Decodable {
             let id: UUID
             let user_id: UUID
@@ -2330,8 +2332,15 @@ final class SupabaseFeedService: FeedService {
         
         for originalPostId in originalPostIds {
             if let originalPost = try? await fetchPostById(originalPostId) {
+                // Only include if original post exists and is not deleted
                 originalPostsMap[originalPostId] = originalPost
             }
+        }
+        
+        // Filter out echo posts where original post doesn't exist or is deleted
+        let validRows = rows.filter { row in
+            guard let resharedPostId = row.reshared_post_id?.uuidString else { return false }
+            return originalPostsMap[resharedPostId] != nil
         }
         
         // Convert to Post objects
@@ -2340,7 +2349,7 @@ final class SupabaseFeedService: FeedService {
         
         // Use async map to handle async operations
         var posts: [Post] = []
-        for row in rows {
+        for row in validRows {
             let createdAt = dateFormatter.date(from: row.created_at) ?? Date()
             
             // Get author info
@@ -2509,6 +2518,7 @@ final class SupabaseFeedService: FeedService {
             """)
             .eq("user_id", value: userIdUUID)
             .is("parent_post_id", value: nil) // Only posts, not replies
+            .is("reshared_post_id", value: nil) // Only original posts, not echoes
             .is("deleted_at", value: nil)
             .order("created_at", ascending: false)
             .limit(1000)

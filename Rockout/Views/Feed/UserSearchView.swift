@@ -1,6 +1,7 @@
 import SwiftUI
 import Supabase
 import Combine
+import Foundation
 
 struct UserSearchView: View {
     @Environment(\.dismiss) private var dismiss
@@ -20,6 +21,7 @@ struct UserSearchView: View {
     private let pageSize = 20
     private let contactService = SystemContactsService()
     private let contactSyncService: ContactSyncService = SupabaseContactSyncService.shared
+    private let suggestedFollowService: SuggestedFollowService = SupabaseSuggestedFollowService()
     
     // Debounce publisher
     @State private var searchTask: Task<Void, Never>?
@@ -28,6 +30,10 @@ struct UserSearchView: View {
     @State private var contactSuggestions: [MatchedContact] = []
     @State private var isLoadingContacts = false
     @State private var hasSyncedContacts = false
+    
+    // Mutual follow suggestions
+    @State private var mutualSuggestions: [MutualFollowSuggestion] = []
+    @State private var isLoadingMutuals = false
     
     var body: some View {
         NavigationStack {
@@ -114,88 +120,126 @@ struct UserSearchView: View {
                             .foregroundColor(.white.opacity(0.7))
                         Spacer()
                     } else if searchResults.isEmpty && searchText.isEmpty {
-                        // Show contact suggestions when search is empty
-                        if isLoadingContacts {
-                            Spacer()
-                            ProgressView()
-                                .tint(.white)
-                            Text("Loading suggestions...")
-                                .foregroundColor(.white.opacity(0.8))
-                                .padding(.top)
-                            Spacer()
-                        } else if !contactSuggestions.isEmpty {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    HStack {
-                                        Text("Suggested from Contacts")
-                                            .font(.headline)
-                                            .foregroundColor(.white)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 20)
-                                    .padding(.top, 20)
-                                    
-                                    ForEach(Array(contactSuggestions), id: \.id) { contact in
-                                        if let matchedUser = contact.matchedUser {
-                                            // User has account - show as follow suggestion
+                        // Show mutual and contact suggestions when search is empty
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                // Mutual Follow Suggestions
+                                if !mutualSuggestions.isEmpty {
+                                    VStack(alignment: .leading, spacing: 16) {
+                                        HStack {
+                                            Text("Suggested for You")
+                                                .font(.headline)
+                                                .foregroundColor(.white)
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 20)
+                                        .padding(.top, 20)
+                                        
+                                        ForEach(mutualSuggestions) { suggestion in
                                             NavigationLink {
-                                                UserProfileDetailView(userId: UUID(uuidString: matchedUser.id) ?? UUID(), initialUser: matchedUser)
+                                                UserProfileDetailView(
+                                                    userId: UUID(uuidString: suggestion.user.id) ?? UUID(),
+                                                    initialUser: suggestion.user
+                                                )
                                             } label: {
-                                                ContactSuggestionCard(
-                                                    contact: contact,
-                                                    isInvite: false,
-                                                    onFollowChanged: { _ in }
+                                                MutualFollowSuggestionCard(
+                                                    suggestion: suggestion,
+                                                    onFollowChanged: { _ in
+                                                        // Refresh suggestions after follow change
+                                                        Task {
+                                                            await loadMutualSuggestions()
+                                                        }
+                                                    }
                                                 )
                                             }
                                             .buttonStyle(PlainButtonStyle())
                                             .padding(.horizontal, 20)
-                                        } else {
-                                            // User doesn't have account - show invite option
-                                            ContactSuggestionCard(
-                                                contact: contact,
-                                                isInvite: true,
-                                                onFollowChanged: nil,
-                                                onInvite: {
-                                                    inviteContact(contact)
-                                                }
-                                            )
-                                            .padding(.horizontal, 20)
                                         }
                                     }
                                 }
-                                .padding(.vertical, 20)
-                            }
-                        } else {
-                            Spacer()
-                            VStack(spacing: 16) {
-                                Image(systemName: "person.2.fill")
-                                    .font(.system(size: 48))
-                                    .foregroundColor(.white.opacity(0.6))
-                                Text("Search for users")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                Text("Find and follow other music lovers")
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .multilineTextAlignment(.center)
                                 
-                                Button {
-                                    Task {
-                                        await syncContactsAndLoadSuggestions()
+                                // Contact Suggestions
+                                if isLoadingContacts {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .tint(.white)
+                                        Spacer()
                                     }
-                                } label: {
-                                    Text("Find Friends from Contacts")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundColor(.black)
-                                        .padding(.horizontal, 24)
-                                        .padding(.vertical, 12)
-                                        .background(Color(hex: "#1ED760"))
-                                        .cornerRadius(20)
+                                    .padding()
+                                } else if !contactSuggestions.isEmpty {
+                                    VStack(alignment: .leading, spacing: 16) {
+                                        HStack {
+                                            Text("Suggested from Contacts")
+                                                .font(.headline)
+                                                .foregroundColor(.white)
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 20)
+                                        .padding(.top, 20)
+                                        
+                                        ForEach(Array(contactSuggestions), id: \.id) { contact in
+                                            if let matchedUser = contact.matchedUser {
+                                                // User has account - show as follow suggestion
+                                                NavigationLink {
+                                                    UserProfileDetailView(userId: UUID(uuidString: matchedUser.id) ?? UUID(), initialUser: matchedUser)
+                                                } label: {
+                                                    ContactSuggestionCard(
+                                                        contact: contact,
+                                                        isInvite: false,
+                                                        onFollowChanged: { _ in }
+                                                    )
+                                                }
+                                                .buttonStyle(PlainButtonStyle())
+                                                .padding(.horizontal, 20)
+                                            } else {
+                                                // User doesn't have account - show invite option
+                                                ContactSuggestionCard(
+                                                    contact: contact,
+                                                    isInvite: true,
+                                                    onFollowChanged: nil,
+                                                    onInvite: {
+                                                        inviteContact(contact)
+                                                    }
+                                                )
+                                                .padding(.horizontal, 20)
+                                            }
+                                        }
+                                    }
+                                } else if mutualSuggestions.isEmpty && contactSuggestions.isEmpty && !isLoadingContacts && !isLoadingMutuals {
+                        Spacer()
+                        VStack(spacing: 16) {
+                            Image(systemName: "person.2.fill")
+                                .font(.system(size: 48))
+                                .foregroundColor(.white.opacity(0.6))
+                            Text("Search for users")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            Text("Find and follow other music lovers")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.7))
+                                .multilineTextAlignment(.center)
+                                        
+                                        Button {
+                                            Task {
+                                                await syncContactsAndLoadSuggestions()
+                                            }
+                                        } label: {
+                                            Text("Find Friends from Contacts")
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundColor(.black)
+                                                .padding(.horizontal, 24)
+                                                .padding(.vertical, 12)
+                                                .background(Color(hex: "#1ED760"))
+                                                .cornerRadius(20)
+                                        }
+                                        .padding(.top, 8)
+                                    }
+                                    .padding()
+                                    Spacer()
                                 }
-                                .padding(.top, 8)
                             }
-                            .padding()
-                            Spacer()
+                            .padding(.vertical, 20)
                         }
                     } else if searchResults.isEmpty && !searchText.isEmpty {
                         Spacer()
@@ -253,10 +297,34 @@ struct UserSearchView: View {
                 }
             }
             .task {
-                // Load contact suggestions on appear if not already loaded
+                // Load mutual and contact suggestions on appear
+                await loadMutualSuggestions()
                 if !hasSyncedContacts {
                     await syncContactsAndLoadSuggestions()
                 }
+            }
+        }
+    }
+    
+    private func loadMutualSuggestions() async {
+        isLoadingMutuals = true
+        defer { isLoadingMutuals = false }
+        
+        do {
+            let suggestions = try await suggestedFollowService.getMutualFollowSuggestions(limit: 10)
+            await MainActor.run {
+                mutualSuggestions = suggestions
+                print("✅ Loaded \(suggestions.count) mutual follow suggestions")
+            }
+        } catch {
+            print("❌ Failed to load mutual suggestions: \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                print("❌ Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ Error userInfo: \(nsError.userInfo)")
+            }
+            await MainActor.run {
+                mutualSuggestions = []
             }
         }
     }
@@ -268,31 +336,46 @@ struct UserSearchView: View {
         do {
             // Request permission and fetch contacts
             guard await contactService.requestPermission() else {
+                print("⚠️ Contact permission not granted")
                 return
             }
             
+            print("✅ Contact permission granted, fetching contacts...")
             let contacts = try await contactService.fetchContacts()
+            print("✅ Fetched \(contacts.count) contacts")
             
             // Sync contacts to server and get matches
+            print("🔄 Syncing contacts to server...")
             let matchedContacts = try await contactSyncService.syncContacts(contacts)
+            print("✅ Synced contacts, got \(matchedContacts.count) matched contacts")
+            
+            // Get matched contacts from server
+            let serverMatchedContacts = try await contactSyncService.getMatchedContacts()
+            print("✅ Retrieved \(serverMatchedContacts.count) matched contacts from server")
             
             // Filter to only show contacts with accounts (for suggestions)
             // Contacts without accounts will be shown with invite option
-            contactSuggestions = matchedContacts
-            hasSyncedContacts = true
+            await MainActor.run {
+                contactSuggestions = serverMatchedContacts
+                hasSyncedContacts = true
+                print("✅ Updated contactSuggestions with \(serverMatchedContacts.count) contacts")
+            }
         } catch {
-            print("Failed to sync contacts: \(error)")
+            print("❌ Failed to sync contacts: \(error)")
+            await MainActor.run {
+                contactSuggestions = []
+            }
         }
     }
     
     private func inviteContact(_ contact: MatchedContact) {
-        // Open Messages app with pre-filled invite message
-        let inviteMessage = "Join me on RockOut! Download the app: [App Store Link]"
+        // Generate invite message with proper sign-up link
+        let inviteMessage = InviteLinkGenerator.generateInviteMessage()
         
         // Create SMS URL
         if let phone = contact.contactPhone {
             let phoneNumber = phone.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "")
-            let smsURLString = "sms:\(phoneNumber)&body=\(inviteMessage.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+            let smsURLString = "sms:\(phoneNumber)&body=\(inviteMessage.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")"
             if let url = URL(string: smsURLString) {
                 if UIApplication.shared.canOpenURL(url) {
                     UIApplication.shared.open(url)

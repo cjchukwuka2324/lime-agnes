@@ -44,9 +44,17 @@ struct PostComposerView: View {
     @State private var mentionSearchTask: Task<Void, Never>?
     @State private var currentMentionRange: NSRange?
     
+    // Hashtag autocomplete
+    @State private var showHashtagAutocomplete = false
+    @State private var hashtagSuggestions: [TrendingHashtag] = []
+    @State private var hashtagQuery: String = ""
+    @State private var hashtagSearchTask: Task<Void, Never>?
+    @State private var currentHashtagRange: NSRange?
+    
     private let imageService = FeedImageService.shared
     private let mediaService = FeedMediaService.shared
     private let mentionService: MentionService = SupabaseMentionService.shared
+    private let hashtagService: HashtagService = SupabaseHashtagService.shared
     
     init(
         service: FeedService = SupabaseFeedService.shared as FeedService,
@@ -382,20 +390,54 @@ struct PostComposerView: View {
                 .font(.headline)
                 .foregroundColor(.white)
             
-            TextEditor(text: $text)
-                .font(.body)
-                .foregroundColor(.white)
-                .frame(minHeight: 120)
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.15))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                )
-                .scrollContentBackground(.hidden)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $text)
+                    .font(.body)
+                    .foregroundColor(.white)
+                    .frame(minHeight: 120)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                    )
+                    .scrollContentBackground(.hidden)
+                    .onChange(of: text) { oldValue, newValue in
+                        detectMention(in: newValue)
+                        detectHashtag(in: newValue)
+                    }
+                
+                // Mention autocomplete overlay
+                if showMentionAutocomplete && !mentionSuggestions.isEmpty {
+                    VStack {
+                        Spacer()
+                        MentionAutocompleteView(
+                            suggestions: mentionSuggestions,
+                            onSelect: { user in
+                                insertMention(user: user)
+                            }
+                        )
+                        .padding(.top, 8)
+                    }
+                }
+                
+                // Hashtag autocomplete overlay
+                if showHashtagAutocomplete && !hashtagSuggestions.isEmpty {
+                    VStack {
+                        Spacer()
+                        HashtagAutocompleteView(
+                            suggestions: hashtagSuggestions,
+                            onSelect: { hashtag in
+                                insertHashtag(hashtag: hashtag)
+                            }
+                        )
+                        .padding(.top, 8)
+                    }
+                }
+            }
         }
     }
     
@@ -1103,7 +1145,9 @@ struct PostComposerView: View {
         guard let range = currentMentionRange else { return }
         
         let nsText = text as NSString
-        let mentionText = "@\(user.handle) "
+        // Strip "@" from handle if it already includes it
+        let handle = user.handle.hasPrefix("@") ? String(user.handle.dropFirst()) : user.handle
+        let mentionText = "@\(handle) "
         let newText = nsText.replacingCharacters(in: range, with: mentionText)
         
         text = newText
@@ -1144,5 +1188,84 @@ struct PostComposerView: View {
         }
         
         return userIds
+    }
+    
+    // MARK: - Hashtag Detection
+    
+    private func detectHashtag(in text: String) {
+        // Find the last # symbol and extract the query
+        guard let lastHashIndex = text.lastIndex(of: "#") else {
+            showHashtagAutocomplete = false
+            hashtagSuggestions = []
+            return
+        }
+        
+        // Check if there's a space after # (hashtag is complete)
+        let afterHash = text.index(after: lastHashIndex)
+        if afterHash < text.endIndex {
+            let remainingText = String(text[afterHash...])
+            if remainingText.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                // Hashtag is complete, hide autocomplete
+                showHashtagAutocomplete = false
+                hashtagSuggestions = []
+                return
+            }
+        }
+        
+        // Extract query after #
+        let queryStart = text.index(after: lastHashIndex)
+        // Get text from # to end, but stop at whitespace or newline
+        let remainingText = String(text[queryStart...])
+        let queryEnd = remainingText.firstIndex(where: { $0.isWhitespace || $0.isNewline }) ?? remainingText.endIndex
+        let query = String(remainingText[..<queryEnd])
+        
+        // Store the range for later replacement (include the # and query)
+        let rangeLength = text.distance(from: lastHashIndex, to: queryStart) + query.count
+        let nsRange = NSRange(location: text.distance(from: text.startIndex, to: lastHashIndex), length: rangeLength)
+        currentHashtagRange = nsRange
+        hashtagQuery = query
+        
+        // Cancel previous search
+        hashtagSearchTask?.cancel()
+        
+        // Debounce search (shorter delay for hashtags)
+        hashtagSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
+            
+            if !Task.isCancelled {
+                do {
+                    // Show trending hashtags even if query is empty (just typed #)
+                    // Pass empty string to get trending hashtags
+                    let searchQuery = query.isEmpty ? "" : query
+                    let results = try await hashtagService.searchHashtags(query: searchQuery, limit: 10)
+                    await MainActor.run {
+                        if !Task.isCancelled {
+                            hashtagSuggestions = results
+                            showHashtagAutocomplete = !results.isEmpty
+                        }
+                    }
+                } catch {
+                    print("Failed to search hashtags: \(error)")
+                    await MainActor.run {
+                        hashtagSuggestions = []
+                        showHashtagAutocomplete = false
+                    }
+                }
+            }
+        }
+    }
+    
+    private func insertHashtag(hashtag: TrendingHashtag) {
+        guard let range = currentHashtagRange else { return }
+        
+        let nsText = text as NSString
+        let hashtagText = "#\(hashtag.tag) "
+        let newText = nsText.replacingCharacters(in: range, with: hashtagText)
+        
+        text = newText
+        showHashtagAutocomplete = false
+        hashtagSuggestions = []
+        currentHashtagRange = nil
+        hashtagQuery = ""
     }
 }

@@ -140,10 +140,9 @@ final class SupabaseContactSyncService: ContactSyncService {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let rows = try decoder.decode([ContactRow].self, from: response.data)
         
-        // Filter to only rows where matched_user_id is not null
-        let matchedRows = rows.filter { $0.matched_user_id != nil }
-        
-        return matchedRows.map { row in
+        // Return ALL contacts, including those without accounts (matched_user_id == nil)
+        // This allows us to show invite buttons for contacts without accounts
+        return rows.map { row in
             let matchedUser: UserSummary? = row.profiles.map { profile in
                 UserSummary(
                     id: profile.id,

@@ -14,6 +14,7 @@ struct FeedCardView: View {
     let onTapProfile: (() -> Void)?
     let onDelete: ((String) -> Void)?
     let onHashtagTap: ((String) -> Void)?
+    let onMentionTap: ((String) -> Void)?
     let showInlineReplies: Bool
     let service: FeedService?
     
@@ -39,6 +40,7 @@ struct FeedCardView: View {
         onTapProfile: (() -> Void)? = nil,
         onDelete: ((String) -> Void)? = nil,
         onHashtagTap: ((String) -> Void)? = nil,
+        onMentionTap: ((String) -> Void)? = nil,
         showInlineReplies: Bool = false,
         service: FeedService? = nil
     ) {
@@ -52,6 +54,7 @@ struct FeedCardView: View {
         self.onTapProfile = onTapProfile
         self.onDelete = onDelete
         self.onHashtagTap = onHashtagTap
+        self.onMentionTap = onMentionTap
         self.showInlineReplies = showInlineReplies
         self.service = service
     }
@@ -63,17 +66,17 @@ struct FeedCardView: View {
                 echoedPostView
             } else {
                 // Regular post or echo with comment
-                parentPostReference
+            parentPostReference
                 if post.resharedPostId != nil {
                     echoedByIndicator
                 }
-                authorHeader
-                leaderboardAttachment
-                postContent
-                mediaAttachments
-                actionButtons
-                inlineReplies
-            }
+            authorHeader
+            leaderboardAttachment
+            postContent
+            mediaAttachments
+            actionButtons
+            inlineReplies
+        }
         }
         .padding(isReply ? 12 : 14)
         .background(cardBackground)
@@ -462,14 +465,17 @@ struct FeedCardView: View {
     @ViewBuilder
     private var postContent: some View {
         if !post.text.isEmpty {
-            HashtagTextView(
+            MentionHashtagTextView(
                 text: post.text,
                 font: isReply ? .body : .body,
                 textColor: .white.opacity(0.95),
                 hashtagColor: Color(hex: "#1ED760"),
-                onHashtagTap: onHashtagTap
+                mentionColor: Color(hex: "#1ED760"),
+                onHashtagTap: onHashtagTap,
+                onMentionTap: onMentionTap
             )
             .lineSpacing(6)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.bottom, 12)
         }
@@ -477,60 +483,63 @@ struct FeedCardView: View {
     
     @ViewBuilder
     private var mediaAttachments: some View {
-        // Use MediaGridView for Twitter-style grid layout
-        if !post.imageURLs.isEmpty || post.videoURL != nil {
-            MediaGridView(
-                imageURLs: post.imageURLs,
-                videoURL: post.videoURL,
-                onTap: {
-                    showFullScreenMedia = true
-                }
-            )
-            .simultaneousGesture(
-                TapGesture(count: 2)
-                    .onEnded {
-                        // Double tap to like
-                        handleDoubleTapLike()
+        VStack(alignment: .leading, spacing: 0) {
+            // Use MediaGridView for Twitter-style grid layout - show FIRST
+            if !post.imageURLs.isEmpty || post.videoURL != nil {
+                MediaGridView(
+                    imageURLs: post.imageURLs,
+                    videoURL: post.videoURL,
+                    onTap: {
+                        showFullScreenMedia = true
                     }
-            )
-            .padding(.bottom, 12)
-        }
-        
-        if let audioURL = post.audioURL {
-            FeedAudioPlayerView(audioURL: audioURL)
+                )
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded {
+                            // Double tap to like
+                            handleDoubleTapLike()
+                        }
+                )
                 .padding(.bottom, 12)
-        }
-        
-        // Spotify Link
-        if let spotifyLink = post.spotifyLink {
-            SpotifyLinkCardView(spotifyLink: spotifyLink)
-                .padding(.horizontal, 4)
-                .padding(.bottom, 12)
-        }
-        
-        // Poll
-        if let poll = post.poll {
-            PollView(
-                postId: post.id,
-                poll: Binding(
-                    get: { mutablePoll ?? poll },
-                    set: { newValue in
-                        mutablePoll = newValue
-                    }
-                ),
-                isOwnPost: post.author.id == SupabaseService.shared.client.auth.currentUser?.id.uuidString
-            )
-            .onAppear {
-                if mutablePoll == nil {
-                    mutablePoll = poll
-                }
             }
-            .padding(.bottom, 12)
+            
+            // Spotify Link - show BELOW images/videos (not above)
+            if let spotifyLink = post.spotifyLink {
+                SpotifyLinkCardView(spotifyLink: spotifyLink)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 12)
+            }
+            
+            if let audioURL = post.audioURL {
+                FeedAudioPlayerView(audioURL: audioURL)
+                    .padding(.bottom, 12)
+            }
+            
+            // Poll
+            if let poll = post.poll {
+                PollView(
+                    postId: post.id,
+                    poll: Binding(
+                        get: { mutablePoll ?? poll },
+                        set: { newValue in
+                            mutablePoll = newValue
+                        }
+                    ),
+                    isOwnPost: post.author.id == SupabaseService.shared.client.auth.currentUser?.id.uuidString
+                )
+                .onAppear {
+                    if mutablePoll == nil {
+                        mutablePoll = poll
+                    }
+                }
+                .padding(.bottom, 12)
+            }
         }
     }
     
     @ViewBuilder
     private var actionButtons: some View {
+        // Ensure action buttons are clearly below media with proper spacing
         HStack(spacing: 0) {
             likeButton
             Spacer()
@@ -544,7 +553,8 @@ struct FeedCardView: View {
             deleteButton
             Spacer()
         }
-        .padding(.top, 8)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
     
     private var likeButton: some View {

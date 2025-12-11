@@ -80,8 +80,9 @@ final class UserProfileViewModel: ObservableObject {
             let (postsResult, repliesResult, likedPostsResult, echoedPostsResult) = try await (postsTask, repliesTask, likedPostsTask, echoedPostsTask)
             
             await MainActor.run {
-                // Combine posts and replies for display
-                self.posts = postsResult + repliesResult
+                // Combine posts and replies for display, but filter out echoed posts
+                // Echoed posts should only appear in the Echoes tab, not in Bars
+                self.posts = (postsResult + repliesResult).filter { $0.resharedPostId == nil }
                 self.likedPosts = likedPostsResult
                 self.echoedPosts = echoedPostsResult
             }
@@ -137,7 +138,28 @@ final class UserProfileViewModel: ObservableObject {
                 try await social.follow(userId: user.id)
             }
             // Reload to get accurate counts and ensure consistency
+            // But preserve the isFollowing state we just set
+            let preservedIsFollowing = !originalIsFollowing
             await load()
+            // Ensure isFollowing state is preserved after load
+            await MainActor.run {
+                if var updatedUser = self.user {
+                    self.user = UserSummary(
+                        id: updatedUser.id,
+                        displayName: updatedUser.displayName,
+                        handle: updatedUser.handle,
+                        avatarInitials: updatedUser.avatarInitials,
+                        profilePictureURL: updatedUser.profilePictureURL,
+                        isFollowing: preservedIsFollowing,
+                        region: updatedUser.region,
+                        followersCount: updatedUser.followersCount,
+                        followingCount: updatedUser.followingCount,
+                        instagramHandle: updatedUser.instagramHandle,
+                        twitterHandle: updatedUser.twitterHandle,
+                        tiktokHandle: updatedUser.tiktokHandle
+                    )
+                }
+            }
         } catch {
             // Revert optimistic update on error
             await MainActor.run {

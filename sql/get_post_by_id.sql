@@ -127,10 +127,14 @@ BEGIN
     ) ec ON ec.reshared_post_id = p.id
     -- Check if current user echoed
     LEFT JOIN posts echo_post ON echo_post.reshared_post_id = p.id AND echo_post.user_id = v_current_user_id AND echo_post.deleted_at IS NULL
+    -- Check if original post exists and is not deleted (for echo posts)
+    LEFT JOIN posts original_post ON original_post.id = p.reshared_post_id
     -- Get author info
     LEFT JOIN profiles prof ON prof.id = p.user_id
     WHERE p.id = p_post_id
-      AND p.deleted_at IS NULL;
+      AND p.deleted_at IS NULL
+      -- Filter out echo posts where original post is deleted
+      AND (p.reshared_post_id IS NULL OR original_post.deleted_at IS NULL);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

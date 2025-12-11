@@ -23,7 +23,8 @@ final class NotificationsViewModel: ObservableObject {
             let fetchedNotifications = try await notificationService.fetchNotifications(limit: 50, before: nil)
             // Deduplicate notifications - keep only unique by ID and remove duplicates with same type/post within 1 minute
             notifications = deduplicateNotifications(fetchedNotifications)
-            await refreshUnreadCount()
+            // Count unread from deduplicated list to match displayed notifications
+            refreshUnreadCount()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -69,7 +70,8 @@ final class NotificationsViewModel: ObservableObject {
                     newRank: updated.newRank
                 )
             }
-            await refreshUnreadCount()
+            // Count unread from deduplicated list
+            refreshUnreadCount()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -93,18 +95,16 @@ final class NotificationsViewModel: ObservableObject {
                     newRank: notification.newRank
                 )
             }
-            await refreshUnreadCount()
+            // Count unread from deduplicated list
+            refreshUnreadCount()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
     
-    func refreshUnreadCount() async {
-        do {
-            unreadCount = try await notificationService.getUnreadCount()
-        } catch {
-            // Silently fail - unread count is not critical
-        }
+    func refreshUnreadCount() {
+        // Count unread from the deduplicated notifications list to match what's displayed
+        unreadCount = notifications.filter { $0.readAt == nil }.count
     }
 }
 

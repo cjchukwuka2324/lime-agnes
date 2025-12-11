@@ -3,6 +3,15 @@ import Supabase
 
 protocol SuggestedFollowService {
     func loadSuggestions(contactService: ContactsService) async throws -> [UserSummary]
+    func getMutualFollowSuggestions(limit: Int) async throws -> [MutualFollowSuggestion]
+}
+
+// MARK: - Mutual Follow Suggestion Model
+
+struct MutualFollowSuggestion: Identifiable {
+    let id: String
+    let user: UserSummary
+    let mutualCount: Int
 }
 
 final class SupabaseSuggestedFollowService: SuggestedFollowService {
@@ -139,5 +148,101 @@ final class SupabaseSuggestedFollowService: SuggestedFollowService {
         }
         
         return matchingProfiles
+    }
+    
+    // MARK: - Mutual Follow Suggestions
+    
+    func getMutualFollowSuggestions(limit: Int = 20) async throws -> [MutualFollowSuggestion] {
+        // Get current user ID
+        guard let currentUserId = supabase.auth.currentUser?.id.uuidString,
+              let currentUserIdUUID = UUID(uuidString: currentUserId) else {
+            throw NSError(domain: "SuggestedFollowService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        // Call SQL function to get mutual follow suggestions
+        struct GetMutualSuggestionsParams: Encodable {
+            let p_user_id: String
+            let p_limit: Int
+        }
+        
+        let params = GetMutualSuggestionsParams(
+            p_user_id: currentUserId,
+            p_limit: limit
+        )
+        
+        let response = try await supabase
+            .rpc("get_mutual_follow_suggestions", params: params)
+            .execute()
+        
+        // Decode response
+        struct MutualSuggestionRow: Decodable {
+            let user_id: UUID
+            let display_name: String?
+            let first_name: String?
+            let last_name: String?
+            let username: String?
+            let profile_picture_url: String?
+            let region: String?
+            let followers_count: Int?
+            let following_count: Int?
+            let mutual_count: Int
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let rows = try decoder.decode([MutualSuggestionRow].self, from: response.data)
+        
+        // Convert to MutualFollowSuggestion
+        return rows.map { row in
+            let profileId = row.user_id.uuidString
+            
+            // Build display name
+            let displayName: String
+            if let firstName = row.first_name, let lastName = row.last_name {
+                displayName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+            } else if let displayNameValue = row.display_name, !displayNameValue.isEmpty {
+                displayName = displayNameValue
+            } else if let username = row.username {
+                displayName = username.capitalized
+            } else {
+                displayName = "User"
+            }
+            
+            // Build handle
+            let handle = row.username.map { "@\($0)" } ?? "@user"
+            
+            // Build initials
+            let initials: String
+            if let firstName = row.first_name, let lastName = row.last_name {
+                initials = "\(String(firstName.prefix(1)))\(String(lastName.prefix(1)))".uppercased()
+            } else if let displayNameValue = row.display_name, displayNameValue.count >= 2 {
+                initials = String(displayNameValue.prefix(2)).uppercased()
+            } else if let username = row.username, username.count >= 2 {
+                initials = String(username.prefix(2)).uppercased()
+            } else {
+                initials = "U"
+            }
+            
+            // Build profile picture URL
+            let profilePictureURL = row.profile_picture_url.flatMap { URL(string: $0) }
+            
+            let userSummary = UserSummary(
+                id: profileId,
+                displayName: displayName,
+                handle: handle,
+                avatarInitials: initials,
+                profilePictureURL: profilePictureURL,
+                isFollowing: false,
+                region: row.region,
+                followersCount: row.followers_count ?? 0,
+                followingCount: row.following_count ?? 0
+            )
+            
+            return MutualFollowSuggestion(
+                id: profileId,
+                user: userSummary,
+                mutualCount: row.mutual_count
+            )
+        }
     }
 }

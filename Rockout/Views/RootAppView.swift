@@ -154,6 +154,19 @@ struct RootAppView: View {
             authVM.handleDeepLink(url)
             return
         }
+        
+        // Handle signup invite links: rockout://signup?ref={userId}
+        if url.host == "signup" {
+            // Extract referral ID from query parameters
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let queryItems = components.queryItems,
+               let refId = queryItems.first(where: { $0.name == "ref" })?.value {
+                print("📧 Signup invite link detected with referral: \(refId)")
+                // TODO: Track referral and navigate to signup screen if needed
+                // For now, just log it - the app will handle signup normally
+            }
+            return
+        }
     }
     
     private func loadFeedOnStartup() async {

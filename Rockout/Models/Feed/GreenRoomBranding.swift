@@ -100,8 +100,8 @@ struct GreenRoomBranding {
     
     struct EmptyStates {
         static let noBarsYet = "No Bars yet"
-        static let noAdlibs = "No adlibs"
         static let noAdlibsYet = "No adlibs yet"
+        static let noAdlibs = "No adlibs" // Alias for backward compatibility
         static let noAmpsYet = "No Amps yet"
         static let noEchoesYet = "No Echoes yet"
         static let noBarsMessage = "This user hasn't dropped any Bars yet."
@@ -153,12 +153,13 @@ struct GreenRoomBranding {
         static let beFirstToAdlib = "Be the first to adlib!"
         static let deleteBar = "Delete Bar"
         static let deleteBarMessage = "Are you sure you want to delete this Bar? This action cannot be undone."
+        static let echoAction = "Echo this Bar"
     }
     
     // Convenience properties for accessibility and actions
     static let ampAction = amp
     static let adlibAction = adlib
-    static let echoAction = echo
+    static let echoAction = echoBar
 }
 
 // MARK: - Notification Message Transformation

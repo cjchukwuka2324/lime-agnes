@@ -11,21 +11,37 @@ struct MediaGridView: View {
     }
     
     var body: some View {
-        Group {
-            switch mediaCount {
-            case 0:
-                EmptyView()
-            case 1:
-                singleMediaView
-            case 2:
-                twoMediaGrid
-            case 3:
-                threeMediaGrid
-            case 4:
-                fourMediaGrid
-            default:
-                fivePlusMediaGrid
+        GeometryReader { geometry in
+            let availableWidth = geometry.size.width
+            
+            Group {
+                switch mediaCount {
+                case 0:
+                    EmptyView()
+                case 1:
+                    singleMediaView
+                case 2:
+                    twoMediaGrid(availableWidth: availableWidth)
+                case 3:
+                    threeMediaGrid(availableWidth: availableWidth)
+                case 4:
+                    fourMediaGrid(availableWidth: availableWidth)
+                default:
+                    fivePlusMediaGrid(availableWidth: availableWidth)
+                }
             }
+            .frame(width: availableWidth, height: calculateHeight())
+        }
+        .frame(height: calculateHeight())
+        .clipped()
+    }
+    
+    private func calculateHeight() -> CGFloat {
+        switch mediaCount {
+        case 0: return 0
+        case 1: return 200
+        case 2, 3, 4: return 200
+        default: return 200
         }
     }
     
@@ -46,7 +62,7 @@ struct MediaGridView: View {
     
     // MARK: - Two Media Grid
     
-    private var twoMediaGrid: some View {
+    private func twoMediaGrid(availableWidth: CGFloat) -> some View {
         HStack(spacing: 2) {
             if let videoURL = videoURL {
                 VideoThumbnailView(videoURL: videoURL, onTap: onTap)
@@ -66,18 +82,20 @@ struct MediaGridView: View {
     
     // MARK: - Three Media Grid
     
-    private var threeMediaGrid: some View {
+    private func threeMediaGrid(availableWidth: CGFloat) -> some View {
         HStack(spacing: 2) {
             // Large image on left (50%)
+            let leftWidth = (availableWidth - 2) * 0.5
             if let firstImage = imageURLs.first {
                 ImageThumbnailView(imageURL: firstImage, onTap: onTap)
-                    .frame(width: UIScreen.main.bounds.width * 0.5 - 1)
+                    .frame(width: leftWidth)
             } else if let videoURL = videoURL {
                 VideoThumbnailView(videoURL: videoURL, onTap: onTap)
-                    .frame(width: UIScreen.main.bounds.width * 0.5 - 1)
+                    .frame(width: leftWidth)
             }
             
             // Two stacked on right (25% each)
+            let rightWidth = (availableWidth - 2) * 0.5
             VStack(spacing: 2) {
                 if imageURLs.count > 1 {
                     ImageThumbnailView(imageURL: imageURLs[1], onTap: onTap)
@@ -91,7 +109,7 @@ struct MediaGridView: View {
                     ImageThumbnailView(imageURL: imageURLs[0], onTap: onTap)
                 }
             }
-            .frame(width: UIScreen.main.bounds.width * 0.5 - 1)
+            .frame(width: rightWidth)
         }
         .frame(height: 200)
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -99,7 +117,7 @@ struct MediaGridView: View {
     
     // MARK: - Four Media Grid
     
-    private var fourMediaGrid: some View {
+    private func fourMediaGrid(availableWidth: CGFloat) -> some View {
         VStack(spacing: 2) {
             HStack(spacing: 2) {
                 if imageURLs.count > 0 {
@@ -131,7 +149,7 @@ struct MediaGridView: View {
     
     // MARK: - Five+ Media Grid
     
-    private var fivePlusMediaGrid: some View {
+    private func fivePlusMediaGrid(availableWidth: CGFloat) -> some View {
         VStack(spacing: 2) {
             HStack(spacing: 2) {
                 if imageURLs.count > 0 {
@@ -182,29 +200,32 @@ private struct ImageThumbnailView: View {
     let onTap: () -> Void
     
     var body: some View {
-        AsyncImage(url: imageURL) { phase in
-            switch phase {
-            case .empty:
-                ProgressView()
-                    .tint(.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white.opacity(0.1))
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-            case .failure:
-                Image(systemName: "photo")
-                    .font(.title2)
-                    .foregroundColor(.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white.opacity(0.1))
-            @unknown default:
-                EmptyView()
+        GeometryReader { geometry in
+            AsyncImage(url: imageURL) { phase in
+                switch phase {
+                case .empty:
+                    ProgressView()
+                        .tint(.white.opacity(0.6))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.white.opacity(0.1))
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+                        .clipped()
+                case .failure:
+                    Image(systemName: "photo")
+                        .font(.title2)
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.white.opacity(0.1))
+                @unknown default:
+                    EmptyView()
+                }
             }
         }
+        .aspectRatio(contentMode: .fill)
         .contentShape(Rectangle())
         .onTapGesture {
             onTap()

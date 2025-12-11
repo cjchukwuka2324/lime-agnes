@@ -267,7 +267,8 @@ final class FeedViewModel: ObservableObject {
             resharedPostId: originalPost.resharedPostId,
             spotifyLink: originalPost.spotifyLink,
             poll: originalPost.poll,
-            backgroundMusic: originalPost.backgroundMusic
+            backgroundMusic: originalPost.backgroundMusic,
+            mentionedUserIds: originalPost.mentionedUserIds
         )
         posts[index] = updatedPost
         
@@ -366,8 +367,9 @@ final class FeedViewModel: ObservableObject {
         print("🔍 FeedViewModel.loadUserPosts called for userId: \(userId)")
         do {
             let fetchedPosts = try await service.fetchPostsByUser(userId)
-            posts = fetchedPosts
-            print("✅ FeedViewModel.loadUserPosts: Set \(posts.count) posts for user \(userId)")
+            // Filter out echoed posts - Bars tab should only show original posts
+            posts = fetchedPosts.filter { $0.resharedPostId == nil }
+            print("✅ FeedViewModel.loadUserPosts: Set \(posts.count) posts for user \(userId) (filtered out echoes)")
         } catch {
             errorMessage = error.localizedDescription
             print("❌ Error loading user posts: \(error.localizedDescription)")

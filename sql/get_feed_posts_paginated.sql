@@ -160,9 +160,11 @@ BEGIN
         ) ec ON ec.reshared_post_id = p.id
         LEFT JOIN post_likes ul ON ul.post_id = p.id AND ul.user_id = v_current_user_id
         LEFT JOIN posts echo_post ON echo_post.reshared_post_id = p.id AND echo_post.user_id = v_current_user_id AND echo_post.deleted_at IS NULL
+        LEFT JOIN posts original_post ON original_post.id = p.reshared_post_id -- Join to check if original post exists and is not deleted
         LEFT JOIN auth.users u ON u.id = p.user_id
         LEFT JOIN profiles prof ON prof.id = p.user_id
         WHERE p.deleted_at IS NULL
+            AND (p.reshared_post_id IS NULL OR original_post.deleted_at IS NULL) -- Filter out echo posts where original post is deleted
             AND (p_cursor IS NULL OR p.created_at < p_cursor) -- CURSOR FILTERING
             AND (
                 CASE p_feed_type

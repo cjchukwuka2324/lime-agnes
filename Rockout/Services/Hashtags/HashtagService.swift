@@ -21,6 +21,7 @@ protocol HashtagService {
     func getTrendingHashtags(timeWindowHours: Int, limit: Int) async throws -> [TrendingHashtag]
     func getPostsByHashtag(tag: String, cursor: Date?, limit: Int) async throws -> (posts: [Post], hasMore: Bool)
     func getAllTrendingPosts(timeWindowHours: Int, cursor: Date?, limit: Int) async throws -> (posts: [Post], hasMore: Bool)
+    func searchHashtags(query: String, limit: Int) async throws -> [TrendingHashtag]
 }
 
 // MARK: - Supabase Implementation
@@ -210,6 +211,55 @@ final class SupabaseHashtagService: HashtagService {
         let hasMore = posts.count == limit
         
         return (posts: posts, hasMore: hasMore)
+    }
+    
+    // MARK: - Search Hashtags
+    
+    func searchHashtags(query: String, limit: Int = 10) async throws -> [TrendingHashtag] {
+        struct SearchHashtagsParams: Encodable {
+            let p_query: String
+            let p_limit: Int
+        }
+        
+        let params = SearchHashtagsParams(
+            p_query: query.lowercased(),
+            p_limit: limit
+        )
+        
+        let response = try await supabase
+            .rpc("search_hashtags", params: params)
+            .execute()
+        
+        // Decode response
+        struct HashtagRow: Decodable {
+            let tag: String
+            let post_count: Int
+            let engagement_score: Double?
+            let latest_post_at: String?
+        }
+        
+        let decoder = JSONDecoder()
+        let rows = try decoder.decode([HashtagRow].self, from: response.data)
+        
+        // Convert to TrendingHashtag models
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        return rows.compactMap { row in
+            let date: Date
+            if let latestPostAt = row.latest_post_at, let parsedDate = formatter.date(from: latestPostAt) {
+                date = parsedDate
+            } else {
+                date = Date()
+            }
+            
+            return TrendingHashtag(
+                tag: row.tag,
+                postCount: row.post_count,
+                engagementScore: row.engagement_score ?? 0.0,
+                latestPostAt: date
+            )
+        }
     }
     
     // MARK: - Helper: Convert FeedPostRow to Post

@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import Foundation
 
 private struct PostIdWrapper: Identifiable, Hashable {
     let id: String
@@ -349,13 +350,22 @@ struct FeedView: View {
                 selectedHashtag = hashtag
                 selectedFeedType = .trending
             },
+            onMentionTap: { handle in
+                // Search for user by handle and navigate to their profile
+                Task {
+                    await self.handleMentionTap(handle: handle)
+                }
+            },
             showInlineReplies: true,
             service: viewModel.service
         )
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
         .onTapGesture {
-            if let parentPostId = post.parentPostId {
+            // If this is an echo post, navigate to the original post's thread
+            if let resharedPostId = post.resharedPostId {
+                selectedPostId = PostIdWrapper(id: resharedPostId)
+            } else if let parentPostId = post.parentPostId {
                 selectedPostId = PostIdWrapper(id: parentPostId)
             } else {
                 selectedPostId = PostIdWrapper(id: post.id)
@@ -495,6 +505,32 @@ struct FeedView: View {
                         }
                     }
                 )
+        }
+    }
+    
+    private func handleMentionTap(handle: String) async {
+        // Strip @ if present
+        let cleanHandle = handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
+        
+        // Search for user by handle
+        let social = SupabaseSocialGraphService.shared
+        do {
+            // Search users by handle
+            let (users, _) = try await social.searchUsersPaginated(query: cleanHandle, limit: 10, offset: 0)
+            
+            // Find exact match by handle
+            if let matchedUser = users.first(where: { user in
+                let userHandle = user.handle.hasPrefix("@") ? String(user.handle.dropFirst()) : user.handle
+                return userHandle.lowercased() == cleanHandle.lowercased()
+            }) {
+                await MainActor.run {
+                    if let userId = UUID(uuidString: matchedUser.id) {
+                        selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: matchedUser)
+                    }
+                }
+            }
+        } catch {
+            print("Failed to search user by handle: \(error)")
         }
     }
 }

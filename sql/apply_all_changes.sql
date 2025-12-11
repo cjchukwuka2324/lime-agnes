@@ -262,3 +262,4 @@ COMMENT ON FUNCTION match_contacts_with_users IS 'Syncs contacts to the database
 -- Migration Complete!
 -- ============================================================================
 
+

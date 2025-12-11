@@ -114,17 +114,19 @@ struct UserProfileDetailView: View {
                                 .tint(.white)
                                 .frame(width: 120, height: 40)
                         } else {
-                            Text(viewModel.user?.isFollowing ?? false ? "Following" : "Follow")
+                            let isFollowing = viewModel.user?.isFollowing ?? false
+                            Text(isFollowing ? "Following" : "Follow")
                                 .font(.headline.weight(.semibold))
-                                .foregroundColor(viewModel.user?.isFollowing ?? false ? .white : .black)
+                                .foregroundColor(isFollowing ? .white : .black)
                                 .frame(width: 120, height: 40)
                                 .background(
                                     RoundedRectangle(cornerRadius: 20)
-                                        .fill(viewModel.user?.isFollowing ?? false ? Color.white.opacity(0.2) : Color(hex: "#1ED760"))
+                                        .fill(isFollowing ? Color.white.opacity(0.2) : Color(hex: "#1ED760"))
                                 )
                         }
                     }
                     .disabled(viewModel.isLoading)
+                    .animation(.easeInOut(duration: 0.2), value: viewModel.user?.isFollowing)
                     
                     // Post Notifications Toggle (only show if following)
                     if viewModel.user?.isFollowing == true {

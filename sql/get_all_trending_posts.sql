@@ -135,9 +135,13 @@ BEGIN
     ) ec ON ec.reshared_post_id = p.id
     -- Check if current user echoed
     LEFT JOIN posts echo_post ON echo_post.reshared_post_id = p.id AND echo_post.user_id = v_current_user_id AND echo_post.deleted_at IS NULL
+    -- Check if original post exists and is not deleted (for echo posts)
+    LEFT JOIN posts original_post ON original_post.id = p.reshared_post_id
     -- Get author info
     LEFT JOIN profiles prof ON prof.id = p.user_id
     WHERE p.deleted_at IS NULL
+      -- Filter out echo posts where original post is deleted
+      AND (p.reshared_post_id IS NULL OR original_post.deleted_at IS NULL)
       -- Within time window
       AND p.created_at >= NOW() - (p_time_window_hours || ' hours')::INTERVAL
       -- Cursor for pagination
