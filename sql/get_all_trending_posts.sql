@@ -30,6 +30,8 @@ RETURNS TABLE (
     like_count BIGINT,
     is_liked_by_current_user BOOLEAN,
     reply_count BIGINT,
+    echo_count BIGINT,
+    is_echoed_by_current_user BOOLEAN,
     author_display_name TEXT,
     author_handle TEXT,
     author_profile_picture_url TEXT,
@@ -76,6 +78,8 @@ BEGIN
         COALESCE(plc.like_count, 0)::BIGINT as like_count,
         (ul.post_id IS NOT NULL) as is_liked_by_current_user,
         COALESCE(prc.reply_count, 0)::BIGINT as reply_count,
+        COALESCE(ec.echo_count, 0)::BIGINT as echo_count,
+        (echo_post.id IS NOT NULL) as is_echoed_by_current_user,
         COALESCE(prof.display_name, 'User') as author_display_name,
         COALESCE(
             CASE 
@@ -122,6 +126,15 @@ BEGIN
         WHERE r.deleted_at IS NULL AND r.parent_post_id IS NOT NULL
         GROUP BY r.parent_post_id
     ) prc ON prc.parent_post_id = p.id
+    -- Get echo count
+    LEFT JOIN (
+        SELECT pe.reshared_post_id, COUNT(*)::BIGINT as echo_count
+        FROM posts pe
+        WHERE pe.reshared_post_id IS NOT NULL AND pe.deleted_at IS NULL
+        GROUP BY pe.reshared_post_id
+    ) ec ON ec.reshared_post_id = p.id
+    -- Check if current user echoed
+    LEFT JOIN posts echo_post ON echo_post.reshared_post_id = p.id AND echo_post.user_id = v_current_user_id AND echo_post.deleted_at IS NULL
     -- Get author info
     LEFT JOIN profiles prof ON prof.id = p.user_id
     WHERE p.deleted_at IS NULL

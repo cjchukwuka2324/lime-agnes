@@ -166,7 +166,7 @@ final class FeedViewModel: ObservableObject {
     
     // MARK: - Create Post
     
-    func createPost(text: String, imageURLs: [URL] = [], videoURL: URL? = nil, audioURL: URL? = nil, leaderboardEntry: LeaderboardEntrySummary?) async {
+    func createPost(text: String, imageURLs: [URL] = [], videoURL: URL? = nil, audioURL: URL? = nil, leaderboardEntry: LeaderboardEntrySummary?, mentionedUserIds: [String] = []) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageURLs.isEmpty || videoURL != nil || audioURL != nil else {
             return
         }
@@ -175,7 +175,7 @@ final class FeedViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            _ = try await service.createPost(text: text, imageURLs: imageURLs, videoURL: videoURL, audioURL: audioURL, leaderboardEntry: leaderboardEntry, spotifyLink: nil, poll: nil, backgroundMusic: nil)
+            _ = try await service.createPost(text: text, imageURLs: imageURLs, videoURL: videoURL, audioURL: audioURL, leaderboardEntry: leaderboardEntry, spotifyLink: nil, poll: nil, backgroundMusic: nil, mentionedUserIds: mentionedUserIds)
             // FeedStore will update automatically, no need to reload
         } catch {
             errorMessage = "Failed to create post: \(error.localizedDescription)"
@@ -202,7 +202,7 @@ final class FeedViewModel: ObservableObject {
     
     // MARK: - Reply to Post
     
-    func reply(to parentPost: Post, text: String, imageURLs: [URL] = [], videoURL: URL? = nil, audioURL: URL? = nil) async {
+    func reply(to parentPost: Post, text: String, imageURLs: [URL] = [], videoURL: URL? = nil, audioURL: URL? = nil, mentionedUserIds: [String] = []) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageURLs.isEmpty || videoURL != nil || audioURL != nil else {
             return
         }
@@ -211,7 +211,7 @@ final class FeedViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            _ = try await service.reply(to: parentPost, text: text, imageURLs: imageURLs, videoURL: videoURL, audioURL: audioURL, spotifyLink: nil, poll: nil, backgroundMusic: nil)
+            _ = try await service.reply(to: parentPost, text: text, imageURLs: imageURLs, videoURL: videoURL, audioURL: audioURL, spotifyLink: nil, poll: nil, backgroundMusic: nil, mentionedUserIds: mentionedUserIds)
             // Note: Replies appear in thread view, not feed
         } catch {
             errorMessage = "Failed to reply: \(error.localizedDescription)"
@@ -233,6 +233,54 @@ final class FeedViewModel: ObservableObject {
             // FeedStore will update automatically, no need to reload
         } catch {
             errorMessage = "Failed to create comment: \(error.localizedDescription)"
+        }
+    }
+    
+    // MARK: - Toggle Echo
+    
+    func toggleEcho(postId: String) async {
+        guard let index = posts.firstIndex(where: { $0.id == postId }) else {
+            return
+        }
+        
+        // Store original post
+        let originalPost = posts[index]
+        let wasEchoed = originalPost.isEchoed
+        
+        // Optimistically update UI
+        let updatedPost = Post(
+            id: originalPost.id,
+            text: originalPost.text,
+            createdAt: originalPost.createdAt,
+            author: originalPost.author,
+            imageURLs: originalPost.imageURLs,
+            videoURL: originalPost.videoURL,
+            audioURL: originalPost.audioURL,
+            likeCount: originalPost.likeCount,
+            replyCount: originalPost.replyCount,
+            isLiked: originalPost.isLiked,
+            echoCount: wasEchoed ? max(0, originalPost.echoCount - 1) : originalPost.echoCount + 1,
+            isEchoed: !wasEchoed,
+            parentPostId: originalPost.parentPostId,
+            parentPost: originalPost.parentPost,
+            leaderboardEntry: originalPost.leaderboardEntry,
+            resharedPostId: originalPost.resharedPostId,
+            spotifyLink: originalPost.spotifyLink,
+            poll: originalPost.poll,
+            backgroundMusic: originalPost.backgroundMusic
+        )
+        posts[index] = updatedPost
+        
+        do {
+            let newEchoState = try await service.toggleEcho(postId: postId)
+            print("✅ Echo toggled for post \(postId), now echoed: \(newEchoState)")
+            
+            // Refresh the feed to get updated echo count
+            await load(feedType: currentFeedType)
+        } catch {
+            errorMessage = "Failed to echo post: \(error.localizedDescription)"
+            // Revert optimistic update
+            posts[index] = originalPost
         }
     }
     
@@ -259,6 +307,8 @@ final class FeedViewModel: ObservableObject {
             likeCount: wasLiked ? max(0, originalPost.likeCount - 1) : originalPost.likeCount + 1,
             replyCount: originalPost.replyCount,
             isLiked: !wasLiked,
+            echoCount: originalPost.echoCount,
+            isEchoed: originalPost.isEchoed,
             parentPostId: originalPost.parentPostId,
             parentPost: originalPost.parentPost,
             leaderboardEntry: originalPost.leaderboardEntry,
@@ -287,6 +337,8 @@ final class FeedViewModel: ObservableObject {
                     likeCount: newLikeState ? originalPost.likeCount + 1 : max(0, originalPost.likeCount - 1),
                     replyCount: originalPost.replyCount,
                     isLiked: newLikeState,
+                    echoCount: originalPost.echoCount,
+                    isEchoed: originalPost.isEchoed,
                     parentPostId: originalPost.parentPostId,
                     parentPost: originalPost.parentPost,
                     leaderboardEntry: originalPost.leaderboardEntry,
@@ -345,6 +397,19 @@ final class FeedViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             print("❌ Error loading user liked posts: \(error.localizedDescription)")
+        }
+    }
+    
+    func loadUserEchoedPosts(userId: String) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        
+        do {
+            posts = try await service.fetchEchoedPostsByUser(userId)
+        } catch {
+            errorMessage = error.localizedDescription
+            print("❌ Error loading user echoed posts: \(error.localizedDescription)")
         }
     }
 }

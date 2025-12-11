@@ -7,11 +7,12 @@ struct ProfileView: View {
     @StateObject private var userPostsViewModel = FeedViewModel()
     @StateObject private var userRepliesViewModel = FeedViewModel()
     @StateObject private var userLikedViewModel = FeedViewModel()
+    @StateObject private var userEchoesViewModel = FeedViewModel()
 
     @State private var isLoading = false
     @State private var message: String?
     @State private var currentUserId: String?
-    @State private var selectedProfileTab: ProfileContentTab = .posts
+    @State private var selectedProfileTab: ProfileContentTab = .bars
     @State private var userProfile: UserProfileService.UserProfile?
     @State private var profilePictureURL: URL?
     @State private var showSettings = false
@@ -27,9 +28,10 @@ struct ProfileView: View {
     private let social: SocialGraphService = SupabaseSocialGraphService.shared
     
     enum ProfileContentTab: String, CaseIterable {
-        case posts = "Posts"
-        case replies = "Replies"
-        case likes = "Likes"
+        case bars = "Bars"
+        case adlibs = "Adlibs"
+        case amps = "Amps"
+        case echoes = "Echoes"
     }
 
     var body: some View {
@@ -370,12 +372,14 @@ struct ProfileView: View {
             // Content View
             Group {
                 switch selectedProfileTab {
-                case .posts:
-                    profileContentList(viewModel: userPostsViewModel, emptyIcon: "square.and.pencil", emptyTitle: "No posts yet", emptyMessage: "Share your thoughts and RockList rankings!")
-                case .replies:
-                    profileContentList(viewModel: userRepliesViewModel, emptyIcon: "bubble.left", emptyTitle: "No replies yet", emptyMessage: "Start replying to posts to see them here!")
-                case .likes:
-                    profileContentList(viewModel: userLikedViewModel, emptyIcon: "heart", emptyTitle: "No likes yet", emptyMessage: "Like posts to see them here!")
+                case .bars:
+                    profileContentList(viewModel: userPostsViewModel, emptyIcon: "square.and.pencil", emptyTitle: GreenRoomBranding.EmptyStates.noBarsYet, emptyMessage: "Share your thoughts and RockList rankings!")
+                case .adlibs:
+                    profileContentList(viewModel: userRepliesViewModel, emptyIcon: "bubble.left", emptyTitle: GreenRoomBranding.EmptyStates.noAdlibsYet, emptyMessage: GreenRoomBranding.EmptyStates.noAdlibsMessage)
+                case .amps:
+                    profileContentList(viewModel: userLikedViewModel, emptyIcon: "bolt.fill", emptyTitle: GreenRoomBranding.EmptyStates.noAmpsYet, emptyMessage: GreenRoomBranding.EmptyStates.noAmpsMessage)
+                case .echoes:
+                    profileContentList(viewModel: userEchoesViewModel, emptyIcon: "arrow.2.squarepath", emptyTitle: GreenRoomBranding.EmptyStates.noEchoesYet, emptyMessage: "Echo Bars you love to share them with your followers!")
                 }
             }
         }
@@ -450,12 +454,14 @@ struct ProfileView: View {
     
     private func loadContentForTab(_ tab: ProfileContentTab, userId: String) async {
         switch tab {
-        case .posts:
+        case .bars:
             await userPostsViewModel.loadUserPosts(userId: userId)
-        case .replies:
+        case .adlibs:
             await userRepliesViewModel.loadUserReplies(userId: userId)
-        case .likes:
+        case .amps:
             await userLikedViewModel.loadUserLikedPosts(userId: userId)
+        case .echoes:
+            await userEchoesViewModel.loadUserEchoedPosts(userId: userId)
         }
     }
     

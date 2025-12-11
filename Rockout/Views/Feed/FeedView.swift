@@ -9,6 +9,16 @@ private struct ArtistIdWrapper: Identifiable, Hashable {
     let id: String
 }
 
+private struct ProfileNavigationWrapper: Identifiable, Hashable {
+    let id: UUID
+    let initialUser: UserSummary?
+    
+    init(userId: UUID, initialUser: UserSummary? = nil) {
+        self.id = userId
+        self.initialUser = initialUser
+    }
+}
+
 struct FeedView: View {
     @StateObject private var viewModel = FeedViewModel()
     @State private var showComposer = false
@@ -18,8 +28,7 @@ struct FeedView: View {
     @StateObject private var notificationsViewModel = NotificationsViewModel()
     @State private var selectedPostId: PostIdWrapper?
     @State private var selectedArtistId: ArtistIdWrapper?
-    @State private var selectedProfileUserId: UUID?
-    @State private var showProfile = false
+    @State private var selectedProfile: ProfileNavigationWrapper?
     @State private var fabOffset: CGSize = .zero
     @State private var selectedHashtag: String?
     
@@ -46,12 +55,8 @@ struct FeedView: View {
                 .sheet(isPresented: $showNotifications) {
                     NotificationsView()
                 }
-                .sheet(isPresented: $showProfile) {
-                    if let userId = selectedProfileUserId {
-                        NavigationStack {
-                            UserProfileDetailView(userId: userId)
-                        }
-                    }
+                .navigationDestination(item: $selectedProfile) { wrapper in
+                    UserProfileDetailView(userId: wrapper.id, initialUser: wrapper.initialUser)
                 }
                 .onAppear {
                     if viewModel.posts.isEmpty && !viewModel.isLoading {
@@ -317,6 +322,11 @@ struct FeedView: View {
             onReply: { parentPost in
                 selectedPostId = PostIdWrapper(id: parentPost.id)
             },
+            onEcho: { postId in
+                Task {
+                    await viewModel.toggleEcho(postId: postId)
+                }
+            },
             onNavigateToParent: { parentPostId in
                 selectedPostId = PostIdWrapper(id: parentPostId)
             },
@@ -325,8 +335,8 @@ struct FeedView: View {
             },
             onTapProfile: {
                 if let userId = UUID(uuidString: post.author.id) {
-                    selectedProfileUserId = userId
-                    showProfile = true
+                    // Pre-load with author data for immediate rendering
+                    selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: post.author)
                 }
             },
             onDelete: { postId in
@@ -396,11 +406,11 @@ struct FeedView: View {
                 .font(.system(size: 64))
                 .foregroundColor(.white.opacity(0.5))
             
-            Text(selectedFeedType == .following ? "No Posts from Followed Users" : "No Posts Yet")
+            Text(selectedFeedType == .following ? "No Bars from Followed Users" : GreenRoomBranding.EmptyStates.noBarsYet)
                 .font(.title2.bold())
                 .foregroundColor(.white)
             
-            Text(selectedFeedType == .following ? "Follow users to see their posts here." : "Be the first to post! Share your music discoveries or comment on leaderboards.")
+            Text(selectedFeedType == .following ? "Follow users to see their Bars here." : "Be the first to drop a Bar! Share your music discoveries or comment on leaderboards.")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -412,7 +422,7 @@ struct FeedView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus.circle.fill")
-                        Text("Create First Post")
+                        Text("Drop Your First Bar")
                             .fontWeight(.semibold)
                     }
                     .foregroundColor(.white)

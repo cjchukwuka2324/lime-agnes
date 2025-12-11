@@ -2,6 +2,7 @@ import SwiftUI
 
 struct UserProfileDetailView: View {
     let userId: UUID
+    let initialUser: UserSummary?
     
     @StateObject private var viewModel: UserProfileViewModel
     
@@ -9,9 +10,10 @@ struct UserProfileDetailView: View {
     @State private var showFollowingList = false
     @State private var showMutualsList = false
     
-    init(userId: UUID) {
+    init(userId: UUID, initialUser: UserSummary? = nil) {
         self.userId = userId
-        self._viewModel = StateObject(wrappedValue: UserProfileViewModel(userId: userId.uuidString))
+        self.initialUser = initialUser
+        self._viewModel = StateObject(wrappedValue: UserProfileViewModel(userId: userId.uuidString, initialUser: initialUser))
     }
     
     private var isCurrentUser: Bool {
@@ -363,28 +365,31 @@ struct UserProfileDetailView: View {
             Picker("Content Type", selection: Binding(
                 get: {
                     switch viewModel.selectedSection {
-                    case .posts: return ProfileContentTab.posts
-                    case .replies: return ProfileContentTab.replies
-                    case .likes: return ProfileContentTab.likes
+                    case .bars: return ProfileContentTab.bars
+                    case .adlibs: return ProfileContentTab.adlibs
+                    case .amps: return ProfileContentTab.amps
+                    case .echoes: return ProfileContentTab.echoes
                     case .mutuals: return ProfileContentTab.mutuals
                     case .followers, .following:
-                        // Orphaned states - reset to posts
-                        viewModel.selectedSection = .posts
-                        return ProfileContentTab.posts
+                        // Orphaned states - reset to bars
+                        viewModel.selectedSection = .bars
+                        return ProfileContentTab.bars
                     }
                 },
                 set: { (newTab: ProfileContentTab) in
                     switch newTab {
-                    case .posts: viewModel.selectedSection = .posts
-                    case .replies: viewModel.selectedSection = .replies
-                    case .likes: viewModel.selectedSection = .likes
+                    case .bars: viewModel.selectedSection = .bars
+                    case .adlibs: viewModel.selectedSection = .adlibs
+                    case .amps: viewModel.selectedSection = .amps
+                    case .echoes: viewModel.selectedSection = .echoes
                     case .mutuals: viewModel.selectedSection = .mutuals
                     }
                 }
             )) {
-                Text("Posts").tag(ProfileContentTab.posts)
-                Text("Replies").tag(ProfileContentTab.replies)
-                Text("Likes").tag(ProfileContentTab.likes)
+                Text(GreenRoomBranding.bars).tag(ProfileContentTab.bars)
+                Text(GreenRoomBranding.adlibs).tag(ProfileContentTab.adlibs)
+                Text(GreenRoomBranding.amps).tag(ProfileContentTab.amps)
+                Text(GreenRoomBranding.echoes).tag(ProfileContentTab.echoes)
                 Text("Mutuals").tag(ProfileContentTab.mutuals)
             }
             .pickerStyle(.segmented)
@@ -393,12 +398,14 @@ struct UserProfileDetailView: View {
             // Content View
             Group {
                 switch viewModel.selectedSection {
-                case .posts:
+                case .bars:
                     postsContentList
-                case .replies:
+                case .adlibs:
                     repliesContentList
-                case .likes:
+                case .amps:
                     likesContentList
+                case .echoes:
+                    echoesContentList
                 case .mutuals:
                     userListContent(users: viewModel.mutuals, emptyIcon: "person.3", emptyTitle: "No mutual follows", emptyMessage: "Users you both follow will appear here")
                 case .followers, .following:
@@ -412,7 +419,7 @@ struct UserProfileDetailView: View {
     @ViewBuilder
     private var postsContentList: some View {
         if viewModel.posts.isEmpty {
-            emptyStateView(icon: "square.and.pencil", title: "No posts yet", message: "This user hasn't shared any posts yet.")
+            emptyStateView(icon: "square.and.pencil", title: GreenRoomBranding.EmptyStates.noBarsYet, message: GreenRoomBranding.EmptyStates.noBarsMessage)
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
@@ -445,7 +452,7 @@ struct UserProfileDetailView: View {
     @ViewBuilder
     private var likesContentList: some View {
         if viewModel.likedPosts.isEmpty {
-            emptyStateView(icon: "heart", title: "No likes yet", message: "This user hasn't liked any posts yet.")
+            emptyStateView(icon: "bolt.fill", title: GreenRoomBranding.EmptyStates.noAmpsYet, message: "This user hasn't amped any Bars yet.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
@@ -475,7 +482,7 @@ struct UserProfileDetailView: View {
         let replies = viewModel.posts.filter { $0.parentPostId != nil }
         
         if replies.isEmpty {
-            emptyStateView(icon: "arrowshape.turn.up.left", title: "No replies yet", message: "This user hasn't replied to any posts yet.")
+            emptyStateView(icon: "arrowshape.turn.up.left", title: GreenRoomBranding.EmptyStates.noAdlibsYet, message: "This user hasn't adlibbed on any Bars yet.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
@@ -489,6 +496,39 @@ struct UserProfileDetailView: View {
                             },
                             onReply: { parentPost in
                                 // Navigate to post detail for replies
+                            },
+                            showInlineReplies: true,
+                            service: SupabaseFeedService.shared
+                        )
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var echoesContentList: some View {
+        if viewModel.echoedPosts.isEmpty {
+            emptyStateView(icon: "arrow.2.squarepath", title: GreenRoomBranding.EmptyStates.noEchoesYet, message: "This user hasn't echoed any Bars yet.")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(viewModel.echoedPosts) { post in
+                        FeedCardView(
+                            post: post,
+                            onLike: { postId in
+                                Task {
+                                    await viewModel.toggleLike(postId: postId)
+                                }
+                            },
+                            onReply: { parentPost in
+                                // Navigate to post detail for replies
+                            },
+                            onEcho: { postId in
+                                Task {
+                                    await viewModel.toggleEcho(postId: postId)
+                                }
                             },
                             showInlineReplies: true,
                             service: SupabaseFeedService.shared
@@ -518,9 +558,10 @@ struct UserProfileDetailView: View {
     }
     
     enum ProfileContentTab: String, CaseIterable {
-        case posts = "Posts"
-        case replies = "Replies"
-        case likes = "Likes"
+        case bars = "Bars"
+        case adlibs = "Adlibs"
+        case amps = "Amps"
+        case echoes = "Echoes"
         case mutuals = "Mutuals"
     }
     

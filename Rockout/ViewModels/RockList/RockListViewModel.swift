@@ -238,7 +238,8 @@ final class RockListViewModel: ObservableObject {
                 leaderboardEntry: leaderboardEntry,
                 spotifyLink: nil,
                 poll: nil,
-                backgroundMusic: nil
+                backgroundMusic: nil,
+                mentionedUserIds: []
             )
             
             // Store created post ID for navigation

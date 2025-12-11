@@ -158,13 +158,20 @@ end
 
 # Process files
 files_to_add.each do |file|
-  file = File.expand_path(file)
-  next unless File.exist?(file)
+  # If file is a relative path (from new_files_to_add.txt), join with SOURCE_DIR
+  # If it's already an absolute path, use it as-is
+  if file.start_with?('/')
+    full_path = File.expand_path(file)
+  else
+    full_path = File.expand_path(File.join(SOURCE_DIR, file))
+  end
+  next unless File.exist?(full_path)
   begin
-    add_file_to_project(project, target, file, SOURCE_DIR)
+    add_file_to_project(project, target, full_path, SOURCE_DIR)
   rescue => e
     # Log error but continue processing other files
-    STDERR.puts "Warning: Failed to add #{file}: #{e.message}" if ENV['DEBUG']
+    STDERR.puts "Warning: Failed to add #{full_path}: #{e.message}" if ENV['DEBUG']
+    puts "✗ Failed to add #{full_path}: #{e.message}"
   end
 end
 

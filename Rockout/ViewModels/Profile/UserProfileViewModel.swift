@@ -4,9 +4,10 @@ import SwiftUI
 @MainActor
 final class UserProfileViewModel: ObservableObject {
     enum Section: String, CaseIterable {
-        case posts = "Posts"
-        case replies = "Replies"
-        case likes = "Likes"
+        case bars = "Bars"
+        case adlibs = "Adlibs"
+        case amps = "Amps"
+        case echoes = "Echoes"
         case mutuals = "Mutuals"
         // Note: followers and following are removed from tabs but still exist as orphaned cases
         // for backward compatibility. Access followers/following via stats buttons instead.
@@ -17,10 +18,11 @@ final class UserProfileViewModel: ObservableObject {
     @Published var user: UserSummary?
     @Published var posts: [Post] = []
     @Published var likedPosts: [Post] = []
+    @Published var echoedPosts: [Post] = []
     @Published var followers: [UserSummary] = []
     @Published var following: [UserSummary] = []
     @Published var mutuals: [UserSummary] = []
-    @Published var selectedSection: Section = .posts
+    @Published var selectedSection: Section = .bars
     @Published var isPostNotificationsOn: Bool = false
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -31,12 +33,17 @@ final class UserProfileViewModel: ObservableObject {
     
     init(
         userId: String,
+        initialUser: UserSummary? = nil,
         social: SocialGraphService = SupabaseSocialGraphService.shared,
         feed: FeedService = SupabaseFeedService.shared
     ) {
         self.userId = userId
         self.social = social
         self.feed = feed
+        // Set initial user for immediate display
+        if let initialUser = initialUser {
+            self.user = initialUser
+        }
     }
     
     func load() async {
@@ -64,17 +71,19 @@ final class UserProfileViewModel: ObservableObject {
                 self.mutuals = mutualsResult
             }
             
-            // Load posts, replies, and liked posts
+            // Load posts, replies, liked posts, and echoed posts
             async let postsTask = feed.fetchPostsByUser(userId)
             async let repliesTask = feed.fetchRepliesByUser(userId)
             async let likedPostsTask = feed.fetchLikedPostsByUser(userId)
+            async let echoedPostsTask = feed.fetchEchoedPostsByUser(userId)
             
-            let (postsResult, repliesResult, likedPostsResult) = try await (postsTask, repliesTask, likedPostsTask)
+            let (postsResult, repliesResult, likedPostsResult, echoedPostsResult) = try await (postsTask, repliesTask, likedPostsTask, echoedPostsTask)
             
             await MainActor.run {
                 // Combine posts and replies for display
                 self.posts = postsResult + repliesResult
                 self.likedPosts = likedPostsResult
+                self.echoedPosts = echoedPostsResult
             }
             
             // Load post notifications setting if following
@@ -96,18 +105,56 @@ final class UserProfileViewModel: ObservableObject {
     }
     
     func toggleFollow() async {
-        guard let user = user else { return }
+        guard var user = user else { return }
         
+        // Store original state for potential revert
+        let originalIsFollowing = user.isFollowing
+        let originalFollowersCount = user.followersCount
+        
+        // Optimistically update UI immediately
+        await MainActor.run {
+            self.user = UserSummary(
+                id: user.id,
+                displayName: user.displayName,
+                handle: user.handle,
+                avatarInitials: user.avatarInitials,
+                profilePictureURL: user.profilePictureURL,
+                isFollowing: !originalIsFollowing,
+                region: user.region,
+                followersCount: originalIsFollowing ? max(0, originalFollowersCount - 1) : originalFollowersCount + 1,
+                followingCount: user.followingCount,
+                instagramHandle: user.instagramHandle,
+                twitterHandle: user.twitterHandle,
+                tiktokHandle: user.tiktokHandle
+            )
+        }
+        
+        // Perform API call
         do {
-            if user.isFollowing {
+            if originalIsFollowing {
                 try await social.unfollow(userId: user.id)
             } else {
                 try await social.follow(userId: user.id)
             }
-            // Reload to get updated counts and follow status
+            // Reload to get accurate counts and ensure consistency
             await load()
         } catch {
+            // Revert optimistic update on error
             await MainActor.run {
+                self.user = UserSummary(
+                    id: user.id,
+                    displayName: user.displayName,
+                    handle: user.handle,
+                    avatarInitials: user.avatarInitials,
+                    profilePictureURL: user.profilePictureURL,
+                    isFollowing: originalIsFollowing,
+                    region: user.region,
+                    followersCount: originalFollowersCount,
+                    followingCount: user.followingCount,
+                    instagramHandle: user.instagramHandle,
+                    twitterHandle: user.twitterHandle,
+                    tiktokHandle: user.tiktokHandle
+                )
                 self.errorMessage = error.localizedDescription
             }
         }
@@ -157,6 +204,8 @@ final class UserProfileViewModel: ObservableObject {
                 likeCount: wasLiked ? max(0, originalPost.likeCount - 1) : originalPost.likeCount + 1,
                 replyCount: originalPost.replyCount,
                 isLiked: !wasLiked,
+                echoCount: originalPost.echoCount,
+                isEchoed: originalPost.isEchoed,
                 parentPostId: originalPost.parentPostId,
                 parentPost: originalPost.parentPost,
                 leaderboardEntry: originalPost.leaderboardEntry,
@@ -183,6 +232,8 @@ final class UserProfileViewModel: ObservableObject {
                 likeCount: wasLiked ? max(0, originalPost.likeCount - 1) : originalPost.likeCount + 1,
                 replyCount: originalPost.replyCount,
                 isLiked: !wasLiked,
+                echoCount: originalPost.echoCount,
+                isEchoed: originalPost.isEchoed,
                 parentPostId: originalPost.parentPostId,
                 parentPost: originalPost.parentPost,
                 leaderboardEntry: originalPost.leaderboardEntry,
@@ -206,12 +257,86 @@ final class UserProfileViewModel: ObservableObject {
         }
     }
     
+    func toggleEcho(postId: String) async {
+        // Store original posts for potential revert
+        let originalPosts = posts
+        let originalEchoedPosts = echoedPosts
+        
+        // Update local state optimistically
+        if let index = posts.firstIndex(where: { $0.id == postId }) {
+            let originalPost = posts[index]
+            let wasEchoed = originalPost.isEchoed
+            let updatedPost = Post(
+                id: originalPost.id,
+                text: originalPost.text,
+                createdAt: originalPost.createdAt,
+                author: originalPost.author,
+                imageURLs: originalPost.imageURLs,
+                videoURL: originalPost.videoURL,
+                audioURL: originalPost.audioURL,
+                likeCount: originalPost.likeCount,
+                replyCount: originalPost.replyCount,
+                isLiked: originalPost.isLiked,
+                echoCount: wasEchoed ? max(0, originalPost.echoCount - 1) : originalPost.echoCount + 1,
+                isEchoed: !wasEchoed,
+                parentPostId: originalPost.parentPostId,
+                parentPost: originalPost.parentPost,
+                leaderboardEntry: originalPost.leaderboardEntry,
+                resharedPostId: originalPost.resharedPostId,
+                spotifyLink: originalPost.spotifyLink,
+                poll: originalPost.poll,
+                backgroundMusic: originalPost.backgroundMusic
+            )
+            posts[index] = updatedPost
+        }
+        
+        // Also update in echoedPosts if present
+        if let index = echoedPosts.firstIndex(where: { $0.id == postId }) {
+            let originalPost = echoedPosts[index]
+            let wasEchoed = originalPost.isEchoed
+            let updatedPost = Post(
+                id: originalPost.id,
+                text: originalPost.text,
+                createdAt: originalPost.createdAt,
+                author: originalPost.author,
+                imageURLs: originalPost.imageURLs,
+                videoURL: originalPost.videoURL,
+                audioURL: originalPost.audioURL,
+                likeCount: originalPost.likeCount,
+                replyCount: originalPost.replyCount,
+                isLiked: originalPost.isLiked,
+                echoCount: wasEchoed ? max(0, originalPost.echoCount - 1) : originalPost.echoCount + 1,
+                isEchoed: !wasEchoed,
+                parentPostId: originalPost.parentPostId,
+                parentPost: originalPost.parentPost,
+                leaderboardEntry: originalPost.leaderboardEntry,
+                resharedPostId: originalPost.resharedPostId,
+                spotifyLink: originalPost.spotifyLink,
+                poll: originalPost.poll,
+                backgroundMusic: originalPost.backgroundMusic
+            )
+            echoedPosts[index] = updatedPost
+        }
+        
+        // Call service to update on server
+        do {
+            try await feed.toggleEcho(postId: postId)
+        } catch {
+            // Revert on error
+            await MainActor.run {
+                self.posts = originalPosts
+                self.echoedPosts = originalEchoedPosts
+            }
+        }
+    }
+    
     func deletePost(postId: String) async {
         do {
             try await feed.deletePost(postId: postId)
             // Remove from local arrays
             posts.removeAll { $0.id == postId }
             likedPosts.removeAll { $0.id == postId }
+            echoedPosts.removeAll { $0.id == postId }
         } catch {
             await MainActor.run {
                 self.errorMessage = error.localizedDescription

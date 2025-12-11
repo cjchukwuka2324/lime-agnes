@@ -41,7 +41,7 @@ struct NotificationsView: View {
                             .font(.title2.bold())
                             .foregroundColor(.white)
                         
-                        Text("When someone likes, comments, or follows you, you'll see it here")
+                        Text("When someone amps, adlibs, or follows you, you'll see it here")
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
@@ -114,7 +114,7 @@ struct NotificationsView: View {
             if let actorId = notification.actor?.id {
                 selectedUserId = actorId
             }
-        case "post_like", "post_reply", "new_post":
+        case "post_like", "post_reply", "new_post", "post_echo", "post_mention":
             if let postId = notification.postId {
                 selectedPostId = postId
             }
@@ -205,7 +205,7 @@ struct NotificationCard: View {
             
             // Content
             VStack(alignment: .leading, spacing: 4) {
-                Text(notification.message)
+                Text(notification.message.transformedForGreenRoom())
                     .font(.body)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.leading)
@@ -241,9 +241,13 @@ struct NotificationCard: View {
         case "new_follower":
             return "person.badge.plus.fill"
         case "post_like":
-            return "heart.fill"
+            return "bolt.fill" // Changed from heart.fill to match Amp branding
         case "post_reply":
             return "bubble.left.fill"
+        case "post_echo":
+            return "arrow.2.squarepath" // Echo/Repost icon
+        case "post_mention":
+            return "at" // Mention icon
         case "new_post":
             return "square.and.pencil"
         case "rocklist_rank":

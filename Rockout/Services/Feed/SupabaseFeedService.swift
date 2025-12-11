@@ -20,6 +20,8 @@ final class SupabaseFeedService: FeedService {
         let like_count: Int
         let is_liked_by_current_user: Bool
         let reply_count: Int
+        let echo_count: Int?
+        let is_echoed_by_current_user: Bool?
         let author_display_name: String
         // These fields might be missing if SQL function is old version - provide fallbacks
         let author_handle: String
@@ -57,6 +59,7 @@ final class SupabaseFeedService: FeedService {
         // Custom decoding to handle missing new fields gracefully
         enum CodingKeys: String, CodingKey {
             case id, user_id, text, created_at, like_count, is_liked_by_current_user, reply_count
+            case echo_count, is_echoed_by_current_user
             case author_display_name, author_handle, author_avatar_initials
             case image_urls, video_url, audio_url, parent_post_id
             case leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank
@@ -79,6 +82,8 @@ final class SupabaseFeedService: FeedService {
             like_count = try container.decode(Int.self, forKey: .like_count)
             is_liked_by_current_user = try container.decode(Bool.self, forKey: .is_liked_by_current_user)
             reply_count = try container.decode(Int.self, forKey: .reply_count)
+            echo_count = try container.decodeIfPresent(Int.self, forKey: .echo_count)
+            is_echoed_by_current_user = try container.decodeIfPresent(Bool.self, forKey: .is_echoed_by_current_user)
             author_display_name = try container.decode(String.self, forKey: .author_display_name)
             
             // These fields might be missing if SQL function is old version - provide fallbacks
@@ -282,6 +287,7 @@ final class SupabaseFeedService: FeedService {
         let p_spotify_link_type: String?
         let p_spotify_link_data: [String: AnyCodable]?
         let p_poll_question: String?
+        let p_mentioned_user_ids: [String]?
         let p_poll_type: String?
         let p_poll_options: [String: AnyCodable]?
         let p_background_music_spotify_id: String?
@@ -812,6 +818,81 @@ final class SupabaseFeedService: FeedService {
             }
         }
         
+        // Collect all original post IDs for echoed posts
+        let originalPostIds = Set(rows.compactMap { $0.reshared_post_id?.uuidString })
+        
+        // For echoed posts, we'll use the feed data to create basic PostSummary
+        // Full posts will be fetched lazily when needed to avoid blocking feed loading
+        var originalPostsMap: [String: PostSummary] = [:]
+        
+        // Find original posts that are already in the feed (same batch)
+        let feedPostIds = Set(rows.map { $0.id.uuidString })
+        for row in rows {
+            // If this post is echoed and the original is in the same feed batch, use that data
+            if let resharedId = row.reshared_post_id?.uuidString,
+               let originalRow = rows.first(where: { $0.id.uuidString == resharedId }) {
+                // Create PostSummary from the original post row in the feed
+                let originalAuthor = UserSummary(
+                    id: originalRow.user_id.uuidString,
+                    displayName: originalRow.author_display_name,
+                    handle: originalRow.author_handle,
+                    avatarInitials: originalRow.author_avatar_initials,
+                    profilePictureURL: originalRow.author_profile_picture_url.flatMap { URL(string: $0) },
+                    isFollowing: false
+                )
+                
+                let originalImageURLs = (originalRow.image_urls ?? []).compactMap { URL(string: $0) }
+                let originalVideoURL = originalRow.video_url.flatMap { URL(string: $0) }
+                let originalCreatedAt = formatter.date(from: originalRow.created_at) ?? Date()
+                
+                originalPostsMap[resharedId] = PostSummary(
+                    id: resharedId,
+                    text: originalRow.text,
+                    createdAt: originalCreatedAt,
+                    author: originalAuthor,
+                    imageURLs: originalImageURLs,
+                    videoURL: originalVideoURL,
+                    likeCount: originalRow.like_count,
+                    replyCount: originalRow.reply_count,
+                    isLiked: originalRow.is_liked_by_current_user,
+                    echoCount: originalRow.echo_count ?? 0,
+                    isEchoed: originalRow.is_echoed_by_current_user ?? false
+                )
+            }
+        }
+        
+        // For original posts not in the current feed batch, fetch them lazily in background
+        // This won't block the feed loading
+        let missingOriginalIds = originalPostIds.filter { !originalPostsMap.keys.contains($0) }
+        if !missingOriginalIds.isEmpty {
+            // Fetch in background without blocking
+            Task.detached(priority: .utility) {
+                // Fetch missing originals one at a time to avoid overwhelming the server
+                for originalPostId in missingOriginalIds.prefix(5) { // Limit to 5 to avoid too many requests
+                    do {
+                        let fullPost = try await SupabaseFeedService.shared.fetchPostById(originalPostId)
+                        let summary = PostSummary(
+                            id: fullPost.id,
+                            text: fullPost.text,
+                            createdAt: fullPost.createdAt,
+                            author: fullPost.author,
+                            imageURLs: fullPost.imageURLs,
+                            videoURL: fullPost.videoURL,
+                            likeCount: fullPost.likeCount,
+                            replyCount: fullPost.replyCount,
+                            isLiked: fullPost.isLiked,
+                            echoCount: fullPost.echoCount,
+                            isEchoed: fullPost.isEchoed
+                        )
+                        // Note: This won't update the current feed, but will help with future loads
+                        // The view will fetch the full post when needed
+                    } catch {
+                        // Silently fail - view will handle fetching
+                    }
+                }
+            }
+        }
+        
         let posts = rows.map { row -> Post in
             let imageURLs = (row.image_urls ?? []).compactMap { URL(string: $0) }
             let videoURL = row.video_url.flatMap { URL(string: $0) }
@@ -859,6 +940,14 @@ final class SupabaseFeedService: FeedService {
             let parentPostSummary: PostSummary? = {
                 if let parentId = row.parent_post_id?.uuidString {
                     return parentPostsMap[parentId]
+                }
+                return nil
+            }()
+            
+            // Get original post summary if this is an echo
+            let originalPostSummary: PostSummary? = {
+                if let originalId = row.reshared_post_id?.uuidString {
+                    return originalPostsMap[originalId]
                 }
                 return nil
             }()
@@ -951,8 +1040,10 @@ final class SupabaseFeedService: FeedService {
                 likeCount: row.like_count,
                 replyCount: row.reply_count,
                 isLiked: row.is_liked_by_current_user,
+                echoCount: row.echo_count ?? 0,
+                isEchoed: row.is_echoed_by_current_user ?? false,
                 parentPostId: row.parent_post_id?.uuidString,
-                parentPost: parentPostSummary,
+                parentPost: originalPostSummary ?? parentPostSummary, // Use original post for echoes, parent post for replies
                 leaderboardEntry: leaderboardEntry,
                 resharedPostId: row.reshared_post_id?.uuidString,
                 spotifyLink: spotifyLink,
@@ -998,7 +1089,8 @@ final class SupabaseFeedService: FeedService {
         leaderboardEntry: LeaderboardEntrySummary?,
         spotifyLink: SpotifyLink?,
         poll: Poll?,
-        backgroundMusic: BackgroundMusic?
+        backgroundMusic: BackgroundMusic?,
+        mentionedUserIds: [String] = []
     ) async throws -> Post {
         let imageURLStrings = imageURLs.map { $0.absoluteString }
         
@@ -1054,6 +1146,7 @@ final class SupabaseFeedService: FeedService {
             p_spotify_link_type: spotifyLink?.type,
             p_spotify_link_data: spotifyLinkData,
             p_poll_question: poll?.question,
+            p_mentioned_user_ids: mentionedUserIds.isEmpty ? nil : mentionedUserIds,
             p_poll_type: poll?.type,
             p_poll_options: pollOptionsData,
             p_background_music_spotify_id: backgroundMusic?.spotifyId,
@@ -1335,6 +1428,8 @@ final class SupabaseFeedService: FeedService {
             likeCount: 0,
             replyCount: 0,
             isLiked: false,
+            echoCount: 0,
+            isEchoed: false,
             parentPostId: postRow.parent_post_id?.uuidString,
             parentPost: nil,
             leaderboardEntry: leaderboardEntry,
@@ -1365,7 +1460,8 @@ final class SupabaseFeedService: FeedService {
         audioURL: URL?,
         spotifyLink: SpotifyLink? = nil,
         poll: Poll? = nil,
-        backgroundMusic: BackgroundMusic? = nil
+        backgroundMusic: BackgroundMusic? = nil,
+        mentionedUserIds: [String] = []
     ) async throws -> Post {
         let imageURLStrings = imageURLs.map { $0.absoluteString }
         
@@ -1424,6 +1520,7 @@ final class SupabaseFeedService: FeedService {
             p_spotify_link_type: spotifyLink?.type,
             p_spotify_link_data: spotifyLinkData,
             p_poll_question: poll?.question,
+            p_mentioned_user_ids: mentionedUserIds.isEmpty ? nil : mentionedUserIds,
             p_poll_type: poll?.type,
             p_poll_options: pollOptionsData,
             p_background_music_spotify_id: backgroundMusic?.spotifyId,
@@ -1900,6 +1997,27 @@ final class SupabaseFeedService: FeedService {
             )
         }()
         
+        // If this is an echo post, fetch the original post and set it as parentPost
+        var parentPostSummary: PostSummary? = nil
+        if let resharedPostId = row.reshared_post_id?.uuidString {
+            // Fetch the original post
+            if let originalPost = try? await fetchPostById(resharedPostId) {
+                parentPostSummary = PostSummary(
+                    id: originalPost.id,
+                    text: originalPost.text,
+                    createdAt: originalPost.createdAt,
+                    author: originalPost.author,
+                    imageURLs: originalPost.imageURLs,
+                    videoURL: originalPost.videoURL,
+                    likeCount: originalPost.likeCount,
+                    replyCount: originalPost.replyCount,
+                    isLiked: originalPost.isLiked,
+                    echoCount: originalPost.echoCount,
+                    isEchoed: originalPost.isEchoed
+                )
+            }
+        }
+        
         return Post(
             id: row.id.uuidString,
             text: row.text,
@@ -1911,8 +2029,10 @@ final class SupabaseFeedService: FeedService {
             likeCount: Int(row.like_count),
             replyCount: Int(row.reply_count),
             isLiked: row.is_liked_by_current_user,
+            echoCount: row.echo_count ?? 0,
+            isEchoed: row.is_echoed_by_current_user ?? false,
             parentPostId: row.parent_post_id?.uuidString,
-            parentPost: nil,
+            parentPost: parentPostSummary,
             leaderboardEntry: leaderboardEntry,
             resharedPostId: row.reshared_post_id?.uuidString,
             spotifyLink: spotifyLink,
@@ -2022,6 +2142,335 @@ final class SupabaseFeedService: FeedService {
         return try await toggleLike(postId: postId)
     }
     
+    // MARK: - Echo Methods
+    
+    func echoPost(_ postId: String) async throws -> Post {
+        guard let postIdUUID = UUID(uuidString: postId) else {
+            throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid post ID"])
+        }
+        
+        // Get current user ID
+        guard let currentUserId = supabase.auth.currentUser?.id else {
+            throw NSError(domain: "FeedService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        // Check if user already echoed this post
+        let existingEcho = try await supabase
+            .from("posts")
+            .select("id")
+            .eq("reshared_post_id", value: postIdUUID)
+            .eq("user_id", value: currentUserId)
+            .is("deleted_at", value: nil)
+            .limit(1)
+            .execute()
+        
+        struct EchoRow: Decodable {
+            let id: UUID
+        }
+        
+        let existingEchoes: [EchoRow] = try JSONDecoder().decode([EchoRow].self, from: existingEcho.data)
+        
+        if let existingEchoId = existingEchoes.first?.id {
+            // User already echoed, return the existing echo post
+            return try await fetchPostById(existingEchoId.uuidString)
+        }
+        
+        // Create echo post using create_post RPC with reshared_post_id
+        let params = CreatePostParams(
+            p_text: "",
+            p_image_urls: [],
+            p_video_url: nil,
+            p_audio_url: nil,
+            p_parent_post_id: nil,
+            p_leaderboard_entry_id: nil,
+            p_leaderboard_artist_name: nil,
+            p_leaderboard_rank: nil,
+            p_leaderboard_percentile_label: nil,
+            p_leaderboard_minutes_listened: nil,
+            p_reshared_post_id: postId,
+            p_spotify_link_url: nil,
+            p_spotify_link_type: nil,
+            p_spotify_link_data: nil,
+            p_poll_question: nil,
+            p_mentioned_user_ids: nil,
+            p_poll_type: nil,
+            p_poll_options: nil,
+            p_background_music_spotify_id: nil,
+            p_background_music_data: nil
+        )
+        
+        let response = try await supabase
+            .rpc("create_post", params: params)
+            .execute()
+        
+        struct CreatePostResponse: Decodable {
+            let id: UUID
+        }
+        
+        let result: UUID = try JSONDecoder().decode(UUID.self, from: response.data)
+        
+        // Fetch and return the created echo post
+        return try await fetchPostById(result.uuidString)
+    }
+    
+    func unechoPost(_ echoPostId: String) async throws -> Bool {
+        // Delete the echo post
+        try await deletePost(postId: echoPostId)
+        return true
+    }
+    
+    func toggleEcho(postId: String) async throws -> Bool {
+        guard let postIdUUID = UUID(uuidString: postId) else {
+            throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid post ID"])
+        }
+        
+        guard let currentUserId = supabase.auth.currentUser?.id else {
+            throw NSError(domain: "FeedService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        // Check if user already echoed this post
+        let existingEcho = try await supabase
+            .from("posts")
+            .select("id")
+            .eq("reshared_post_id", value: postIdUUID)
+            .eq("user_id", value: currentUserId)
+            .is("deleted_at", value: nil)
+            .limit(1)
+            .execute()
+        
+        struct EchoRow: Decodable {
+            let id: UUID
+        }
+        
+        let existingEchoes: [EchoRow] = try JSONDecoder().decode([EchoRow].self, from: existingEcho.data)
+        
+        if let existingEchoId = existingEchoes.first?.id {
+            // User already echoed, un-echo
+            _ = try await unechoPost(existingEchoId.uuidString)
+            return false
+        } else {
+            // User hasn't echoed, create echo
+            _ = try await echoPost(postId)
+            return true
+        }
+    }
+    
+    func fetchEchoedPostsByUser(_ userId: String) async throws -> [Post] {
+        guard let userIdUUID = UUID(uuidString: userId) else {
+            throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID"])
+        }
+        
+        // Fetch all posts where reshared_post_id is not null and user_id matches
+        let response = try await supabase
+            .from("posts")
+            .select("""
+                id,
+                user_id,
+                text,
+                image_urls,
+                video_url,
+                audio_url,
+                parent_post_id,
+                leaderboard_entry_id,
+                leaderboard_artist_name,
+                leaderboard_rank,
+                leaderboard_percentile_label,
+                leaderboard_minutes_listened,
+                reshared_post_id,
+                created_at,
+                updated_at,
+                deleted_at,
+                spotify_link_url,
+                spotify_link_type,
+                spotify_link_data,
+                poll_question,
+                poll_type,
+                poll_options,
+                background_music_spotify_id,
+                background_music_data
+            """)
+            .eq("user_id", value: userIdUUID)
+            .is("deleted_at", value: nil)
+            .order("created_at", ascending: false)
+            .execute()
+        
+        struct PostRow: Decodable {
+            let id: UUID
+            let user_id: UUID
+            let text: String
+            let created_at: String
+            let image_urls: [String]?
+            let video_url: String?
+            let audio_url: String?
+            let parent_post_id: UUID?
+            let leaderboard_entry_id: String?
+            let leaderboard_artist_name: String?
+            let leaderboard_rank: Int?
+            let leaderboard_percentile_label: String?
+            let leaderboard_minutes_listened: Int?
+            let reshared_post_id: UUID?
+            let spotify_link_url: String?
+            let spotify_link_type: String?
+            let spotify_link_data: [String: AnyCodable]?
+            let poll_question: String?
+            let poll_type: String?
+            let poll_options: AnyCodable?
+            let background_music_spotify_id: String?
+            let background_music_data: [String: AnyCodable]?
+        }
+        
+        let allRows: [PostRow] = try JSONDecoder().decode([PostRow].self, from: response.data)
+        
+        // Filter to only posts where reshared_post_id is NOT NULL (echoes)
+        let rows = allRows.filter { $0.reshared_post_id != nil }
+        
+        // Fetch original posts for each echo
+        let originalPostIds = Set(rows.compactMap { $0.reshared_post_id?.uuidString })
+        var originalPostsMap: [String: Post] = [:]
+        
+        for originalPostId in originalPostIds {
+            if let originalPost = try? await fetchPostById(originalPostId) {
+                originalPostsMap[originalPostId] = originalPost
+            }
+        }
+        
+        // Convert to Post objects
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        // Use async map to handle async operations
+        var posts: [Post] = []
+        for row in rows {
+            let createdAt = dateFormatter.date(from: row.created_at) ?? Date()
+            
+            // Get author info
+            let author = try await social.getProfile(userId: row.user_id.uuidString)
+            
+            // Get original post if available
+            let originalPost: Post? = row.reshared_post_id.flatMap { originalPostsMap[$0.uuidString] }
+            
+            // Convert original post to PostSummary for parentPost field
+            let parentPostSummary: PostSummary? = originalPost.map { original in
+                PostSummary(
+                    id: original.id,
+                    text: original.text,
+                    createdAt: original.createdAt,
+                    author: original.author,
+                    imageURLs: original.imageURLs,
+                    videoURL: original.videoURL,
+                    likeCount: original.likeCount,
+                    replyCount: original.replyCount,
+                    isLiked: original.isLiked,
+                    echoCount: original.echoCount,
+                    isEchoed: original.isEchoed
+                )
+            }
+            
+            let imageURLs = (row.image_urls ?? []).compactMap { URL(string: $0) }
+            let videoURL = row.video_url.flatMap { URL(string: $0) }
+            let audioURL = row.audio_url.flatMap { URL(string: $0) }
+            
+            // Decode leaderboard entry
+            let leaderboardEntry: LeaderboardEntrySummary? = {
+                guard let entryId = row.leaderboard_entry_id,
+                      let artistName = row.leaderboard_artist_name,
+                      let rank = row.leaderboard_rank,
+                      let percentile = row.leaderboard_percentile_label,
+                      let minutes = row.leaderboard_minutes_listened else {
+                    return nil
+                }
+                return LeaderboardEntrySummary(
+                    id: entryId,
+                    userId: row.user_id.uuidString,
+                    userDisplayName: author.displayName,
+                    artistId: entryId,
+                    artistName: artistName,
+                    artistImageURL: nil,
+                    rank: rank,
+                    percentileLabel: percentile,
+                    minutesListened: minutes
+                )
+            }()
+            
+            // Decode Spotify link
+            let spotifyLink: SpotifyLink? = {
+                guard let url = row.spotify_link_url,
+                      let type = row.spotify_link_type,
+                      let data = row.spotify_link_data else {
+                    return nil
+                }
+                let name = (data["name"]?.value as? String) ?? ""
+                let artist = data["artist"]?.value as? String
+                let owner = data["owner"]?.value as? String
+                let imageURLString = data["imageURL"]?.value as? String
+                let imageURL = imageURLString.flatMap { URL(string: $0) }
+                return SpotifyLink(
+                    id: (data["id"]?.value as? String) ?? "",
+                    url: url,
+                    type: type,
+                    name: name,
+                    artist: artist,
+                    owner: owner,
+                    imageURL: imageURL
+                )
+            }()
+            
+            // Decode poll
+            let poll: Poll? = decodePoll(
+                question: row.poll_question,
+                typeString: row.poll_type,
+                optionsData: row.poll_options,
+                postId: row.id.uuidString
+            )
+            
+            // Decode background music
+            let backgroundMusic: BackgroundMusic? = {
+                guard let spotifyId = row.background_music_spotify_id,
+                      let data = row.background_music_data else {
+                    return nil
+                }
+                let name = (data["name"]?.value as? String) ?? ""
+                let artist = (data["artist"]?.value as? String) ?? ""
+                let previewURLString = data["previewURL"]?.value as? String
+                let previewURL = previewURLString.flatMap { URL(string: $0) }
+                let imageURLString = data["imageURL"]?.value as? String
+                let imageURL = imageURLString.flatMap { URL(string: $0) }
+                return BackgroundMusic(
+                    spotifyId: spotifyId,
+                    name: name,
+                    artist: artist,
+                    previewURL: previewURL,
+                    imageURL: imageURL
+                )
+            }()
+            
+            let post = Post(
+                id: row.id.uuidString,
+                text: row.text,
+                createdAt: createdAt,
+                author: author,
+                imageURLs: imageURLs,
+                videoURL: videoURL,
+                audioURL: audioURL,
+                likeCount: 0, // Will be fetched separately if needed
+                replyCount: 0,
+                isLiked: false, // Will be fetched separately if needed
+                echoCount: 0,
+                isEchoed: false,
+                parentPostId: row.parent_post_id?.uuidString,
+                parentPost: parentPostSummary, // Set the original post as parentPost for echoes
+                leaderboardEntry: leaderboardEntry,
+                resharedPostId: row.reshared_post_id?.uuidString,
+                spotifyLink: spotifyLink,
+                poll: poll,
+                backgroundMusic: backgroundMusic
+            )
+            posts.append(post)
+        }
+        
+        return posts
+    }
+    
     // MARK: - Fetch Posts by User
     
     func fetchPostsByUser(_ userId: String) async throws -> [Post] {
@@ -2082,6 +2531,8 @@ final class SupabaseFeedService: FeedService {
             let leaderboard_minutes_listened: Int?
             let reshared_post_id: UUID?
             let created_at: String
+            let echo_count: Int?
+            let is_echoed_by_current_user: Bool?
             let spotify_link_url: String?
             let spotify_link_type: String?
             let spotify_link_data: [String: AnyCodable]?
@@ -2096,6 +2547,7 @@ final class SupabaseFeedService: FeedService {
                 case image_urls, video_url, audio_url, parent_post_id
                 case leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank
                 case leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id
+                case echo_count, is_echoed_by_current_user
                 case spotify_link_url, spotify_link_type, spotify_link_data
                 case poll_question, poll_type, poll_options
                 case background_music_spotify_id, background_music_data
@@ -2122,6 +2574,8 @@ final class SupabaseFeedService: FeedService {
                 leaderboard_percentile_label = try container.decodeIfPresent(String.self, forKey: .leaderboard_percentile_label)
                 leaderboard_minutes_listened = try container.decodeIfPresent(Int.self, forKey: .leaderboard_minutes_listened)
                 reshared_post_id = try container.decodeIfPresent(UUID.self, forKey: .reshared_post_id)
+                echo_count = try container.decodeIfPresent(Int.self, forKey: .echo_count)
+                is_echoed_by_current_user = try container.decodeIfPresent(Bool.self, forKey: .is_echoed_by_current_user)
                 spotify_link_url = try container.decodeIfPresent(String.self, forKey: .spotify_link_url)
                 spotify_link_type = try container.decodeIfPresent(String.self, forKey: .spotify_link_type)
                 spotify_link_data = try container.decodeIfPresent([String: AnyCodable].self, forKey: .spotify_link_data)
@@ -2442,6 +2896,8 @@ final class SupabaseFeedService: FeedService {
                 likeCount: likeCounts[row.id.uuidString] ?? 0,
                 replyCount: replyCounts[row.id.uuidString] ?? 0,
                 isLiked: userLikes.contains(row.id.uuidString),
+                echoCount: row.echo_count ?? 0,
+                isEchoed: row.is_echoed_by_current_user ?? false,
                 parentPostId: nil,
                 parentPost: nil,
                 leaderboardEntry: leaderboardEntry,
@@ -2511,6 +2967,8 @@ final class SupabaseFeedService: FeedService {
             let leaderboard_minutes_listened: Int?
             let reshared_post_id: UUID?
             let created_at: String
+            let echo_count: Int?
+            let is_echoed_by_current_user: Bool?
             let spotify_link_url: String?
             let spotify_link_type: String?
             let spotify_link_data: [String: AnyCodable]?
@@ -2525,6 +2983,7 @@ final class SupabaseFeedService: FeedService {
                 case image_urls, video_url, audio_url, parent_post_id
                 case leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank
                 case leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id
+                case echo_count, is_echoed_by_current_user
                 case spotify_link_url, spotify_link_type, spotify_link_data
                 case poll_question, poll_type, poll_options
                 case background_music_spotify_id, background_music_data
@@ -2551,6 +3010,8 @@ final class SupabaseFeedService: FeedService {
                 leaderboard_percentile_label = try container.decodeIfPresent(String.self, forKey: .leaderboard_percentile_label)
                 leaderboard_minutes_listened = try container.decodeIfPresent(Int.self, forKey: .leaderboard_minutes_listened)
                 reshared_post_id = try container.decodeIfPresent(UUID.self, forKey: .reshared_post_id)
+                echo_count = try container.decodeIfPresent(Int.self, forKey: .echo_count)
+                is_echoed_by_current_user = try container.decodeIfPresent(Bool.self, forKey: .is_echoed_by_current_user)
                 spotify_link_url = try container.decodeIfPresent(String.self, forKey: .spotify_link_url)
                 spotify_link_type = try container.decodeIfPresent(String.self, forKey: .spotify_link_type)
                 spotify_link_data = try container.decodeIfPresent([String: AnyCodable].self, forKey: .spotify_link_data)
@@ -2811,6 +3272,8 @@ final class SupabaseFeedService: FeedService {
                 likeCount: likeCounts[row.id.uuidString] ?? 0,
                 replyCount: 0, // Replies don't have reply counts
                 isLiked: userLikes.contains(row.id.uuidString),
+                echoCount: row.echo_count ?? 0,
+                isEchoed: row.is_echoed_by_current_user ?? false,
                 parentPostId: row.parent_post_id?.uuidString,
                 parentPost: nil,
                 leaderboardEntry: leaderboardEntry,

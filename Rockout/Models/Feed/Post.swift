@@ -1,5 +1,10 @@
 import Foundation
 
+// MARK: - Domain-Level Naming Alias
+// Backend still uses "Post" internally for database tables and API fields.
+// This alias provides semantic clarity in the UI layer without breaking existing code.
+typealias Bar = Post
+
 // MARK: - User Summary
 
 struct UserSummary: Identifiable, Hashable, Codable {
@@ -44,8 +49,10 @@ struct PostSummary: Identifiable, Hashable {
     let likeCount: Int
     let replyCount: Int
     let isLiked: Bool  // Changed from var to let - Hashable types must be immutable
+    let echoCount: Int
+    let isEchoed: Bool
     
-    init(id: String, text: String, createdAt: Date, author: UserSummary, imageURLs: [URL] = [], videoURL: URL? = nil, likeCount: Int = 0, replyCount: Int = 0, isLiked: Bool = false) {
+    init(id: String, text: String, createdAt: Date, author: UserSummary, imageURLs: [URL] = [], videoURL: URL? = nil, likeCount: Int = 0, replyCount: Int = 0, isLiked: Bool = false, echoCount: Int = 0, isEchoed: Bool = false) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
@@ -55,6 +62,8 @@ struct PostSummary: Identifiable, Hashable {
         self.likeCount = likeCount
         self.replyCount = replyCount
         self.isLiked = isLiked
+        self.echoCount = echoCount
+        self.isEchoed = isEchoed
     }
 }
 
@@ -85,6 +94,8 @@ struct Post: Identifiable, Hashable {
     let likeCount: Int  // Changed from var to let - Hashable types must be immutable
     let replyCount: Int  // Changed from var to let - Hashable types must be immutable
     let isLiked: Bool  // Changed from var to let - Hashable types must be immutable
+    let echoCount: Int
+    let isEchoed: Bool
     let parentPostId: String?
     let parentPost: PostSummary?
     let leaderboardEntry: LeaderboardEntrySummary?
@@ -92,6 +103,7 @@ struct Post: Identifiable, Hashable {
     let spotifyLink: SpotifyLink?
     let poll: Poll?
     let backgroundMusic: BackgroundMusic?
+    let mentionedUserIds: [String]
     
     init(
         id: String,
@@ -104,13 +116,16 @@ struct Post: Identifiable, Hashable {
         likeCount: Int = 0,
         replyCount: Int = 0,
         isLiked: Bool = false,
+        echoCount: Int = 0,
+        isEchoed: Bool = false,
         parentPostId: String? = nil,
         parentPost: PostSummary? = nil,
         leaderboardEntry: LeaderboardEntrySummary? = nil,
         resharedPostId: String? = nil,
         spotifyLink: SpotifyLink? = nil,
         poll: Poll? = nil,
-        backgroundMusic: BackgroundMusic? = nil
+        backgroundMusic: BackgroundMusic? = nil,
+        mentionedUserIds: [String] = []
     ) {
         self.id = id
         self.text = text
@@ -122,6 +137,8 @@ struct Post: Identifiable, Hashable {
         self.likeCount = likeCount
         self.replyCount = replyCount
         self.isLiked = isLiked
+        self.echoCount = echoCount
+        self.isEchoed = isEchoed
         self.parentPostId = parentPostId
         self.parentPost = parentPost
         self.leaderboardEntry = leaderboardEntry
@@ -129,6 +146,7 @@ struct Post: Identifiable, Hashable {
         self.spotifyLink = spotifyLink
         self.poll = poll
         self.backgroundMusic = backgroundMusic
+        self.mentionedUserIds = mentionedUserIds
     }
     
     // Helper computed properties
