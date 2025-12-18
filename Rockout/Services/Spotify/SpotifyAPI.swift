@@ -6,6 +6,27 @@ final class SpotifyAPI: ObservableObject {
     private let auth = SpotifyAuthService.shared
     private let baseURL = "https://api.spotify.com/v1"
     
+    // Client Credentials for public search (no user login required)
+    private var clientCredentialsToken: String?
+    private var clientCredentialsExpiry: Date?
+    private let clientID = "13aa07c310bb445d82fc8035ee426d0c"
+    // Note: Client secret should be stored securely (e.g., in environment variables or secure keychain)
+    // For now, this will need to be configured. You can get it from Spotify Developer Dashboard
+    // TODO: Store this securely (e.g., in Keychain or environment variable)
+    // For development, you can set it via Xcode scheme environment variables
+    private var clientSecret: String? {
+        // First try Secrets.swift (consistent with other secrets)
+        if let secret = Secrets.spotifyClientSecret, !secret.isEmpty {
+            return secret
+        }
+        // Fallback to environment variable
+        if let secret = ProcessInfo.processInfo.environment["SPOTIFY_CLIENT_SECRET"], !secret.isEmpty {
+            return secret
+        }
+        // No secret configured
+        return nil
+    }
+    
     // MARK: - Spotify Time Range
     
     enum SpotifyTimeRange: String, CaseIterable {
@@ -708,5 +729,231 @@ extension SpotifyAPI {
         // Handle shortened spotify.link URLs - these redirect, so we'd need to follow redirects
         // For now, return nil and let the caller handle it
         return nil
+    }
+    
+    // MARK: - Client Credentials Flow (Public Search)
+    
+    /// Get client credentials token for public API access (no user login required)
+    private func getClientCredentialsToken() async throws -> String {
+        // Check if we have a valid cached token
+        if let token = clientCredentialsToken,
+           let expiry = clientCredentialsExpiry,
+           Date() < expiry {
+            return token
+        }
+        
+        // Check if client secret is available
+        guard let secret = clientSecret else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Spotify client secret not configured. Add it to Secrets.swift (spotifyClientSecret) or set SPOTIFY_CLIENT_SECRET environment variable. Get your client secret from: https://developer.spotify.com/dashboard"]
+            )
+        }
+        
+        // Request new token using Client Credentials flow
+        guard let url = URL(string: "https://accounts.spotify.com/api/token") else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid token URL"]
+            )
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        
+        // Base64 encode client_id:client_secret
+        let credentials = "\(clientID):\(secret)"
+        guard let credentialsData = credentials.data(using: .utf8) else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to encode credentials"]
+            )
+        }
+        let base64Credentials = credentialsData.base64EncodedString()
+        request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
+        
+        let body = "grant_type=client_credentials"
+        request.httpBody = body.data(using: .utf8)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]
+            )
+        }
+        
+        guard (200...299).contains(http.statusCode) else {
+            let bodyString = String(data: data, encoding: .utf8) ?? "(no error body)"
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to get client credentials token: \(bodyString)"]
+            )
+        }
+        
+        struct TokenResponse: Codable {
+            let access_token: String
+            let token_type: String
+            let expires_in: Int
+        }
+        
+        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
+        
+        // Cache the token (expires_in is in seconds, typically 3600)
+        clientCredentialsToken = tokenResponse.access_token
+        clientCredentialsExpiry = Date().addingTimeInterval(TimeInterval(tokenResponse.expires_in - 60)) // Subtract 60s for safety
+        
+        return tokenResponse.access_token
+    }
+    
+    /// Public API request using client credentials (no user login required)
+    private func publicRequest(
+        path: String,
+        queryItems: [URLQueryItem]? = nil
+    ) async throws -> Data {
+        let token = try await getClientCredentialsToken()
+        
+        var components = URLComponents(string: baseURL + path)!
+        if let queryItems = queryItems {
+            components.queryItems = queryItems
+        }
+        
+        guard let url = components.url else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]
+            )
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -3,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]
+            )
+        }
+        
+        if !(200...299).contains(http.statusCode) {
+            let bodyString = String(data: data, encoding: .utf8) ?? "(no error body)"
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "API error (\(http.statusCode)): \(bodyString)"]
+            )
+        }
+        
+        return data
+    }
+    
+    // MARK: - Public Search Methods (No Login Required)
+    
+    /// Search tracks publicly without user authentication
+    func searchTracksPublic(query: String, limit: Int = 20) async throws -> [SpotifyTrack] {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Search query cannot be empty"]
+            )
+        }
+        
+        // Try using user's OAuth token first (if available) - no client secret needed!
+        if auth.isAuthorized() {
+            do {
+                // Use authenticated search (better rate limits and no client secret needed)
+                return try await searchTracks(query: query, limit: limit)
+            } catch {
+                // If OAuth search fails, fall back to public search
+                print("⚠️ OAuth search failed, falling back to public search: \(error.localizedDescription)")
+            }
+        }
+        
+        // If no OAuth token, try Client Credentials (requires client secret)
+        // If that also fails, prompt user to connect Spotify
+        do {
+            let data = try await publicRequest(
+                path: "/search",
+                queryItems: [
+                    URLQueryItem(name: "q", value: query),
+                    URLQueryItem(name: "type", value: "track"),
+                    URLQueryItem(name: "limit", value: "\(limit)")
+                ]
+            )
+            
+            let response = try JSONDecoder().decode(SpotifySearchResponse.self, from: data)
+            return response.tracks?.items ?? []
+        } catch {
+            // If Client Credentials also fails, prompt user to connect Spotify account
+            if (error as NSError).code == -1 {
+                throw NSError(
+                    domain: "SpotifyAPI",
+                    code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "Please connect your Spotify account to search for music. Go to Profile → Music Platform Connection to connect."]
+                )
+            }
+            throw error
+        }
+    }
+    
+    /// Search playlists publicly without user authentication
+    func searchPlaylistsPublic(query: String, limit: Int = 20) async throws -> [SpotifyPlaylist] {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw NSError(
+                domain: "SpotifyAPI",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Search query cannot be empty"]
+            )
+        }
+        
+        // Try using user's OAuth token first (if available) - no client secret needed!
+        if auth.isAuthorized() {
+            do {
+                // Use authenticated search (better rate limits and no client secret needed)
+                return try await searchPlaylists(query: query, limit: limit)
+            } catch {
+                // If OAuth search fails, fall back to public search
+                print("⚠️ OAuth search failed, falling back to public search: \(error.localizedDescription)")
+            }
+        }
+        
+        // If no OAuth token, try Client Credentials (requires client secret)
+        // If that also fails, prompt user to connect Spotify
+        do {
+            let data = try await publicRequest(
+                path: "/search",
+                queryItems: [
+                    URLQueryItem(name: "q", value: query),
+                    URLQueryItem(name: "type", value: "playlist"),
+                    URLQueryItem(name: "limit", value: "\(limit)")
+                ]
+            )
+            
+            let response = try JSONDecoder().decode(SpotifySearchResponse.self, from: data)
+            return response.playlists?.items ?? []
+        } catch {
+            // If Client Credentials also fails, prompt user to connect Spotify account
+            if (error as NSError).code == -1 {
+                throw NSError(
+                    domain: "SpotifyAPI",
+                    code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "Please connect your Spotify account to search for music. Go to Profile → Music Platform Connection to connect."]
+                )
+            }
+            throw error
+        }
     }
 }

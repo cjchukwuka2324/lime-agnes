@@ -17,6 +17,7 @@ final class UserProfileViewModel: ObservableObject {
     
     @Published var user: UserSummary?
     @Published var posts: [Post] = []
+    @Published var replies: [Post] = []
     @Published var likedPosts: [Post] = []
     @Published var echoedPosts: [Post] = []
     @Published var followers: [UserSummary] = []
@@ -52,9 +53,10 @@ final class UserProfileViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            // Load profile
+            // Load profile (this will have complete data including social handles and counts)
             let profile = try await social.getProfile(userId: userId)
             await MainActor.run {
+                // Update with fresh data from database
                 self.user = profile
             }
             
@@ -79,12 +81,27 @@ final class UserProfileViewModel: ObservableObject {
             
             let (postsResult, repliesResult, likedPostsResult, echoedPostsResult) = try await (postsTask, repliesTask, likedPostsTask, echoedPostsTask)
             
+            print("📊 Profile data loaded for user \(userId):")
+            print("  - Posts (Bars): \(postsResult.count)")
+            print("  - Replies (Adlibs): \(repliesResult.count)")
+            print("  - Liked Posts (Amps): \(likedPostsResult.count)")
+            print("  - Echoed Posts (Echoes): \(echoedPostsResult.count)")
+            
             await MainActor.run {
-                // Combine posts and replies for display, but filter out echoed posts
-                // Echoed posts should only appear in the Echoes tab, not in Bars
-                self.posts = (postsResult + repliesResult).filter { $0.resharedPostId == nil }
+                // Bars: Only original posts (no replies, no echoes)
+                self.posts = postsResult.filter { $0.resharedPostId == nil }
+                // Adlibs: Only replies (posts with parent_post_id)
+                self.replies = repliesResult
+                // Amps: Posts liked by this user
                 self.likedPosts = likedPostsResult
+                // Echoes: Posts echoed by this user
                 self.echoedPosts = echoedPostsResult
+                
+                print("📊 Profile data set in view model:")
+                print("  - Posts (Bars): \(self.posts.count)")
+                print("  - Replies (Adlibs): \(self.replies.count)")
+                print("  - Liked Posts (Amps): \(self.likedPosts.count)")
+                print("  - Echoed Posts (Echoes): \(self.echoedPosts.count)")
             }
             
             // Load post notifications setting if following
@@ -92,6 +109,12 @@ final class UserProfileViewModel: ObservableObject {
                 await loadPostNotificationsSetting()
             }
         } catch {
+            print("❌ Error loading profile data for user \(userId): \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                print("❌ Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ Error userInfo: \(nsError.userInfo)")
+            }
             await MainActor.run {
                 self.errorMessage = error.localizedDescription
             }
@@ -137,29 +160,11 @@ final class UserProfileViewModel: ObservableObject {
             } else {
                 try await social.follow(userId: user.id)
             }
-            // Reload to get accurate counts and ensure consistency
-            // But preserve the isFollowing state we just set
-            let preservedIsFollowing = !originalIsFollowing
+            // Small delay to ensure database transaction completes before reloading
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds - increased to ensure DB commit
+            
+            // Force refresh by reloading - getProfile() will fetch fresh isFollowing state
             await load()
-            // Ensure isFollowing state is preserved after load
-            await MainActor.run {
-                if var updatedUser = self.user {
-                    self.user = UserSummary(
-                        id: updatedUser.id,
-                        displayName: updatedUser.displayName,
-                        handle: updatedUser.handle,
-                        avatarInitials: updatedUser.avatarInitials,
-                        profilePictureURL: updatedUser.profilePictureURL,
-                        isFollowing: preservedIsFollowing,
-                        region: updatedUser.region,
-                        followersCount: updatedUser.followersCount,
-                        followingCount: updatedUser.followingCount,
-                        instagramHandle: updatedUser.instagramHandle,
-                        twitterHandle: updatedUser.twitterHandle,
-                        tiktokHandle: updatedUser.tiktokHandle
-                    )
-                }
-            }
         } catch {
             // Revert optimistic update on error
             await MainActor.run {

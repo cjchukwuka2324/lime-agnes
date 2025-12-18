@@ -136,3 +136,8 @@ AuthKey_*.p8
 *.xcuserstate
 *.xcuserdatad
 xcuserdata/
+
+# Supabase files with sensitive keys
+supabase/setup_cron_jobs.sql
+# Keep the example file for reference
+!supabase/setup_cron_jobs.sql.example

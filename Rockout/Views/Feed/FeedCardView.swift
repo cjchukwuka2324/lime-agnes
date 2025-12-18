@@ -10,7 +10,6 @@ struct FeedCardView: View {
     let onReply: ((Post) -> Void)?
     let onEcho: ((String) -> Void)?
     let onNavigateToParent: ((String) -> Void)?
-    let onNavigateToRockList: ((String) -> Void)?
     let onTapProfile: (() -> Void)?
     let onDelete: ((String) -> Void)?
     let onHashtagTap: ((String) -> Void)?
@@ -36,7 +35,6 @@ struct FeedCardView: View {
         onReply: ((Post) -> Void)? = nil,
         onEcho: ((String) -> Void)? = nil,
         onNavigateToParent: ((String) -> Void)? = nil,
-        onNavigateToRockList: ((String) -> Void)? = nil,
         onTapProfile: (() -> Void)? = nil,
         onDelete: ((String) -> Void)? = nil,
         onHashtagTap: ((String) -> Void)? = nil,
@@ -50,7 +48,6 @@ struct FeedCardView: View {
         self.onReply = onReply
         self.onEcho = onEcho
         self.onNavigateToParent = onNavigateToParent
-        self.onNavigateToRockList = onNavigateToRockList
         self.onTapProfile = onTapProfile
         self.onDelete = onDelete
         self.onHashtagTap = onHashtagTap
@@ -66,17 +63,17 @@ struct FeedCardView: View {
                 echoedPostView
             } else {
                 // Regular post or echo with comment
-            parentPostReference
+                parentPostReference
                 if post.resharedPostId != nil {
                     echoedByIndicator
                 }
-            authorHeader
-            leaderboardAttachment
-            postContent
-            mediaAttachments
-            actionButtons
-            inlineReplies
-        }
+                authorHeader
+                leaderboardAttachment
+                postContent
+                mediaAttachments
+                actionButtons
+                inlineReplies
+            }
         }
         .padding(isReply ? 12 : 14)
         .background(cardBackground)
@@ -119,21 +116,9 @@ struct FeedCardView: View {
     
     @ViewBuilder
     private var echoedByIndicator: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.2.squarepath")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.6))
-            Text("\(post.author.displayName) \(GreenRoomBranding.echoed)")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.6))
-        }
-        .padding(.bottom, 8)
-    }
-    
-    @ViewBuilder
-    private var echoedPostView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Echo indicator
+        Button {
+            onTapProfile?()
+        } label: {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.2.squarepath")
                     .font(.caption)
@@ -142,6 +127,28 @@ struct FeedCardView: View {
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.6))
             }
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, 8)
+    }
+    
+    @ViewBuilder
+    private var echoedPostView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Echo indicator (clickable to view echo author's profile)
+            Button {
+                onTapProfile?()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.2.squarepath")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.6))
+                    Text("\(post.author.displayName) \(GreenRoomBranding.echoed)")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+            .buttonStyle(.plain)
             .padding(.bottom, 8)
             
             // Display full original post if available
@@ -167,7 +174,6 @@ struct FeedCardView: View {
                             // Navigate to original post
                             onNavigateToParent?(originalPostId)
                         },
-                        onNavigateToRockList: onNavigateToRockList,
                         onTapProfile: onTapProfile,
                         onDelete: onDelete,
                         onHashtagTap: onHashtagTap,
@@ -209,7 +215,6 @@ struct FeedCardView: View {
                         onReply: { parentPost in onReply?(parentPost) },
                         onEcho: { _ in onEcho?(originalPostId) },
                         onNavigateToParent: { _ in onNavigateToParent?(originalPostId) },
-                        onNavigateToRockList: onNavigateToRockList,
                         onTapProfile: onTapProfile,
                         onDelete: onDelete,
                         onHashtagTap: onHashtagTap,
@@ -306,7 +311,9 @@ struct FeedCardView: View {
                     Text("\(backgroundMusic.name) - \(backgroundMusic.artist)")
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.5))
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
                     
                     Spacer()
                     
@@ -454,9 +461,7 @@ struct FeedCardView: View {
     private var leaderboardAttachment: some View {
         if let leaderboardEntry = post.leaderboardEntry {
             LeaderboardAttachmentView(entry: leaderboardEntry) {
-                if let onNavigateToRockList = onNavigateToRockList {
-                    onNavigateToRockList(leaderboardEntry.artistId)
-                }
+                // RockList navigation removed - leaderboard entry is now display-only
             }
             .padding(.bottom, 12)
         }
@@ -477,6 +482,7 @@ struct FeedCardView: View {
             .lineSpacing(6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
             .padding(.bottom, 12)
         }
     }
@@ -484,7 +490,14 @@ struct FeedCardView: View {
     @ViewBuilder
     private var mediaAttachments: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Use MediaGridView for Twitter-style grid layout - show FIRST
+            // Spotify Link - show ABOVE images/videos when both are present
+            if let spotifyLink = post.spotifyLink {
+                SpotifyLinkCardView(spotifyLink: spotifyLink)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 12)
+            }
+            
+            // Use MediaGridView for Twitter-style grid layout - show AFTER song link
             if !post.imageURLs.isEmpty || post.videoURL != nil {
                 MediaGridView(
                     imageURLs: post.imageURLs,
@@ -501,13 +514,6 @@ struct FeedCardView: View {
                         }
                 )
                 .padding(.bottom, 12)
-            }
-            
-            // Spotify Link - show BELOW images/videos (not above)
-            if let spotifyLink = post.spotifyLink {
-                SpotifyLinkCardView(spotifyLink: spotifyLink)
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 12)
             }
             
             if let audioURL = post.audioURL {

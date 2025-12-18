@@ -37,6 +37,9 @@ RETURNS TABLE (
     author_instagram_handle TEXT,
     author_twitter_handle TEXT,
     author_tiktok_handle TEXT,
+    author_followers_count INTEGER,
+    author_following_count INTEGER,
+    author_is_following BOOLEAN,
     spotify_link_url TEXT,
     spotify_link_type TEXT,
     spotify_link_data JSONB,
@@ -125,6 +128,9 @@ BEGIN
             prof.instagram as author_instagram_handle,
             prof.twitter as author_twitter_handle,
             prof.tiktok as author_tiktok_handle,
+            COALESCE(prof.followers_count, 0)::INTEGER as author_followers_count,
+            COALESCE(prof.following_count, 0)::INTEGER as author_following_count,
+            (uf.follower_id IS NOT NULL) as author_is_following,
             -- Algorithm score for "For You" feed
             CASE 
                 WHEN p_feed_type = 'for_you' AND v_user_region IS NOT NULL AND prof.region = v_user_region THEN
@@ -163,6 +169,7 @@ BEGIN
         LEFT JOIN posts original_post ON original_post.id = p.reshared_post_id -- Join to check if original post exists and is not deleted
         LEFT JOIN auth.users u ON u.id = p.user_id
         LEFT JOIN profiles prof ON prof.id = p.user_id
+        LEFT JOIN user_follows uf ON uf.follower_id = v_current_user_id AND uf.following_id = p.user_id
         WHERE p.deleted_at IS NULL
             AND (p.reshared_post_id IS NULL OR original_post.deleted_at IS NULL) -- Filter out echo posts where original post is deleted
             AND (p_cursor IS NULL OR p.created_at < p_cursor) -- CURSOR FILTERING
@@ -204,6 +211,9 @@ BEGIN
         pws.author_instagram_handle,
         pws.author_twitter_handle,
         pws.author_tiktok_handle,
+        pws.author_followers_count,
+        pws.author_following_count,
+        pws.author_is_following,
         pws.spotify_link_url,
         pws.spotify_link_type,
         pws.spotify_link_data,

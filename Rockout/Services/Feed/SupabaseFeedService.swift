@@ -45,6 +45,11 @@ final class SupabaseFeedService: FeedService {
         let twitter: String?
         let tiktok: String?
         
+        // Author follower/following counts and follow status
+        let author_followers_count: Int?
+        let author_following_count: Int?
+        let author_is_following: Bool?
+        
         // New optional fields (Spotify, Poll, Background Music)
         // These might not be present if SQL function hasn't been updated
         let spotify_link_url: String?
@@ -66,6 +71,7 @@ final class SupabaseFeedService: FeedService {
             case leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id
             case author_profile_picture_url
             case instagram, twitter, tiktok
+            case author_followers_count, author_following_count, author_is_following
             case spotify_link_url, spotify_link_type, spotify_link_data
             case poll_question, poll_type, poll_options
             case background_music_spotify_id, background_music_data
@@ -128,6 +134,11 @@ final class SupabaseFeedService: FeedService {
             instagram = try container.decodeIfPresent(String.self, forKey: .instagram)
             twitter = try container.decodeIfPresent(String.self, forKey: .twitter)
             tiktok = try container.decodeIfPresent(String.self, forKey: .tiktok)
+            
+            // Author follower/following counts and follow status
+            author_followers_count = try container.decodeIfPresent(Int.self, forKey: .author_followers_count)
+            author_following_count = try container.decodeIfPresent(Int.self, forKey: .author_following_count)
+            author_is_following = try container.decodeIfPresent(Bool.self, forKey: .author_is_following)
             
             // New optional fields - decode with defaults if missing
             spotify_link_url = try container.decodeIfPresent(String.self, forKey: .spotify_link_url)
@@ -907,7 +918,13 @@ final class SupabaseFeedService: FeedService {
                 handle: row.author_handle,
                 avatarInitials: row.author_avatar_initials,
                 profilePictureURL: row.author_profile_picture_url.flatMap { URL(string: $0) },
-                isFollowing: false // Will be updated by SocialGraphService
+                isFollowing: row.author_is_following ?? false,
+                region: nil,
+                followersCount: row.author_followers_count ?? 0,
+                followingCount: row.author_following_count ?? 0,
+                instagramHandle: row.instagram,
+                twitterHandle: row.twitter,
+                tiktokHandle: row.tiktok
             )
             
             let leaderboardEntry: LeaderboardEntrySummary? = {
@@ -1886,10 +1903,10 @@ final class SupabaseFeedService: FeedService {
             handle: row.author_handle,
             avatarInitials: row.author_avatar_initials,
             profilePictureURL: row.author_profile_picture_url.flatMap { URL(string: $0) },
-            isFollowing: false,
+            isFollowing: row.author_is_following ?? false,
             region: nil,
-            followersCount: 0,
-            followingCount: 0,
+            followersCount: row.author_followers_count ?? 0,
+            followingCount: row.author_following_count ?? 0,
             instagramHandle: row.instagram,
             twitterHandle: row.twitter,
             tiktokHandle: row.tiktok
@@ -2260,6 +2277,8 @@ final class SupabaseFeedService: FeedService {
             throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID"])
         }
         
+        print("🔍 fetchEchoedPostsByUser called for userId: \(userId)")
+        
         // Fetch all posts where reshared_post_id is not null and user_id matches
         let response = try await supabase
             .from("posts")
@@ -2294,12 +2313,10 @@ final class SupabaseFeedService: FeedService {
             .order("created_at", ascending: false)
             .execute()
         
-        // Note: We filter for reshared_post_id IS NOT NULL client-side below
-        
         struct PostRow: Decodable {
             let id: UUID
             let user_id: UUID
-            let text: String
+            let text: String? // Make text optional to handle null values
             let created_at: String
             let image_urls: [String]?
             let video_url: String?
@@ -2321,10 +2338,24 @@ final class SupabaseFeedService: FeedService {
             let background_music_data: [String: AnyCodable]?
         }
         
-        let allRows: [PostRow] = try JSONDecoder().decode([PostRow].self, from: response.data)
+        let allRows: [PostRow]
+        do {
+            allRows = try JSONDecoder().decode([PostRow].self, from: response.data)
+            print("🔍 fetchEchoedPostsByUser: Successfully decoded \(allRows.count) total posts for user \(userId)")
+        } catch {
+            print("❌ fetchEchoedPostsByUser: Failed to decode PostRow: \(error)")
+            if let responseString = String(data: response.data, encoding: .utf8) {
+                print("🔍 Response preview: \(responseString.prefix(500))")
+            }
+            throw error
+        }
+        
+        print("🔍 fetchEchoedPostsByUser: Fetched \(allRows.count) total posts for user \(userId)")
         
         // Filter to only posts where reshared_post_id is NOT NULL (echoes)
         let rows = allRows.filter { $0.reshared_post_id != nil }
+        
+        print("🔍 fetchEchoedPostsByUser: Found \(rows.count) echo posts (with reshared_post_id) for user \(userId)")
         
         // Fetch original posts for each echo
         let originalPostIds = Set(rows.compactMap { $0.reshared_post_id?.uuidString })
@@ -2455,7 +2486,7 @@ final class SupabaseFeedService: FeedService {
             
             let post = Post(
                 id: row.id.uuidString,
-                text: row.text,
+                text: row.text ?? "", // Handle optional text (echo posts might have empty text)
                 createdAt: createdAt,
                 author: author,
                 imageURLs: imageURLs,
@@ -2476,6 +2507,8 @@ final class SupabaseFeedService: FeedService {
             )
             posts.append(post)
         }
+        
+        print("✅ fetchEchoedPostsByUser: Successfully created \(posts.count) echo posts for user \(userId)")
         
         return posts
     }
@@ -2665,7 +2698,7 @@ final class SupabaseFeedService: FeedService {
         
         print("🔍 fetchPostsByUser: After filtering, \(rows.count) posts (excluding replies)")
         
-        // Get user profile info
+        // Get user profile info with counts and social handles
         let userProfileResponse = try await supabase
             .from("profiles")
             .select("""
@@ -2674,7 +2707,12 @@ final class SupabaseFeedService: FeedService {
                 first_name,
                 last_name,
                 username,
-                profile_picture_url
+                profile_picture_url,
+                followers_count,
+                following_count,
+                instagram,
+                twitter,
+                tiktok
             """)
             .eq("id", value: userIdUUID)
             .limit(1)
@@ -2687,7 +2725,11 @@ final class SupabaseFeedService: FeedService {
             let last_name: String?
             let username: String?
             let profile_picture_url: String?
-            
+            let followers_count: Int?
+            let following_count: Int?
+            let instagram: String?
+            let twitter: String?
+            let tiktok: String?
         }
         
         // Handle case where profile might not exist
@@ -2699,7 +2741,7 @@ final class SupabaseFeedService: FeedService {
             } else {
                 // Profile doesn't exist - decode a minimal JSON structure
                 let fallbackJSON = """
-                [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null}]
+                [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null, "followers_count": 0, "following_count": 0, "instagram": null, "twitter": null, "tiktok": null}]
                 """.data(using: .utf8)!
                 let fallbackProfiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: fallbackJSON)
                 profile = fallbackProfiles.first!
@@ -2708,7 +2750,7 @@ final class SupabaseFeedService: FeedService {
             print("⚠️ Failed to decode profile for user \(userId): \(error)")
             // Create fallback profile
             let fallbackJSON = """
-            [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null}]
+            [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null, "followers_count": 0, "following_count": 0, "instagram": null, "twitter": null, "tiktok": null}]
             """.data(using: .utf8)!
             let fallbackProfiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: fallbackJSON)
             profile = fallbackProfiles.first!
@@ -2797,13 +2839,39 @@ final class SupabaseFeedService: FeedService {
         
         let pictureURL = profile.profile_picture_url.flatMap { URL(string: $0) }
         
+        // Check if current user follows this author
+        let isFollowing: Bool
+        if let currentUserId = currentUserId, let currentUserIdUUID = UUID(uuidString: currentUserId) {
+            let followCheck = try await supabase
+                .from("user_follows")
+                .select("follower_id")
+                .eq("follower_id", value: currentUserIdUUID)
+                .eq("following_id", value: userIdUUID)
+                .limit(1)
+                .execute()
+            
+            struct FollowCheckRow: Decodable {
+                let follower_id: UUID
+            }
+            let followChecks: [FollowCheckRow] = try JSONDecoder().decode([FollowCheckRow].self, from: followCheck.data)
+            isFollowing = !followChecks.isEmpty
+        } else {
+            isFollowing = false
+        }
+        
         let author = UserSummary(
             id: userId,
             displayName: displayName,
             handle: handle,
             avatarInitials: initials,
             profilePictureURL: pictureURL,
-            isFollowing: false
+            isFollowing: isFollowing,
+            region: nil,
+            followersCount: profile.followers_count ?? 0,
+            followingCount: profile.following_count ?? 0,
+            instagramHandle: profile.instagram,
+            twitterHandle: profile.twitter,
+            tiktokHandle: profile.tiktok
         )
         
         // Parse dates
@@ -3061,9 +3129,11 @@ final class SupabaseFeedService: FeedService {
         }
         
         // Filter to only replies (parent_post_id IS NOT NULL)
+        print("🔍 fetchRepliesByUser: Fetched \(rows.count) total posts for user \(userId)")
         rows = rows.filter { $0.parent_post_id != nil }
+        print("🔍 fetchRepliesByUser: Found \(rows.count) replies (with parent_post_id) for user \(userId)")
         
-        // Get user profile info
+        // Get user profile info with counts and social handles
         let userProfileResponse = try await supabase
             .from("profiles")
             .select("""
@@ -3072,7 +3142,12 @@ final class SupabaseFeedService: FeedService {
                 first_name,
                 last_name,
                 username,
-                profile_picture_url
+                profile_picture_url,
+                followers_count,
+                following_count,
+                instagram,
+                twitter,
+                tiktok
             """)
             .eq("id", value: userIdUUID)
             .limit(1)
@@ -3085,7 +3160,11 @@ final class SupabaseFeedService: FeedService {
             let last_name: String?
             let username: String?
             let profile_picture_url: String?
-            
+            let followers_count: Int?
+            let following_count: Int?
+            let instagram: String?
+            let twitter: String?
+            let tiktok: String?
         }
         
         // Handle case where profile might not exist
@@ -3097,7 +3176,7 @@ final class SupabaseFeedService: FeedService {
             } else {
                 // Profile doesn't exist - decode a minimal JSON structure
                 let fallbackJSON = """
-                [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null}]
+                [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null, "followers_count": 0, "following_count": 0, "instagram": null, "twitter": null, "tiktok": null}]
                 """.data(using: .utf8)!
                 let fallbackProfiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: fallbackJSON)
                 profile = fallbackProfiles.first!
@@ -3106,7 +3185,7 @@ final class SupabaseFeedService: FeedService {
             print("⚠️ Failed to decode profile for user \(userId): \(error)")
             // Create fallback profile
             let fallbackJSON = """
-            [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null}]
+            [{"id": "\(userIdUUID.uuidString)", "display_name": null, "first_name": null, "last_name": null, "username": null, "profile_picture_url": null, "followers_count": 0, "following_count": 0, "instagram": null, "twitter": null, "tiktok": null}]
             """.data(using: .utf8)!
             let fallbackProfiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: fallbackJSON)
             profile = fallbackProfiles.first!
@@ -3173,13 +3252,39 @@ final class SupabaseFeedService: FeedService {
         
         let pictureURL = profile.profile_picture_url.flatMap { URL(string: $0) }
         
+        // Check if current user follows this author
+        let isFollowing: Bool
+        if let currentUserId = currentUserId, let currentUserIdUUID = UUID(uuidString: currentUserId) {
+            let followCheck = try await supabase
+                .from("user_follows")
+                .select("follower_id")
+                .eq("follower_id", value: currentUserIdUUID)
+                .eq("following_id", value: userIdUUID)
+                .limit(1)
+                .execute()
+            
+            struct FollowCheckRow: Decodable {
+                let follower_id: UUID
+            }
+            let followChecks: [FollowCheckRow] = try JSONDecoder().decode([FollowCheckRow].self, from: followCheck.data)
+            isFollowing = !followChecks.isEmpty
+        } else {
+            isFollowing = false
+        }
+        
         let author = UserSummary(
             id: userId,
             displayName: displayName,
             handle: handle,
             avatarInitials: initials,
             profilePictureURL: pictureURL,
-            isFollowing: false
+            isFollowing: isFollowing,
+            region: nil,
+            followersCount: profile.followers_count ?? 0,
+            followingCount: profile.following_count ?? 0,
+            instagramHandle: profile.instagram,
+            twitterHandle: profile.twitter,
+            tiktokHandle: profile.tiktok
         )
         
         // Parse dates
@@ -3298,22 +3403,53 @@ final class SupabaseFeedService: FeedService {
     // MARK: - Fetch Liked Posts by User
     
     func fetchLikedPostsByUser(_ userId: String) async throws -> [Post] {
+        guard let userIdUUID = UUID(uuidString: userId) else {
+            throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID"])
+        }
+        
+        print("🔍 fetchLikedPostsByUser called for userId: \(userId)")
+        
         // Fetch all posts liked by this user
-        let response = try await supabase
+        let likesResponse = try await supabase
             .from("post_likes")
-            .select("post_id")
-            .eq("user_id", value: userId)
+            .select("post_id, created_at")
+            .eq("user_id", value: userIdUUID)
+            .order("created_at", ascending: false)
+            .limit(1000)
             .execute()
         
         struct LikeRow: Decodable {
             let post_id: UUID
+            let created_at: String?
         }
         
-        let likes: [LikeRow] = try JSONDecoder().decode([LikeRow].self, from: response.data)
-        let likedPostIds = Set(likes.map { $0.post_id.uuidString })
+        let likes: [LikeRow] = try JSONDecoder().decode([LikeRow].self, from: likesResponse.data)
+        let likedPostIds = likes.map { $0.post_id }
         
-        let feedResult = try await fetchHomeFeed(feedType: .forYou, region: nil, cursor: nil, limit: 100)
-        return feedResult.posts.filter { likedPostIds.contains($0.id) }
+        print("🔍 fetchLikedPostsByUser: Found \(likedPostIds.count) liked posts for user \(userId)")
+        
+        if likedPostIds.isEmpty {
+            print("🔍 fetchLikedPostsByUser: No liked posts found for user \(userId)")
+            return []
+        }
+        
+        // Fetch the actual posts that were liked (can be from any user)
+        // Use fetchPostById for each post to get full post data with author info
+        var posts: [Post] = []
+        for postId in likedPostIds {
+            do {
+                let post = try await fetchPostById(postId.uuidString)
+                posts.append(post)
+            } catch {
+                // Skip posts that don't exist or are deleted
+                print("⚠️ Failed to fetch liked post \(postId.uuidString): \(error)")
+            }
+        }
+        
+        print("✅ fetchLikedPostsByUser: Successfully fetched \(posts.count) posts for user \(userId)")
+        
+        // Sort by creation date (most recent first)
+        return posts.sorted { $0.createdAt > $1.createdAt }
     }
     
     // MARK: - Refresh Current User Profile in Posts

@@ -9,7 +9,7 @@ protocol SocialGraphService {
     func getFollowers(of userId: String) async throws -> [UserSummary]
     func getFollowing(of userId: String) async throws -> [UserSummary]
     func getMutuals(with userId: String) async throws -> [UserSummary]
-    func followingIds() async -> Set<String>
+    func followingIds(forceRefresh: Bool) async -> Set<String>
     func followingIds(for userId: String) async -> Set<String>
     func followerIds(for userId: String) async -> Set<String>
     func follow(userId: String) async throws
@@ -152,13 +152,13 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
     
     // MARK: - Following
     
-    func followingIds() async -> Set<String> {
+    func followingIds(forceRefresh: Bool = false) async -> Set<String> {
         guard let currentUserId = supabase.auth.currentUser?.id.uuidString else {
             return []
         }
         
-        // Return cached if available
-        if !cachedFollowing.isEmpty {
+        // Return cached if available and not forcing refresh
+        if !forceRefresh && !cachedFollowing.isEmpty {
             return cachedFollowing
         }
         
@@ -171,16 +171,21 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 .execute()
             
             struct FollowRow: Decodable {
-                let following_id: String
+                let following_id: UUID
             }
             
             let follows: [FollowRow] = try JSONDecoder().decode([FollowRow].self, from: response.data)
-            let following = Set(follows.map { $0.following_id })
+            // Convert UUIDs to strings for comparison
+            let following = Set(follows.map { $0.following_id.uuidString })
             
             cachedFollowing = following
+            print("✅ [FOLLOW] Loaded following IDs: \(following.count) users")
+            if !following.isEmpty {
+                print("   - Sample IDs: \(Array(following.prefix(3)))")
+            }
             return following
         } catch {
-            print("Error loading following: \(error)")
+            print("❌ Error loading following: \(error)")
             return cachedFollowing
         }
     }
@@ -259,15 +264,16 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
         
         try await supabase.rpc("follow_user", params: FollowUserParams(target_user_id: targetUserId)).execute()
         
-        // Update cache
-        cachedFollowing.insert(userId)
-        if cachedFollowers[userId] == nil {
-            cachedFollowers[userId] = []
-        }
-        cachedFollowers[userId]?.insert(currentUserId)
+        print("✅ [FOLLOW] Successfully called follow_user RPC for userId: \(userId)")
         
-        // Invalidate cached users to force refresh of counts
-        cachedUsers.removeAll(where: { $0.id == userId || $0.id == currentUserId })
+        // Small delay to ensure database transaction completes
+        try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds - increased for DB commit
+        
+        // Clear cache and force refresh on next call to ensure accurate state
+        cachedFollowing.removeAll()
+        cachedFollowers.removeAll()
+        cachedUsers.removeAll() // Clear all user caches
+        print("✅ [FOLLOW] Cleared all caches after follow")
     }
     
     func unfollow(userId: String) async throws {
@@ -286,12 +292,16 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
         
         try await supabase.rpc("unfollow_user", params: UnfollowUserParams(target_user_id: targetUserId)).execute()
         
-        // Update cache
-        cachedFollowing.remove(userId)
-        cachedFollowers[userId]?.remove(currentUserId)
+        print("✅ [FOLLOW] Successfully called unfollow_user RPC for userId: \(userId)")
         
-        // Invalidate cached users to force refresh of counts
-        cachedUsers.removeAll(where: { $0.id == userId || $0.id == currentUserId })
+        // Small delay to ensure database transaction completes
+        try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds - increased for DB commit
+        
+        // Clear cache and force refresh on next call to ensure accurate state
+        cachedFollowing.removeAll()
+        cachedFollowers.removeAll()
+        cachedUsers.removeAll() // Clear all user caches
+        print("✅ [FOLLOW] Cleared all caches after unfollow")
     }
     
     // MARK: - Get Profile
@@ -301,7 +311,8 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             throw NSError(domain: "SocialGraphService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID"])
         }
         
-        // Fetch profile from Supabase
+        // Fetch profile from Supabase (always fresh, no cache)
+        // Use single() to ensure we get the latest data
         let response = try await supabase
             .from("profiles")
             .select("""
@@ -319,7 +330,7 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 tiktok
             """)
             .eq("id", value: userIdUUID)
-            .limit(1)
+            .single()
             .execute()
         
         struct ProfileRow: Decodable {
@@ -337,11 +348,8 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let tiktok: String?
         }
         
-        let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
-        
-        guard let profile = profiles.first else {
-            throw NSError(domain: "SocialGraphService", code: 404, userInfo: [NSLocalizedDescriptionKey: "Profile not found"])
-        }
+        // When using .single(), Supabase returns a single object (dictionary), not an array
+        let profile: ProfileRow = try JSONDecoder().decode(ProfileRow.self, from: response.data)
         
         let displayName = profile.display_name ??
             (profile.first_name != nil && profile.last_name != nil ?
@@ -363,10 +371,19 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
         
         let pictureURL = profile.profile_picture_url.flatMap { URL(string: $0) }
         
-        // Check if current user follows this user
+        // Check if current user follows this user - always fetch fresh data for accurate state
         let currentUserId = try await currentUserId()
-        let following = await followingIds()
+        let following = await followingIds(forceRefresh: true) // Force refresh to get accurate state
         let isFollowing = following.contains(userId)
+        
+        print("🔍 [FOLLOW] getProfile for userId: \(userId)")
+        print("   - Current user ID: \(currentUserId)")
+        print("   - Following set contains \(following.count) users")
+        print("   - Checking if following contains userId: \(userId)")
+        print("   - Is following: \(isFollowing)")
+        if !following.isEmpty {
+            print("   - Sample following IDs: \(Array(following.prefix(3)))")
+        }
         
         return UserSummary(
             id: userId,
@@ -412,7 +429,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 profile_picture_url,
                 region,
                 followers_count,
-                following_count
+                following_count,
+                instagram,
+                twitter,
+                tiktok
             """)
             .in("id", values: followerUUIDs)
             .execute()
@@ -427,6 +447,9 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let region: String?
             let followers_count: Int?
             let following_count: Int?
+            let instagram: String?
+            let twitter: String?
+            let tiktok: String?
         }
         
         let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
@@ -466,7 +489,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 isFollowing: isFollowing,
                 region: profile.region,
                 followersCount: profile.followers_count ?? 0,
-                followingCount: profile.following_count ?? 0
+                followingCount: profile.following_count ?? 0,
+                instagramHandle: profile.instagram,
+                twitterHandle: profile.twitter,
+                tiktokHandle: profile.tiktok
             )
         }
     }
@@ -499,7 +525,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 profile_picture_url,
                 region,
                 followers_count,
-                following_count
+                following_count,
+                instagram,
+                twitter,
+                tiktok
             """)
             .in("id", values: followingUUIDs)
             .execute()
@@ -514,6 +543,9 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let region: String?
             let followers_count: Int?
             let following_count: Int?
+            let instagram: String?
+            let twitter: String?
+            let tiktok: String?
         }
         
         let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
@@ -558,7 +590,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 isFollowing: isFollowing,
                 region: profile.region,
                 followersCount: profile.followers_count ?? 0,
-                followingCount: profile.following_count ?? 0
+                followingCount: profile.following_count ?? 0,
+                instagramHandle: profile.instagram,
+                twitterHandle: profile.twitter,
+                tiktokHandle: profile.tiktok
             )
         }
     }
@@ -601,7 +636,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 profile_picture_url,
                 region,
                 followers_count,
-                following_count
+                following_count,
+                instagram,
+                twitter,
+                tiktok
             """)
             .in("id", values: mutualUUIDs)
             .execute()
@@ -616,6 +654,9 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let region: String?
             let followers_count: Int?
             let following_count: Int?
+            let instagram: String?
+            let twitter: String?
+            let tiktok: String?
         }
         
         let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
@@ -651,7 +692,10 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 isFollowing: true,
                 region: profile.region,
                 followersCount: profile.followers_count ?? 0,
-                followingCount: profile.following_count ?? 0
+                followingCount: profile.following_count ?? 0,
+                instagramHandle: profile.instagram,
+                twitterHandle: profile.twitter,
+                tiktokHandle: profile.tiktok
             )
         }
     }

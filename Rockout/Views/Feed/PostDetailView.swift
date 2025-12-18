@@ -6,6 +6,7 @@ struct PostDetailView: View {
     
     @StateObject private var viewModel: PostDetailViewModel
     @State private var showComposer = false
+    @State private var selectedProfile: ProfileNavigationWrapper?
     
     init(postId: String, service: FeedService = SupabaseFeedService.shared as FeedService) {
         self.postId = postId
@@ -58,6 +59,11 @@ struct PostDetailView: View {
                                     await viewModel.toggleLike(postId: postId)
                                 }
                             },
+                            onTapProfile: {
+                                if let userId = UUID(uuidString: rootPost.author.id) {
+                                    selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: rootPost.author)
+                                }
+                            },
                             onDelete: { postId in
                                 Task {
                                     await viewModel.deletePost(postId: postId)
@@ -86,6 +92,11 @@ struct PostDetailView: View {
                                         onDelete: { postId in
                                             Task {
                                                 await viewModel.deletePost(postId: postId)
+                                            }
+                                        },
+                                        onTapProfile: { author in
+                                            if let userId = UUID(uuidString: author.id) {
+                                                selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: author)
                                             }
                                         },
                                         service: service,
@@ -143,5 +154,20 @@ struct PostDetailView: View {
                 await viewModel.loadThread()
             }
         }
+        .navigationDestination(item: $selectedProfile) { wrapper in
+            UserProfileDetailView(userId: wrapper.id, initialUser: wrapper.initialUser)
+        }
+    }
+}
+
+// MARK: - Profile Navigation Wrapper
+
+private struct ProfileNavigationWrapper: Identifiable, Hashable {
+    let id: UUID
+    let initialUser: UserSummary?
+    
+    init(userId: UUID, initialUser: UserSummary? = nil) {
+        self.id = userId
+        self.initialUser = initialUser
     }
 }

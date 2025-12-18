@@ -17,6 +17,9 @@ struct ShareSheetExporter: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
+// Convenience type alias for ShareSheet
+typealias ShareSheet = ShareSheetExporter
+
 enum ShareExporter {
     @MainActor
     static func renderImage<V: View>(_ view: V, width: CGFloat = 1080, scale: CGFloat = 3.0) async -> UIImage? {

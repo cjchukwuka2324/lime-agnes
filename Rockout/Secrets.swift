@@ -11,4 +11,10 @@ enum Secrets {
     // See: 9https://developer.apple.com/documentation/applemusicapi/getting_keys_and_creating_tokens
     // TODO: Add your Apple Music developer token here
     static let appleMusicDeveloperToken: String? = nil
+    
+    // 🔥 Spotify Client Secret for public search (Client Credentials flow)
+    // Get this from: https://developer.spotify.com/dashboard
+    // Select your app -> Settings -> Client Secret
+    // TODO: Add your Spotify client secret here
+    static let spotifyClientSecret: String? = nil
 }

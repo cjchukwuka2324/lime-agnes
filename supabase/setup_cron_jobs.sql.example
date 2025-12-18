@@ -1,0 +1,110 @@
+-- ============================================
+-- Recall v2 Cron Jobs Setup (EXAMPLE)
+-- ============================================
+-- This is a template file. Copy to setup_cron_jobs.sql and fill in your service role key.
+-- ============================================
+
+-- Enable pg_cron extension (if not already enabled)
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- ============================================
+-- Worker Cron Job (Required)
+-- ============================================
+-- Processes queued recall jobs every minute
+-- Project Reference: wklzogrfdrqluwchoqsp
+-- IMPORTANT: Replace YOUR_SERVICE_ROLE_KEY with your actual service role key
+-- Get it from: Supabase Dashboard → Settings → API → service_role key (secret)
+
+-- Remove existing job if it exists
+SELECT cron.unschedule('recall-v2-worker') WHERE EXISTS (
+    SELECT 1 FROM cron.job WHERE jobname = 'recall-v2-worker'
+);
+
+-- Schedule worker to run every minute
+SELECT cron.schedule(
+    'recall-v2-worker',
+    '* * * * *', -- Every minute
+    $$
+    SELECT net.http_post(
+        url := 'https://wklzogrfdrqluwchoqsp.supabase.co/functions/v1/recall-v2-worker',
+        headers := jsonb_build_object(
+            'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
+            'Content-Type', 'application/json'
+        ),
+        body := '{"max_jobs": 10}'::jsonb
+    );
+    $$
+);
+
+-- ============================================
+-- Learning Processor Cron Job (Optional)
+-- ============================================
+-- Processes user feedback and updates preferences daily at 2 AM
+-- Project Reference: wklzogrfdrqluwchoqsp
+-- IMPORTANT: Replace YOUR_SERVICE_ROLE_KEY with your actual service role key
+-- Get it from: Supabase Dashboard → Settings → API → service_role key (secret)
+
+-- Remove existing job if it exists
+SELECT cron.unschedule('recall-learning-processor') WHERE EXISTS (
+    SELECT 1 FROM cron.job WHERE jobname = 'recall-learning-processor'
+);
+
+-- Schedule learning processor to run daily at 2 AM
+SELECT cron.schedule(
+    'recall-learning-processor',
+    '0 2 * * *', -- Daily at 2 AM UTC
+    $$
+    SELECT net.http_post(
+        url := 'https://wklzogrfdrqluwchoqsp.supabase.co/functions/v1/recall-v2-learning-processor',
+        headers := jsonb_build_object(
+            'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
+            'Content-Type', 'application/json'
+        ),
+        body := '{}'::jsonb
+    );
+    $$
+);
+
+-- ============================================
+-- Verify Cron Jobs
+-- ============================================
+
+-- List all scheduled jobs
+SELECT 
+    jobid,
+    jobname,
+    schedule,
+    command,
+    nodename,
+    nodeport,
+    database,
+    username,
+    active,
+    '✅ Scheduled' as status
+FROM cron.job 
+WHERE jobname LIKE 'recall%'
+ORDER BY jobname;
+
+-- Check recent job runs
+SELECT 
+    jobid,
+    jobname,
+    runid,
+    job_pid,
+    database,
+    username,
+    command,
+    status,
+    return_message,
+    start_time,
+    end_time
+FROM cron.job_run_details 
+WHERE jobid IN (
+    SELECT jobid FROM cron.job WHERE jobname LIKE 'recall%'
+)
+ORDER BY start_time DESC
+LIMIT 10;
+
+
+
+

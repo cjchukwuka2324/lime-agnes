@@ -1,0 +1,22 @@
+name: Recall Worker Cron
+
+on:
+  schedule:
+    # Run every minute
+    - cron: '* * * * *'
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  trigger-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Recall Worker
+        run: |
+          curl -X POST https://wklzogrfdrqluwchoqsp.supabase.co/functions/v1/recall-v2-worker \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndrbHpvZ3JmZHJxbHV3Y2hvcXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzEyMDM0NywiZXhwIjoyMDc4Njk2MzQ3fQ.Z0JuCvDrRnlHt_IKYi-fOhvV4_Tb8EYVW0eyAIN6WUc" \
+            -H "Content-Type: application/json" \
+            -d '{"max_jobs": 10}'
+
+
+
+

@@ -30,23 +30,46 @@ struct UserProfileDetailView: View {
                 AnimatedGradientBackground()
                     .ignoresSafeArea()
                 
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Profile Header with Picture
-                        profileHeaderSection
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
+                if let error = viewModel.errorMessage {
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.red)
+                        Text("Error Loading Profile")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                         
-                        // Content Tabs (Posts, Replies, Likes)
-                        profileContentTabs
-                            .padding(.horizontal, 20)
-                        
-                        Spacer()
-                            .frame(height: 20)
+                        Button("Retry") {
+                            Task {
+                                await viewModel.load()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                } else {
+                    ScrollView {
+                        VStack(spacing: 24) {
+                            // Profile Header with Picture
+                            profileHeaderSection
+                                .padding(.horizontal, 20)
+                                .padding(.top, 20)
+                            
+                            // Content Tabs (Posts, Replies, Likes)
+                            profileContentTabs
+                                .padding(.horizontal, 20)
+                            
+                            Spacer()
+                                .frame(height: 20)
+                        }
                     }
                 }
             }
-            .navigationTitle(isCurrentUser ? profileDisplayName : "")
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -178,12 +201,30 @@ struct UserProfileDetailView: View {
             }
             .sheet(isPresented: $showFollowersList) {
                 FollowersFollowingListView(userId: userId.uuidString, mode: .followers)
+                    .onDisappear {
+                        // Refresh counts when sheet is dismissed (in case user followed/unfollowed)
+                        Task {
+                            await viewModel.load()
+                        }
+                    }
             }
             .sheet(isPresented: $showFollowingList) {
                 FollowersFollowingListView(userId: userId.uuidString, mode: .following)
+                    .onDisappear {
+                        // Refresh counts when sheet is dismissed (in case user followed/unfollowed)
+                        Task {
+                            await viewModel.load()
+                        }
+                    }
             }
             .sheet(isPresented: $showMutualsList) {
                 FollowersFollowingListView(userId: userId.uuidString, mode: .mutuals)
+                    .onDisappear {
+                        // Refresh counts when sheet is dismissed (in case user followed/unfollowed)
+                        Task {
+                            await viewModel.load()
+                        }
+                    }
             }
             
             // Social Media Links - Always show all 3 platforms
@@ -481,14 +522,12 @@ struct UserProfileDetailView: View {
     
     @ViewBuilder
     private var repliesContentList: some View {
-        let replies = viewModel.posts.filter { $0.parentPostId != nil }
-        
-        if replies.isEmpty {
+        if viewModel.replies.isEmpty {
             emptyStateView(icon: "arrowshape.turn.up.left", title: GreenRoomBranding.EmptyStates.noAdlibsYet, message: "This user hasn't adlibbed on any Bars yet.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 16) {
-                    ForEach(replies) { post in
+                    ForEach(viewModel.replies) { post in
                         FeedCardView(
                             post: post,
                             onLike: { postId in

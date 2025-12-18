@@ -5,16 +5,22 @@ struct SpotifyLinkAddView: View {
     
     @Binding var selectedSpotifyLink: SpotifyLink?
     
+    // Paste URL state
     @State private var pastedURL = ""
-    @State private var searchQuery = ""
-    @State private var searchResults: [SpotifyTrack] = []
-    @State private var playlistResults: [SpotifyPlaylist] = []
-    @State private var isSearching = false
     @State private var isProcessingURL = false
-    @State private var errorMessage: String?
     @State private var showPasteSheet = false
     
+    // Search state
+    @State private var selectedPlatform = 0 // 0 = Spotify, 1 = Apple Music
+    @State private var searchQuery = ""
+    @State private var spotifyTracks: [SpotifyTrack] = []
+    @State private var spotifyPlaylists: [SpotifyPlaylist] = []
+    @State private var appleMusicSongs: [AppleMusicWebAPISong] = []
+    @State private var isSearching = false
+    @State private var errorMessage: String?
+    
     private let spotifyAPI = SpotifyAPI()
+    private let appleMusicAPI = AppleMusicWebAPI.shared
     
     var body: some View {
         NavigationStack {
@@ -24,7 +30,7 @@ struct SpotifyLinkAddView: View {
                 
                 searchView
             }
-            .navigationTitle("Add Spotify Link")
+            .navigationTitle("Add Music Link")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -60,26 +66,53 @@ struct SpotifyLinkAddView: View {
                     .ignoresSafeArea()
                 
                 ScrollView {
-                    VStack(spacing: 20) {
-                        Text("Paste Spotify URL")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding(.top)
+                    VStack(spacing: 24) {
+                        // Instructions
+                        VStack(spacing: 12) {
+                            Image(systemName: "link")
+                                .font(.system(size: 48))
+                                .foregroundColor(Color(hex: "#1ED760"))
+                            
+                            Text("Paste Music Link")
+                                .font(.title2.bold())
+                                .foregroundColor(.white)
+                            
+                            Text("Paste a Spotify or Apple Music link")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.7))
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.top, 40)
                         
-                        TextField("https://open.spotify.com/track/...", text: $pastedURL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white.opacity(0.15))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                            )
-                            .padding(.horizontal)
+                        // URL Input
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Music Link")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            
+                            TextField("https://open.spotify.com/track/... or https://music.apple.com/...", text: $pastedURL, axis: .vertical)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.white.opacity(0.15))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                                )
+                            
+                            // Supported platforms hint
+                            HStack(spacing: 16) {
+                                Label("Spotify", systemImage: "music.note")
+                                Label("Apple Music", systemImage: "music.note")
+                            }
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.6))
+                        }
+                        .padding(.horizontal)
                         
                         if isProcessingURL {
                             ProgressView()
@@ -93,29 +126,11 @@ struct SpotifyLinkAddView: View {
                                     .font(.caption)
                                     .foregroundColor(.red)
                                     .multilineTextAlignment(.center)
-                                
-                                if error.contains("Not authenticated") {
-                                    Button {
-                                        // Navigate to profile to connect Spotify
-                                        if let url = URL(string: "rockout://profile") {
-                                            UIApplication.shared.open(url)
-                                        }
-                                    } label: {
-                                        Text("Connect Spotify")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 16)
-                                            .padding(.vertical, 8)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .fill(Color(hex: "#1ED760"))
-                                            )
-                                    }
-                                }
+                                    .padding(.horizontal)
                             }
-                            .padding(.horizontal)
                         }
                         
+                        // Add Button
                         Button {
                             Task {
                                 await processPastedURL()
@@ -132,18 +147,19 @@ struct SpotifyLinkAddView: View {
                                 .padding()
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(hex: "#1ED760"))
+                                        .fill(canAddLink ? Color(hex: "#1ED760") : Color.white.opacity(0.3))
                                 )
                         }
-                        .disabled(pastedURL.isEmpty || isProcessingURL)
+                        .disabled(!canAddLink || isProcessingURL)
                         .padding(.horizontal)
                         
                         Spacer()
+                            .frame(height: 40)
                     }
                     .padding(.vertical)
                 }
             }
-            .navigationTitle("Paste Spotify Link")
+            .navigationTitle("Paste Link")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -162,12 +178,21 @@ struct SpotifyLinkAddView: View {
     
     private var searchView: some View {
         VStack(spacing: 0) {
+            // Platform selector
+            Picker("Platform", selection: $selectedPlatform) {
+                Text("Spotify").tag(0)
+                Text("Apple Music").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.bottom, 12)
+            
             // Search Bar
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.white.opacity(0.6))
                 
-                TextField("Search tracks or playlists...", text: $searchQuery)
+                TextField("Search tracks...", text: $searchQuery)
                     .foregroundColor(.white)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -180,8 +205,7 @@ struct SpotifyLinkAddView: View {
                 if !searchQuery.isEmpty {
                     Button {
                         searchQuery = ""
-                        searchResults = []
-                        playlistResults = []
+                        clearSearchResults()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.white.opacity(0.6))
@@ -194,7 +218,6 @@ struct SpotifyLinkAddView: View {
                     .fill(Color.white.opacity(0.15))
             )
             .padding(.horizontal)
-            .padding(.top)
             
             // Search Results
             if isSearching {
@@ -202,75 +225,110 @@ struct SpotifyLinkAddView: View {
                 ProgressView()
                     .tint(.white)
                 Spacer()
-            } else if !searchResults.isEmpty || !playlistResults.isEmpty {
+            } else if hasSearchResults {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        if !searchResults.isEmpty {
-                            Text("Tracks")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.horizontal)
-                            
-                            ForEach(searchResults) { track in
-                                trackResultRow(track: track)
+                        if selectedPlatform == 0 {
+                            // Spotify results
+                            if !spotifyTracks.isEmpty {
+                                Text("Tracks")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal)
+                                
+                                ForEach(spotifyTracks) { track in
+                                    spotifyTrackRow(track: track)
+                                }
                             }
-                        }
-                        
-                        if !playlistResults.isEmpty {
-                            Text("Playlists")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.horizontal)
-                                .padding(.top, searchResults.isEmpty ? 0 : 20)
                             
-                            ForEach(playlistResults) { playlist in
-                                playlistResultRow(playlist: playlist)
+                            if !spotifyPlaylists.isEmpty {
+                                Text("Playlists")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal)
+                                    .padding(.top, spotifyTracks.isEmpty ? 0 : 20)
+                                
+                                ForEach(spotifyPlaylists) { playlist in
+                                    spotifyPlaylistRow(playlist: playlist)
+                                }
+                            }
+                        } else {
+                            // Apple Music results
+                            if !appleMusicSongs.isEmpty {
+                                Text("Songs")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal)
+                                
+                                ForEach(appleMusicSongs) { song in
+                                    appleMusicSongRow(song: song)
+                                }
                             }
                         }
                     }
                     .padding(.vertical)
                 }
-            } else if let error = errorMessage {
+            } else if !searchQuery.isEmpty && !isSearching {
                 Spacer()
                 VStack(spacing: 12) {
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                    
-                    if error.contains("Not authenticated") {
-                        Button {
-                            // Navigate to profile to connect Spotify
-                            if let url = URL(string: "rockout://profile") {
-                                UIApplication.shared.open(url)
+                    if let error = errorMessage {
+                        // Show error message prominently
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.title2)
+                                .foregroundColor(.red)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(.red)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            
+                            // If error suggests connecting Spotify, show a button
+                            if error.contains("connect your Spotify account") {
+                                Button {
+                                    // Navigate to profile to connect Spotify
+                                    // This will be handled by the parent view
+                                    dismiss()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "link")
+                                        Text("Connect Spotify")
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(Color(hex: "#1ED760"))
+                                    .cornerRadius(8)
+                                }
+                                .padding(.top, 8)
                             }
-                        } label: {
-                            Text("Connect Spotify")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(Color(hex: "#1ED760"))
-                                )
+                        }
+                    } else {
+                        // No error, just no results
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.title2)
+                                .foregroundColor(.white.opacity(0.5))
+                            Text("No results found")
+                                .font(.headline)
+                                .foregroundColor(.white.opacity(0.7))
+                            Text("Try a different search term")
+                                .font(.caption)
+                                .foregroundColor(.white.opacity(0.5))
                         }
                     }
                 }
-                Spacer()
-            } else if !searchQuery.isEmpty {
-                Spacer()
-                Text("No results found")
-                    .foregroundColor(.white.opacity(0.7))
                 Spacer()
             }
         }
     }
     
-    private func trackResultRow(track: SpotifyTrack) -> some View {
+    // MARK: - Search Result Rows
+    
+    private func spotifyTrackRow(track: SpotifyTrack) -> some View {
         Button {
-            addTrack(track: track)
+            addSpotifyTrack(track: track)
         } label: {
             HStack(spacing: 12) {
                 if let imageURL = track.album?.imageURL {
@@ -315,9 +373,9 @@ struct SpotifyLinkAddView: View {
         .buttonStyle(PlainButtonStyle())
     }
     
-    private func playlistResultRow(playlist: SpotifyPlaylist) -> some View {
+    private func spotifyPlaylistRow(playlist: SpotifyPlaylist) -> some View {
         Button {
-            addPlaylist(playlist: playlist)
+            addSpotifyPlaylist(playlist: playlist)
         } label: {
             HStack(spacing: 12) {
                 if let imageURL = playlist.imageURL {
@@ -364,6 +422,59 @@ struct SpotifyLinkAddView: View {
         .buttonStyle(PlainButtonStyle())
     }
     
+    private func appleMusicSongRow(song: AppleMusicWebAPISong) -> some View {
+        Button {
+            addAppleMusicSong(song: song)
+        } label: {
+            HStack(spacing: 12) {
+                if let artwork = song.attributes.artwork {
+                    let imageURL = URL(string: artwork.urlForSize(width: 100, height: 100))
+                    if let imageURL = imageURL {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .tint(.white)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            case .failure:
+                                defaultArtwork
+                            @unknown default:
+                                defaultArtwork
+                            }
+                        }
+                        .frame(width: 50, height: 50)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    } else {
+                        defaultArtwork
+                            .frame(width: 50, height: 50)
+                    }
+                } else {
+                    defaultArtwork
+                        .frame(width: 50, height: 50)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(song.attributes.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    
+                    Text(song.attributes.artistName)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
     private var defaultArtwork: some View {
         RoundedRectangle(cornerRadius: 6)
             .fill(
@@ -383,64 +494,111 @@ struct SpotifyLinkAddView: View {
             )
     }
     
+    // MARK: - Computed Properties
+    
+    private var canAddLink: Bool {
+        !pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
+    private var hasSearchResults: Bool {
+        if selectedPlatform == 0 {
+            return !spotifyTracks.isEmpty || !spotifyPlaylists.isEmpty
+        } else {
+            return !appleMusicSongs.isEmpty
+        }
+    }
+    
     // MARK: - Actions
     
-    private func processPastedURL() async {
-        isProcessingURL = true
+    private func clearSearchResults() {
+        spotifyTracks = []
+        spotifyPlaylists = []
+        appleMusicSongs = []
         errorMessage = nil
-        defer { isProcessingURL = false }
-        
-        guard let parsed = spotifyAPI.parseSpotifyURL(pastedURL) else {
-            errorMessage = "Invalid Spotify URL. Please paste a valid track or playlist link."
-            return
-        }
-        
-        do {
-            if parsed.type == "track" {
-                let track = try await spotifyAPI.getTrack(spotifyId: parsed.id)
-                addTrack(track: track)
-            } else if parsed.type == "playlist" {
-                let playlist = try await spotifyAPI.getPlaylist(spotifyId: parsed.id)
-                addPlaylist(playlist: playlist)
-            }
-        } catch {
-            let errorMsg = error.localizedDescription
-            if errorMsg.contains("401") || errorMsg.contains("authentication") || errorMsg.contains("Not authenticated") {
-                errorMessage = "Not authenticated with Spotify. Please connect your Spotify account in Profile settings."
-            } else {
-                errorMessage = "Failed to load Spotify content: \(errorMsg)"
-            }
-        }
     }
     
     private func performSearch() async {
         guard !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty else {
-            searchResults = []
-            playlistResults = []
+            clearSearchResults()
             return
         }
         
         isSearching = true
+        errorMessage = nil
         defer { isSearching = false }
         
         do {
-            async let tracks = spotifyAPI.searchTracks(query: searchQuery, limit: 10)
-            async let playlists = spotifyAPI.searchPlaylists(query: searchQuery, limit: 10)
-            
-            let (tracksResult, playlistsResult) = try await (tracks, playlists)
-            searchResults = tracksResult
-            playlistResults = playlistsResult
-        } catch {
-            let errorMsg = error.localizedDescription
-            if errorMsg.contains("401") || errorMsg.contains("authentication") || errorMsg.contains("Not authenticated") {
-                errorMessage = "Not authenticated with Spotify. Please connect your Spotify account in Profile settings."
+            if selectedPlatform == 0 {
+                // Spotify search
+                print("🔍 Searching Spotify for: '\(searchQuery)'")
+                async let tracks = spotifyAPI.searchTracksPublic(query: searchQuery, limit: 10)
+                async let playlists = spotifyAPI.searchPlaylistsPublic(query: searchQuery, limit: 10)
+                
+                let (tracksResult, playlistsResult) = try await (tracks, playlists)
+                
+                print("✅ Spotify search completed: \(tracksResult.count) tracks, \(playlistsResult.count) playlists")
+                
+                await MainActor.run {
+                    spotifyTracks = tracksResult
+                    spotifyPlaylists = playlistsResult
+                    
+                    // If both are empty, show a helpful message
+                    if tracksResult.isEmpty && playlistsResult.isEmpty {
+                        errorMessage = "No results found. Try a different search term."
+                    } else {
+                        errorMessage = nil
+                    }
+                }
             } else {
-                errorMessage = "Search failed: \(errorMsg)"
+                // Apple Music search
+                print("🔍 Searching Apple Music for: '\(searchQuery)'")
+                let response = try await appleMusicAPI.searchPublic(query: searchQuery, types: ["songs"], limit: 20)
+                
+                print("✅ Apple Music search completed: \(response.results.songs?.data.count ?? 0) songs")
+                
+                await MainActor.run {
+                    appleMusicSongs = response.results.songs?.data ?? []
+                    
+                    // If empty, show a helpful message
+                    if appleMusicSongs.isEmpty {
+                        errorMessage = "No results found. Try a different search term."
+                    } else {
+                        errorMessage = nil
+                    }
+                }
+            }
+        } catch {
+            print("❌ Search error: \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                print("❌ Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ Error userInfo: \(nsError.userInfo)")
+            }
+            
+            await MainActor.run {
+                // Provide more helpful error messages
+                let errorDesc = error.localizedDescription
+                if errorDesc.contains("Client secret not configured") || errorDesc.contains("client secret") {
+                    errorMessage = "Spotify search requires configuration. Add your client secret to Secrets.swift. See console for details."
+                } else if errorDesc.contains("Permission denied") || errorDesc.contains("MusicKit") || errorDesc.contains("authorization") {
+                    if selectedPlatform == 1 {
+                        errorMessage = "Apple Music access is required. Please allow access when prompted, or enable it in Settings > RockOut > Media & Apple Music."
+                    } else {
+                        errorMessage = "Permission denied. Please check your settings."
+                    }
+                } else if errorDesc.contains("401") || errorDesc.contains("Authentication") {
+                    errorMessage = "Authentication failed. Please try again."
+                } else if errorDesc.contains("429") {
+                    errorMessage = "Too many requests. Please wait a moment and try again."
+                } else {
+                    errorMessage = "Search failed: \(errorDesc)"
+                }
+                clearSearchResults()
             }
         }
     }
     
-    private func addTrack(track: SpotifyTrack) {
+    private func addSpotifyTrack(track: SpotifyTrack) {
         let spotifyLink = SpotifyLink(
             id: track.id,
             url: "https://open.spotify.com/track/\(track.id)",
@@ -449,13 +607,11 @@ struct SpotifyLinkAddView: View {
             artist: track.artists.first?.name,
             imageURL: track.album?.imageURL
         )
-        print("✅ Adding Spotify track: \(track.name) by \(track.artists.first?.name ?? "Unknown")")
         selectedSpotifyLink = spotifyLink
-        print("✅ Set selectedSpotifyLink, dismissing...")
         dismiss()
     }
     
-    private func addPlaylist(playlist: SpotifyPlaylist) {
+    private func addSpotifyPlaylist(playlist: SpotifyPlaylist) {
         let spotifyLink = SpotifyLink(
             id: playlist.id,
             url: "https://open.spotify.com/playlist/\(playlist.id)",
@@ -464,9 +620,180 @@ struct SpotifyLinkAddView: View {
             owner: playlist.owner?.display_name,
             imageURL: playlist.imageURL
         )
-        print("✅ Adding Spotify playlist: \(playlist.name)")
         selectedSpotifyLink = spotifyLink
-        print("✅ Set selectedSpotifyLink, dismissing...")
         dismiss()
+    }
+    
+    private func addAppleMusicSong(song: AppleMusicWebAPISong) {
+        // Get URL from song attributes or construct it
+        let url = song.attributes.url ?? "https://music.apple.com/song/\(song.id)"
+        
+        let spotifyLink = SpotifyLink(
+            id: song.id,
+            url: url,
+            type: "track",
+            name: song.attributes.name,
+            artist: song.attributes.artistName,
+            imageURL: song.attributes.artwork.flatMap { 
+                URL(string: $0.urlForSize(width: 300, height: 300))
+            }
+        )
+        selectedSpotifyLink = spotifyLink
+        dismiss()
+    }
+    
+    // MARK: - URL Parsing & Processing
+    
+    private func processPastedURL() async {
+        isProcessingURL = true
+        errorMessage = nil
+        defer { isProcessingURL = false }
+        
+        let trimmedURL = pastedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Parse Spotify URL
+        if let spotifyLink = parseSpotifyURL(trimmedURL) {
+            selectedSpotifyLink = spotifyLink
+            dismiss()
+            return
+        }
+        
+        // Parse Apple Music URL
+        if let appleMusicLink = parseAppleMusicURL(trimmedURL) {
+            selectedSpotifyLink = appleMusicLink
+            dismiss()
+            return
+        }
+        
+        errorMessage = "Invalid music link. Please paste a valid Spotify or Apple Music URL."
+    }
+    
+    private func parseSpotifyURL(_ urlString: String) -> SpotifyLink? {
+        let urlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Handle spotify: URI scheme
+        if urlString.hasPrefix("spotify:") {
+            let components = urlString.split(separator: ":")
+            if components.count >= 3 {
+                let type = String(components[1]) // track or playlist
+                let id = String(components[2])
+                if type == "track" || type == "playlist" {
+                    let url = "https://open.spotify.com/\(type)/\(id)"
+                    return SpotifyLink(
+                        id: id,
+                        url: url,
+                        type: type,
+                        name: type == "track" ? "Track" : "Playlist",
+                        artist: nil,
+                        owner: nil,
+                        imageURL: nil
+                    )
+                }
+            }
+        }
+        
+        // Handle https://open.spotify.com URLs
+        if let url = URL(string: urlString),
+           url.host?.contains("spotify.com") == true || url.host?.contains("spotify.link") == true {
+            let pathComponents = url.pathComponents.filter { $0 != "/" }
+            
+            if pathComponents.count >= 2 {
+                let type = pathComponents[0] // track or playlist
+                let id = pathComponents[1]
+                if type == "track" || type == "playlist" {
+                    let finalURL = urlString.hasPrefix("https://") ? urlString : "https://open.spotify.com/\(type)/\(id)"
+                    return SpotifyLink(
+                        id: id,
+                        url: finalURL,
+                        type: type,
+                        name: type == "track" ? "Track" : "Playlist",
+                        artist: nil,
+                        owner: nil,
+                        imageURL: nil
+                    )
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func parseAppleMusicURL(_ urlString: String) -> SpotifyLink? {
+        let urlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Apple Music URL formats:
+        // https://music.apple.com/us/album/song-name/1234567890?i=9876543210
+        // https://music.apple.com/us/playlist/playlist-name/pl.u-...
+        // https://music.apple.com/album/id1234567890
+        
+        guard let url = URL(string: urlString),
+              url.host?.contains("music.apple.com") == true else {
+            return nil
+        }
+        
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        
+        // Check for album/track
+        if pathComponents.contains("album") {
+            // Extract album ID from path or query
+            var albumId: String?
+            var trackId: String?
+            
+            // Try to get ID from path (format: /album/id1234567890)
+            if let idIndex = pathComponents.firstIndex(where: { $0.hasPrefix("id") }) {
+                albumId = String(pathComponents[idIndex].dropFirst(2)) // Remove "id" prefix
+            } else if pathComponents.count >= 2 {
+                // Try to get from path components
+                albumId = pathComponents.last
+            }
+            
+            // Check for track ID in query parameters (i=...)
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let queryItems = components.queryItems,
+               let iParam = queryItems.first(where: { $0.name == "i" })?.value {
+                trackId = iParam
+            }
+            
+            if let albumId = albumId {
+                let type = trackId != nil ? "track" : "album"
+                let id = trackId ?? albumId
+                return SpotifyLink(
+                    id: id,
+                    url: urlString,
+                    type: type,
+                    name: type == "track" ? "Track" : "Album",
+                    artist: nil,
+                    owner: nil,
+                    imageURL: nil
+                )
+            }
+        }
+        
+        // Check for playlist
+        if pathComponents.contains("playlist") {
+            // Extract playlist ID
+            var playlistId: String?
+            
+            // Playlist format: /playlist/pl.u-...
+            if let plIndex = pathComponents.firstIndex(where: { $0.hasPrefix("pl.") }) {
+                playlistId = pathComponents[plIndex]
+            } else if pathComponents.count >= 2 {
+                playlistId = pathComponents.last
+            }
+            
+            if let playlistId = playlistId {
+                return SpotifyLink(
+                    id: playlistId,
+                    url: urlString,
+                    type: "playlist",
+                    name: "Playlist",
+                    artist: nil,
+                    owner: nil,
+                    imageURL: nil
+                )
+            }
+        }
+        
+        return nil
     }
 }

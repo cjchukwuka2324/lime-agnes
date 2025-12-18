@@ -434,7 +434,7 @@ struct PostComposerView: View {
                                 insertHashtag(hashtag: hashtag)
                             }
                         )
-                        .padding(.top, 8)
+                        .padding(EdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0))
                     }
                 }
             }
@@ -578,7 +578,7 @@ struct PostComposerView: View {
     private func spotifyLinkPreview(link: SpotifyLink) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Spotify Link")
+                Text("Music Link")
                     .font(.caption.weight(.medium))
                     .foregroundColor(.white.opacity(0.7))
                 Spacer()

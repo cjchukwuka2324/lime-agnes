@@ -6,10 +6,6 @@ private struct PostIdWrapper: Identifiable, Hashable {
     let id: String
 }
 
-private struct ArtistIdWrapper: Identifiable, Hashable {
-    let id: String
-}
-
 private struct ProfileNavigationWrapper: Identifiable, Hashable {
     let id: UUID
     let initialUser: UserSummary?
@@ -28,7 +24,6 @@ struct FeedView: View {
     @State private var selectedFeedType: FeedType = .forYou
     @StateObject private var notificationsViewModel = NotificationsViewModel()
     @State private var selectedPostId: PostIdWrapper?
-    @State private var selectedArtistId: ArtistIdWrapper?
     @State private var selectedProfile: ProfileNavigationWrapper?
     @State private var fabOffset: CGSize = .zero
     @State private var selectedHashtag: String?
@@ -97,9 +92,6 @@ struct FeedView: View {
                 }
                 .navigationDestination(item: $selectedPostId) { wrapper in
                     PostDetailView(postId: wrapper.id, service: viewModel.service)
-                }
-                .navigationDestination(item: $selectedArtistId) { wrapper in
-                    RockListView(artistId: wrapper.id)
                 }
         }
     }
@@ -330,9 +322,6 @@ struct FeedView: View {
             },
             onNavigateToParent: { parentPostId in
                 selectedPostId = PostIdWrapper(id: parentPostId)
-            },
-            onNavigateToRockList: { artistId in
-                selectedArtistId = ArtistIdWrapper(id: artistId)
             },
             onTapProfile: {
                 if let userId = UUID(uuidString: post.author.id) {

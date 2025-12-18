@@ -114,7 +114,7 @@ final class InMemorySocialGraphService {
     
     // MARK: - Following
     
-    func followingIds() -> Set<String> {
+    func followingIds(forceRefresh: Bool = false) -> Set<String> {
         lock.lock()
         defer { lock.unlock() }
         return following

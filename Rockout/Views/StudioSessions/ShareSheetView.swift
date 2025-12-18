@@ -79,7 +79,7 @@ struct ShareSheetView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            ShareSheet(activityItems: [shareURL])
+            ShareSheet(items: [shareURL])
         }
         .task {
             // Load existing share link if one exists

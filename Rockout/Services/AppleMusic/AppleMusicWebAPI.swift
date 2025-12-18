@@ -55,15 +55,20 @@ final class AppleMusicWebAPI {
         path: String,
         method: String = "GET",
         userToken: String? = nil,
-        body: Data? = nil
+        body: Data? = nil,
+        requireUserAuth: Bool = true
     ) async throws -> Data {
-        // Ensure MusicKit authorization
-        guard await MusicAuthorization.request() == .authorized else {
-            throw NSError(
-                domain: "AppleMusicWebAPI",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "MusicKit authorization is required. Please authorize Apple Music access."]
-            )
+        // For catalog searches, we don't need user authorization, just developer token
+        // MusicDataRequest will handle developer token automatically
+        if requireUserAuth {
+            // Ensure MusicKit authorization for user-specific endpoints
+            guard await MusicAuthorization.request() == .authorized else {
+                throw NSError(
+                    domain: "AppleMusicWebAPI",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "MusicKit authorization is required. Please authorize Apple Music access."]
+                )
+            }
         }
         
         guard let url = URL(string: baseURL + path) else {
@@ -298,6 +303,48 @@ final class AppleMusicWebAPI {
         )
         
         return try JSONDecoder().decode(AppleMusicWebAPISearchResponse.self, from: data)
+    }
+    
+    // MARK: - Public Search (No User Authentication Required)
+    
+    /// Public catalog search that works without user authentication
+    /// Uses catalog endpoint which only requires developer token (handled by MusicKit)
+    func searchPublic(query: String, types: [String] = ["songs"], limit: Int = 20) async throws -> AppleMusicWebAPISearchResponse {
+        // Ensure authorization status is determined (doesn't require user to authorize)
+        // MusicDataRequest requires status to be determined, but catalog searches work even if denied
+        let currentStatus = MusicAuthorization.currentStatus
+        if currentStatus == .notDetermined {
+            // Request once to determine status - user can deny, that's fine for catalog searches
+            let requestedStatus = await MusicAuthorization.request()
+            if requestedStatus == .denied {
+                print("⚠️ Apple Music authorization denied, but catalog search will still work")
+            }
+        }
+        
+        // Use default storefront (US) for public search
+        // In production, you might want to detect user's storefront
+        let storefront = "us"
+        let typesString = types.joined(separator: ",")
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        
+        // Public catalog search - only needs developer token, not user token
+        // requireUserAuth: false means we don't need user authorization for catalog searches
+        let data = try await request(
+            path: "/catalog/\(storefront)/search?term=\(encodedQuery)&types=\(typesString)&limit=\(limit)",
+            userToken: nil, // No user token needed for catalog search
+            requireUserAuth: false // Catalog searches don't require user auth
+        )
+        
+        return try JSONDecoder().decode(AppleMusicWebAPISearchResponse.self, from: data)
+    }
+    
+    /// Search for playlists publicly
+    func searchPlaylistsPublic(query: String, limit: Int = 20) async throws -> [AppleMusicWebAPISong] {
+        // Note: Apple Music catalog search doesn't support playlist search directly
+        // We'll search for songs and return them
+        // For playlists, users would need to paste the URL
+        let response = try await searchPublic(query: query, types: ["songs"], limit: limit)
+        return response.results.songs?.data ?? []
     }
 }
 

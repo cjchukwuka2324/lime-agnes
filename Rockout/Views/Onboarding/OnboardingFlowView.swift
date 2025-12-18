@@ -14,7 +14,7 @@ struct OnboardingFlowView: View {
     @Binding var hasCompletedOnboarding: Bool
     @State private var currentIndex: Int = 0
     
-    let totalScreens = 5
+    let totalScreens = 3 // Welcome, GreenRoom, StudioSessions (SoundPrint and RockList removed)
     
     var body: some View {
         ZStack {
@@ -64,49 +64,7 @@ struct OnboardingFlowView: View {
                 )
                 .tag(1)
                 
-                // Screen 2: SoundPrint
-                OnboardingVideoScreen(
-                    videoName: "soundprint_onboarding",
-                    title: "SOUNDPRINT",
-                    subtitle: "Your Musical Scorecard",
-                    description: "See your listening habits visualized as a living musical fingerprint. Track how your sound evolves over time.",
-                    bottomMaskFraction: 0.20,
-                    videoScale: 1.0,  // Fill screen
-                    contentBottomPadding: 50,  // Standard padding
-                    onContinue: {
-                        withAnimation {
-                            currentIndex = 3
-                        }
-                    },
-                    showSkip: true,
-                    onSkip: {
-                        hasCompletedOnboarding = true
-                    }
-                )
-                .tag(2)
-                
-                // Screen 3: RockList
-                OnboardingVideoScreen(
-                    videoName: "rocklist_onboarding2",
-                    title: "ROCKLIST",
-                    subtitle: "The Listener Leaderboard",
-                    description: "Climb the RockList by being a top listener for your favorite artists. Turn your devotion into visible rank.",
-                    bottomMaskFraction: 0.20,
-                    videoScale: 1.0,  // Fill screen
-                    contentBottomPadding: 50,  // Standard padding
-                    onContinue: {
-                        withAnimation {
-                            currentIndex = 4
-                        }
-                    },
-                    showSkip: true,
-                    onSkip: {
-                        hasCompletedOnboarding = true
-                    }
-                )
-                .tag(3)
-                
-                // Screen 4: StudioSessions
+                // Screen 2: StudioSessions (SoundPrint and RockList removed)
                 OnboardingVideoScreen(
                     videoName: "studiosessions_onboarding",
                     title: "STUDIOSESSIONS",
@@ -122,7 +80,7 @@ struct OnboardingFlowView: View {
                     showSkip: false,
                     onSkip: {}
                 )
-                .tag(4)
+                .tag(2)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()

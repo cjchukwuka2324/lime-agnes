@@ -1,0 +1,22 @@
+name: Recall Learning Processor Cron
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  trigger-learning-processor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Learning Processor
+        run: |
+          curl -X POST https://wklzogrfdrqluwchoqsp.supabase.co/functions/v1/recall-v2-learning-processor \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndrbHpvZ3JmZHJxbHV3Y2hvcXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzEyMDM0NywiZXhwIjoyMDc4Njk2MzQ3fQ.Z0JuCvDrRnlHt_IKYi-fOhvV4_Tb8EYVW0eyAIN6WUc" \
+            -H "Content-Type: application/json" \
+            -d '{}'
+
+
+
+

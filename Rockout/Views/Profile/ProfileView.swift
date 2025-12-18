@@ -466,23 +466,26 @@ struct ProfileView: View {
     }
     
     private func loadFollowStats(userId: String) async {
-        // Always count from actual user_follows table for accuracy
-        let following = await social.followingIds(for: userId)
-        let followers = await social.followerIds(for: userId)
-        
-        await MainActor.run {
-            followingCount = following.count
-            followersCount = followers.count
-        }
-        
-        // Also try to load the full profile for other data
+        // Load profile to get accurate counts from database
+        // Database triggers keep profiles.followers_count and profiles.following_count in sync
         do {
             let profile = try await social.getProfile(userId: userId)
             await MainActor.run {
                 userSummary = profile
+                // Use counts from profiles table for consistency with rest of app
+                followingCount = profile.followingCount
+                followersCount = profile.followersCount
             }
         } catch {
             print("Error loading profile: \(error)")
+            // Fallback: count from user_follows table if profile load fails
+            let following = await social.followingIds(for: userId)
+            let followers = await social.followerIds(for: userId)
+            
+            await MainActor.run {
+                followingCount = following.count
+                followersCount = followers.count
+            }
         }
     }
     

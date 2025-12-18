@@ -5,7 +5,6 @@ struct NotificationsView: View {
     @StateObject private var viewModel = NotificationsViewModel()
     @State private var selectedPostId: String?
     @State private var selectedUserId: String?
-    @State private var selectedArtistId: String?
     
     var body: some View {
         NavigationStack {
@@ -96,9 +95,6 @@ struct NotificationsView: View {
             .navigationDestination(item: $selectedUserId) { userId in
                 UserProfileDetailView(userId: UUID(uuidString: userId) ?? UUID())
             }
-            .navigationDestination(item: $selectedArtistId) { artistId in
-                RockListView(artistId: artistId)
-            }
         }
     }
     
@@ -119,9 +115,8 @@ struct NotificationsView: View {
                 selectedPostId = postId
             }
         case "rocklist_rank":
-            if let artistId = notification.rocklistId {
-                selectedArtistId = artistId
-            }
+            // RockList feature removed - no navigation needed
+            break
         default:
             break
         }

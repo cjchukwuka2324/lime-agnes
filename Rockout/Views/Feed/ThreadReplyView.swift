@@ -5,6 +5,7 @@ struct ThreadReplyView: View {
     let allReplies: [Post]
     let onLike: ((String) -> Void)?
     let onDelete: ((String) -> Void)?
+    let onTapProfile: ((UserSummary) -> Void)?
     let service: FeedService
     let level: Int
     
@@ -44,8 +45,9 @@ struct ThreadReplyView: View {
                             showReplyComposer = true
                         },
                         onNavigateToParent: nil,
-                        onNavigateToRockList: nil,
-                        onTapProfile: nil,
+                        onTapProfile: {
+                            onTapProfile?(post.author)
+                        },
                         onDelete: onDelete,
                         showInlineReplies: false,
                         service: service
@@ -87,6 +89,7 @@ struct ThreadReplyView: View {
                             allReplies: allReplies,
                             onLike: onLike,
                             onDelete: onDelete,
+                            onTapProfile: onTapProfile,
                             service: service,
                             level: level + 1
                         )

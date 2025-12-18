@@ -71,7 +71,9 @@ struct ParentPostReferenceView: View {
             Text(parentPost.text.isEmpty ? "Media post" : parentPost.text)
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.6))
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
             
             Spacer()
             
