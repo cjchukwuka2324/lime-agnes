@@ -22,7 +22,7 @@ interface RecallResolveRequest {
 }
 
 interface VoiceIntent {
-  type: "conversation" | "humming" | "background_audio" | "unclear";
+  type: "conversation" | "information" | "find_song" | "generate_song" | "humming" | "background_audio" | "unclear";
   confidence: number;
   reasoning: string;
 }
@@ -108,33 +108,49 @@ async function analyzeVoiceIntent(
             role: "system",
             content: `Analyze voice transcription to determine user intent. Return JSON with:
 {
-  "type": "conversation" | "humming" | "background_audio" | "unclear",
+  "type": "conversation" | "information" | "find_song" | "generate_song" | "humming" | "background_audio" | "unclear",
   "confidence": 0.0-1.0,
   "reasoning": "brief explanation"
 }
 
 Intent Types:
-- "conversation": User is speaking naturally, asking questions, or having a conversation about music. Includes information questions, music recommendations, artist queries, song information requests, or any clear verbal communication.
+- "conversation": Casual chat, greetings, small talk, general conversation (e.g., "How are you?", "Tell me about your day", "What's up", "Thanks", "Hello")
+- "information": Information questions about music (e.g., "Who wrote this?", "When was this released?", "What genre is this?", "Tell me about The Beatles", "Explain jazz")
+- "find_song": Song identification/search requests (e.g., "What song is this?", "Find this song", "Name that song", "Identify this", "I'm looking for a song")
+- "generate_song": Song generation/creation requests (e.g., "Create a song", "Generate music", "Make a beat", "Compose a melody", "Write a song")
 - "humming": User is humming, singing, or vocalizing a melody without clear words. Characterized by repetitive sounds, vowel sounds, or musical vocalizations.
 - "background_audio": Transcription is unclear, garbled, or contains [inaudible]/[music] tags, suggesting background music playing rather than speech.
 - "unclear": Cannot determine with confidence (mixed signals, ambiguous content, or very short unclear input).
 
 Key Detection Rules (apply in order):
 
-1. INFORMATION QUESTIONS (→ conversation):
-   - Question words: "who", "what", "when", "where", "why", "how", "which", "can you", "tell me", "explain", "describe"
-   - Information requests: "about", "information", "details", "history", "biography", "facts", "story"
-   - Recommendation requests: "recommend", "suggest", "similar to", "like", "playlist", "genre"
-   - Comparison requests: "compare", "difference", "better", "best", "top", "favorite"
-   - If transcription contains complete sentences with proper grammar → conversation
-   - If transcription has >10 words with structure → conversation
+1. CONVERSATION (casual chat):
+   - Greetings: "hi", "hello", "hey", "how are you", "what's up", "how's it going"
+   - Small talk: "thanks", "thank you", "cool", "nice", "awesome", "that's great"
+   - Casual responses: "okay", "sure", "yeah", "yep", "nope", "maybe"
+   - General conversation without specific music questions
+   - Pattern: Friendly, conversational tone without specific information requests
 
-2. SONG IDENTIFICATION REQUESTS (→ conversation):
-   - "What song is this?", "What's this song?", "Name this song", "Identify this", "Find this song"
-   - "I'm looking for", "I need to find", "Can you find", "Help me find"
-   - These are still conversation because they're clear verbal requests, even if asking about song identification
+2. INFORMATION QUESTIONS (→ information):
+   - Question words + music context: "who wrote", "when was", "what album", "what genre", "where is", "why did"
+   - Information requests: "tell me about", "explain", "describe", "what is", "how does"
+   - History/facts: "history", "biography", "facts", "story", "background"
+   - Comparison: "compare", "difference", "better", "best", "top", "favorite"
+   - Recommendation requests: "recommend", "suggest", "similar to", "like", "playlist"
+   - Pattern: Asking for factual information about music, artists, songs, genres
 
-3. HUMMING PATTERNS (→ humming):
+3. SONG IDENTIFICATION REQUESTS (→ find_song):
+   - Search keywords: "find", "search", "identify", "what song", "name that song", "who sings"
+   - Looking for: "I'm looking for", "I need to find", "Can you find", "Help me find"
+   - Recognition: "recognize", "remember", "what's this song", "what song is this"
+   - Pattern: User wants to identify or find a specific song
+
+4. SONG GENERATION REQUESTS (→ generate_song):
+   - Creation keywords: "create", "generate", "make", "compose", "write a song", "produce", "build"
+   - Music creation: "make music", "create music", "generate music", "make a beat", "create a melody"
+   - Pattern: User wants to create or generate new music
+
+5. HUMMING PATTERNS (→ humming):
    - Repetitive sounds: "hmm", "la", "da", "mm", "ah", "na", "oh", "doo", "dum", "bum", "ba", "pa"
    - Vowel-only sounds: "aa", "ee", "oo", "ii", "uu"
    - Musical syllables: "do re mi", "fa sol la", "ti do"
@@ -142,29 +158,32 @@ Key Detection Rules (apply in order):
    - Pattern: Same sound repeated 3+ times = likely humming
    - Pattern: No recognizable words, only sounds = humming
 
-4. BACKGROUND AUDIO (→ background_audio):
+6. BACKGROUND AUDIO (→ background_audio):
    - Transcription artifacts: [music], [inaudible], [background noise], [unintelligible], [garbled]
    - Very short unclear text: <3 words that don't form sentences
    - Mixed signals: Contains both speech and [music] tags
 
-5. CONFIDENCE THRESHOLDS:
-   - conversation: confidence >= 0.7 if clear question/information request
+7. CONFIDENCE THRESHOLDS:
+   - conversation: confidence >= 0.7 if clear casual chat
+   - information: confidence >= 0.8 if clear information question
+   - find_song: confidence >= 0.8 if clear search/identification request
+   - generate_song: confidence >= 0.8 if clear generation request
    - humming: confidence >= 0.8 if repetitive sounds pattern is clear
    - background_audio: confidence >= 0.7 if transcription artifacts present
    - unclear: confidence < 0.6 for any type
 
 Examples:
-- "Tell me about The Beatles" → conversation (0.95) - clear information question
-- "Who wrote Bohemian Rhapsody?" → conversation (0.95) - clear information question
-- "What song is this?" → conversation (0.9) - clear question asking for identification
-- "Can you recommend some jazz music?" → conversation (0.95) - clear recommendation request
-- "What's the difference between rock and pop?" → conversation (0.95) - clear comparison question
+- "How are you?" → conversation (0.95) - casual chat
+- "Thanks for your help" → conversation (0.9) - casual response
+- "Tell me about The Beatles" → information (0.95) - information question
+- "Who wrote Bohemian Rhapsody?" → information (0.95) - information question
+- "What song is this?" → find_song (0.9) - song identification request
+- "I'm looking for a song" → find_song (0.85) - search request
+- "Create a song for me" → generate_song (0.9) - generation request
+- "Make a beat" → generate_song (0.85) - generation request
 - "hmm hmm hmm da da da" → humming (0.9) - repetitive sounds pattern
 - "la la la la la la" → humming (0.95) - clear humming pattern
-- "mm mm ah ah na na" → humming (0.85) - vowel sounds only
 - "[inaudible] [music] [background noise]" → background_audio (0.9) - transcription artifacts
-- "I'm looking for a song that goes like..." → conversation (0.85) - clear speech pattern with request
-- "do re mi fa sol" → humming (0.8) - musical syllables
 - "um" or "uh" → unclear (0.5) - too short, ambiguous
 - "the" → unclear (0.3) - single word, no context`
           },
@@ -347,6 +366,393 @@ async function identifyAudioWithShazam(audioBuffer: ArrayBuffer): Promise<AudioR
   }
 }
 
+// Lyrics fetching from lyrics.ovh API (free, no API key required)
+interface LyricsResult {
+  success: boolean;
+  lyrics?: string;
+  language?: string;
+  sourceUrl?: string;
+  error?: string;
+}
+
+// In-memory cache for lyrics to avoid repeated API calls
+const lyricsCache = new Map<string, LyricsResult>();
+
+async function fetchLyricsFromGenius(songTitle: string, artistName: string): Promise<LyricsResult> {
+  // Check cache first
+  const cacheKey = `${songTitle.toLowerCase()}_${artistName.toLowerCase()}`;
+  if (lyricsCache.has(cacheKey)) {
+    console.log(`📦 [LYRICS] Using cached lyrics for "${songTitle}" by ${artistName}`);
+    return lyricsCache.get(cacheKey)!;
+  }
+
+  try {
+    console.log(`🎵 [LYRICS] Fetching lyrics from lyrics.ovh for "${songTitle}" by ${artistName}...`);
+    
+    // lyrics.ovh API format: https://api.lyrics.ovh/v1/{artist}/{title}
+    // Note: Artist and title should be URL-encoded
+    const lyricsOvhUrl = `https://api.lyrics.ovh/v1/${encodeURIComponent(artistName)}/${encodeURIComponent(songTitle)}`;
+    
+    const lyricsResponse = await fetch(lyricsOvhUrl);
+    
+    if (!lyricsResponse.ok) {
+      if (lyricsResponse.status === 404) {
+        console.log(`❌ [LYRICS] Song not found in lyrics.ovh database`);
+        const result = { success: false, error: "Song not found in lyrics database" };
+        lyricsCache.set(cacheKey, result);
+        return result;
+      }
+      
+      const errorText = await lyricsResponse.text();
+      console.error(`❌ [LYRICS] lyrics.ovh API error (${lyricsResponse.status}):`, errorText);
+      const result = { success: false, error: `Lyrics API error: ${lyricsResponse.status}` };
+      lyricsCache.set(cacheKey, result);
+      return result;
+    }
+
+    const lyricsData = await lyricsResponse.json();
+    
+    if (lyricsData.lyrics) {
+      const lyrics = lyricsData.lyrics.trim();
+      console.log(`✅ [LYRICS] Successfully fetched lyrics (${lyrics.length} chars)`);
+      
+      const result: LyricsResult = {
+        success: true,
+        lyrics: lyrics,
+        sourceUrl: `https://lyrics.ovh/${encodeURIComponent(artistName)}/${encodeURIComponent(songTitle)}`,
+      };
+      
+      // Cache the result
+      lyricsCache.set(cacheKey, result);
+      return result;
+    } else {
+      console.log(`❌ [LYRICS] No lyrics found in response`);
+      const result = { success: false, error: "No lyrics in response" };
+      lyricsCache.set(cacheKey, result);
+      return result;
+    }
+
+  } catch (error) {
+    console.error("❌ [LYRICS] Lyrics fetch error:", error);
+    const result = { success: false, error: `Error: ${error instanceof Error ? error.message : String(error)}` };
+    lyricsCache.set(cacheKey, result);
+    return result;
+  }
+}
+
+// Language detection for lyrics
+async function detectLanguage(text: string, openaiApiKey: string): Promise<string> {
+  try {
+    // Simple heuristic first - check for common non-English patterns
+    const nonEnglishPatterns = [
+      { pattern: /[àáâãäåæçèéêëìíîïñòóôõöùúûüýÿ]/i, lang: "Spanish/French/Italian" },
+      { pattern: /[äöüß]/i, lang: "German" },
+      { pattern: /[àáâãäåæçèéêëìíîïñòóôõöùúûüýÿ]/i, lang: "Romance" },
+      { pattern: /[一-龯]/i, lang: "Chinese" },
+      { pattern: /[ひらがなカタカナ]/i, lang: "Japanese" },
+      { pattern: /[가-힣]/i, lang: "Korean" },
+      { pattern: /[а-яё]/i, lang: "Russian" },
+      { pattern: /[α-ωάέήίόύώ]/i, lang: "Greek" },
+      { pattern: /[א-ת]/i, lang: "Hebrew" },
+      { pattern: /[ا-ي]/i, lang: "Arabic" },
+    ];
+
+    for (const { pattern, lang } of nonEnglishPatterns) {
+      if (pattern.test(text)) {
+        console.log(`🌍 [LANG] Detected language via pattern: ${lang}`);
+        return lang;
+      }
+    }
+
+    // If no pattern matches, use GPT-4o-mini for detection
+    console.log(`🌍 [LANG] Using GPT-4o-mini to detect language...`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a language detection assistant. Analyze the text and return ONLY the language name in English (e.g., 'English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Chinese', 'Japanese', 'Korean', 'Russian', etc.). Return just the language name, nothing else."
+          },
+          {
+            role: "user",
+            content: `What language is this text in? Return only the language name.\n\nText:\n${text.substring(0, 500)}`
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 10,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.log(`⚠️ [LANG] GPT language detection failed, defaulting to English`);
+      return "English";
+    }
+
+    const data = await response.json();
+    const detectedLang = data.choices?.[0]?.message?.content?.trim() || "English";
+    console.log(`🌍 [LANG] Detected language: ${detectedLang}`);
+    return detectedLang;
+
+  } catch (error) {
+    if (error.name === "AbortError") {
+      console.log("⚠️ [LANG] Language detection timeout, defaulting to English");
+    } else {
+      console.error("❌ [LANG] Language detection error:", error);
+    }
+    return "English";
+  }
+}
+
+// Summarize song message
+interface SongSummary {
+  summary: string;
+  language: string;
+  englishTranslation?: string;
+}
+
+async function summarizeSongMessage(
+  lyrics: string,
+  language: string,
+  openaiApiKey: string
+): Promise<SongSummary> {
+  try {
+    console.log(`📝 [SUMMARY] Generating summary for ${language} lyrics...`);
+    
+    const isEnglish = language.toLowerCase().includes("english");
+    const lyricsPreview = lyrics.substring(0, 2000); // Limit to avoid token limits
+    
+    let systemPrompt: string;
+    let userPrompt: string;
+
+    if (isEnglish) {
+      systemPrompt = `You are a music analysis assistant. Analyze song lyrics and provide a concise summary (2-3 sentences) of the song's main message, themes, and meaning. Focus on what the song is trying to communicate to listeners. Be clear and insightful.`;
+      userPrompt = `Analyze these song lyrics and provide a concise summary (2-3 sentences) of the song's main message, themes, and meaning:\n\n${lyricsPreview}`;
+    } else {
+      // For foreign languages, generate summary in original language first
+      systemPrompt = `You are a music analysis assistant. Analyze song lyrics in ${language} and provide a concise summary (2-3 sentences) in ${language} of the song's main message, themes, and meaning. Focus on what the song is trying to communicate to listeners. Write the summary in ${language}, not English.`;
+      userPrompt = `Analyze these ${language} song lyrics and provide a concise summary (2-3 sentences) in ${language} of the song's main message, themes, and meaning:\n\n${lyricsPreview}`;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 300,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [SUMMARY] GPT summary generation failed: ${errorText}`);
+      throw new Error(`Summary generation failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const summary = data.choices?.[0]?.message?.content?.trim() || "";
+
+    if (!summary) {
+      throw new Error("Empty summary received");
+    }
+
+    console.log(`✅ [SUMMARY] Generated summary in ${language} (${summary.length} chars)`);
+
+    const result: SongSummary = {
+      summary: summary,
+      language: language,
+    };
+
+    // If not English, translate the summary to English
+    if (!isEnglish) {
+      console.log(`🌐 [TRANSLATE] Translating summary to English...`);
+      
+      const translateController = new AbortController();
+      const translateTimeoutId = setTimeout(() => translateController.abort(), 20000);
+
+      const translateResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: `You are a translation assistant. Translate the following ${language} text to English. Preserve the meaning and tone. Return only the translation, nothing else.`
+            },
+            {
+              role: "user",
+              content: `Translate this ${language} text to English:\n\n${summary}`
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 200,
+        }),
+        signal: translateController.signal,
+      });
+
+      clearTimeout(translateTimeoutId);
+
+      if (translateResponse.ok) {
+        const translateData = await translateResponse.json();
+        const englishTranslation = translateData.choices?.[0]?.message?.content?.trim() || "";
+        if (englishTranslation) {
+          result.englishTranslation = englishTranslation;
+          console.log(`✅ [TRANSLATE] Translation complete (${englishTranslation.length} chars)`);
+        }
+      } else {
+        console.log(`⚠️ [TRANSLATE] Translation failed, summary available only in ${language}`);
+      }
+    }
+
+    return result;
+
+  } catch (error) {
+    if (error.name === "AbortError") {
+      console.error("❌ [SUMMARY] Summary generation timeout");
+    } else {
+      console.error("❌ [SUMMARY] Summary generation error:", error);
+    }
+    throw error;
+  }
+}
+
+// Detect if user is asking about song meaning/message
+interface SongMeaningQuery {
+  isSongMeaningQuery: boolean;
+  songTitle?: string;
+  artistName?: string;
+}
+
+function detectSongMeaningQuery(
+  queryText: string,
+  candidates?: Candidate[],
+  previousMessages?: any[]
+): SongMeaningQuery {
+  const queryLower = queryText.toLowerCase();
+  
+  // Keywords that indicate user wants to know about song meaning
+  const meaningKeywords = [
+    "what is this song about",
+    "what does this song mean",
+    "what is the message",
+    "what is it talking about",
+    "song meaning",
+    "lyrics meaning",
+    "what is the song about",
+    "what does the song mean",
+    "what's this song about",
+    "what's the song about",
+    "what does it mean",
+    "what is about",
+    "explain the song",
+    "explain this song",
+    "tell me about this song",
+    "what is the meaning",
+    "what message",
+    "what's the message",
+  ];
+
+  const hasMeaningKeyword = meaningKeywords.some(keyword => queryLower.includes(keyword));
+  
+  if (!hasMeaningKeyword) {
+    return { isSongMeaningQuery: false };
+  }
+
+  // Try to extract song title and artist from query or context
+  let songTitle: string | undefined;
+  let artistName: string | undefined;
+
+  // Check if there are candidates from a previous search
+  if (candidates && candidates.length > 0) {
+    songTitle = candidates[0].title;
+    artistName = candidates[0].artist;
+    console.log(`🎵 [MEANING] Detected song meaning query, using candidate: "${songTitle}" by ${artistName}`);
+    return {
+      isSongMeaningQuery: true,
+      songTitle,
+      artistName,
+    };
+  }
+
+  // Try to extract from query text (look for "song X" or "X by Y" patterns)
+  const songPatterns = [
+    /(?:song|track)\s+["']?([^"']+)["']?/i,
+    /["']([^"']+)["']\s+(?:by|from)\s+([^,\.]+)/i,
+    /(?:about|meaning of|explain)\s+["']?([^"']+)["']?/i,
+  ];
+
+  for (const pattern of songPatterns) {
+    const match = queryText.match(pattern);
+    if (match) {
+      songTitle = match[1]?.trim();
+      if (match[2]) {
+        artistName = match[2]?.trim();
+      }
+      if (songTitle) {
+        console.log(`🎵 [MEANING] Extracted song from query: "${songTitle}"${artistName ? ` by ${artistName}` : ""}`);
+        return {
+          isSongMeaningQuery: true,
+          songTitle,
+          artistName,
+        };
+      }
+    }
+  }
+
+  // Check previous messages for song mentions
+  if (previousMessages) {
+    for (const msg of previousMessages.reverse()) {
+      if (msg.message_type === "candidate" && msg.song_title) {
+        songTitle = msg.song_title;
+        artistName = msg.song_artist;
+        console.log(`🎵 [MEANING] Found song in previous messages: "${songTitle}" by ${artistName}`);
+        return {
+          isSongMeaningQuery: true,
+          songTitle,
+          artistName,
+        };
+      }
+    }
+  }
+
+  // If we detected meaning query but couldn't extract song, still return true
+  // The integration logic will try to use context
+  console.log(`🎵 [MEANING] Detected song meaning query but couldn't extract song details`);
+  return {
+    isSongMeaningQuery: true,
+  };
+}
+
 serve(async (req) => {
   const requestStartTime = Date.now();
   console.log(`\n🚀 [RECALL-RESOLVE] Request started at ${new Date().toISOString()}`);
@@ -429,6 +835,7 @@ serve(async (req) => {
     const mediaPathToUse = video_path || media_path;
     let shouldUseAudioRecognition = false;
     let audioRecognitionResult: AudioRecognitionResult | null = null;
+    let detectedIntent: VoiceIntent | null = null; // Track intent for audio recognition prioritization
 
     // ============================================
     // NEW INTELLIGENT VOICE PROCESSING FLOW
@@ -487,6 +894,8 @@ serve(async (req) => {
           console.log("🧠 [STEP 2] Analyzing intent...");
           
           const intent = await analyzeVoiceIntent(audioTranscription, openaiApiKey!);
+          detectedIntent = intent; // Store for later use in audio recognition
+          console.log(`🎯 Detected intent: ${intent.type} (confidence: ${intent.confidence})`);
           
           if (intent.type === "humming" || intent.type === "background_audio") {
             shouldUseAudioRecognition = true;
@@ -497,14 +906,25 @@ serve(async (req) => {
               .update({ text: "Identifying song..." })
               .eq("id", statusMessage.id);
               
-          } else if (intent.type === "conversation") {
+          } else if (intent.type === "conversation" || intent.type === "information" || intent.type === "generate_song") {
             shouldUseAudioRecognition = false;
             queryText = audioTranscription;
-            console.log(`💬 Intent: conversation → Using conversational response`);
+            console.log(`💬 Intent: ${intent.type} → Using conversational/informational response`);
             
             await supabase
               .from("recall_messages")
               .update({ text: "Thinking..." })
+              .eq("id", statusMessage.id);
+              
+          } else if (intent.type === "find_song") {
+            // For find_song, try audio recognition first, but also use transcription for search
+            shouldUseAudioRecognition = true;
+            queryText = audioTranscription; // Also use transcription for search
+            console.log(`🔍 Intent: find_song → Using audio recognition + search`);
+            
+            await supabase
+              .from("recall_messages")
+              .update({ text: "Searching for song..." })
               .eq("id", statusMessage.id);
               
           } else {
@@ -544,27 +964,66 @@ serve(async (req) => {
 
         // STEP 3: Use audio recognition if needed
         if (shouldUseAudioRecognition) {
-          console.log("🎵 [STEP 3] Running audio recognition (ACRCloud + Shazam in parallel)...");
+          // Determine if this is a full song identification (find_song intent or longer audio)
+          const isFullSong = detectedIntent?.type === "find_song" || audioArrayBuffer.byteLength > 50000; // >50KB suggests longer audio
+          const audioDurationHint = audioArrayBuffer.byteLength > 100000 ? "full song" : "audio clip";
           
+          console.log(`🎵 [STEP 3] Running audio recognition for ${audioDurationHint} (${audioArrayBuffer.byteLength} bytes)...`);
+          console.log(`   - Intent: ${detectedIntent?.type || "unknown"}, Full song: ${isFullSong}`);
+          console.log(`   - ACRCloud: Best for humming/partial audio`);
+          console.log(`   - Shazam: Best for full songs - ${isFullSong ? "PRIORITIZING" : "running in parallel"}`);
+          
+          // For full songs, prioritize Shazam; for humming/partial, prioritize ACRCloud
+          // Always send FULL audio buffer to both services
           const [acrCloudResult, shazamResult] = await Promise.allSettled([
             identifyAudioWithACRCloud(audioArrayBuffer),
-            identifyAudioWithShazam(audioArrayBuffer),
+            identifyAudioWithShazam(audioArrayBuffer), // Always call Shazam with full audio buffer
           ]);
 
-          // Choose best result
+          // Choose best result - prioritize Shazam for full songs
           let bestResult: AudioRecognitionResult | null = null;
 
-          if (acrCloudResult.status === "fulfilled" && acrCloudResult.value.success) {
-            bestResult = acrCloudResult.value;
-            console.log(`✅ ACRCloud: ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
-          }
-
-          if (shazamResult.status === "fulfilled" && shazamResult.value.success) {
-            const shazamBest = shazamResult.value;
-            console.log(`✅ Shazam: ${shazamBest.title} by ${shazamBest.artist} (${shazamBest.confidence})`);
-            if (!bestResult || shazamBest.confidence > bestResult.confidence) {
-              bestResult = shazamBest;
+          // For full songs, check Shazam first (it's better for complete songs)
+          if (isFullSong) {
+            if (shazamResult.status === "fulfilled" && shazamResult.value.success) {
+              bestResult = shazamResult.value;
+              console.log(`✅ Shazam (PRIORITIZED for full song): ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
             }
+            
+            // Still check ACRCloud as fallback
+            if (acrCloudResult.status === "fulfilled" && acrCloudResult.value.success) {
+              const acrBest = acrCloudResult.value;
+              console.log(`✅ ACRCloud: ${acrBest.title} by ${acrBest.artist} (${acrBest.confidence})`);
+              // Use ACRCloud only if Shazam failed or has lower confidence
+              if (!bestResult || (acrBest.confidence > bestResult.confidence && acrBest.confidence >= 0.8)) {
+                bestResult = acrBest;
+                console.log(`   → Using ACRCloud result (higher confidence)`);
+              }
+            }
+          } else {
+            // For humming/partial audio, check ACRCloud first (it's better for short clips)
+            if (acrCloudResult.status === "fulfilled" && acrCloudResult.value.success) {
+              bestResult = acrCloudResult.value;
+              console.log(`✅ ACRCloud (PRIORITIZED for humming/partial): ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
+            }
+            
+            // Still check Shazam as fallback
+            if (shazamResult.status === "fulfilled" && shazamResult.value.success) {
+              const shazamBest = shazamResult.value;
+              console.log(`✅ Shazam: ${shazamBest.title} by ${shazamBest.artist} (${shazamBest.confidence})`);
+              // Use Shazam only if ACRCloud failed or Shazam has significantly higher confidence
+              if (!bestResult || (shazamBest.confidence > bestResult.confidence + 0.1)) {
+                bestResult = shazamBest;
+                console.log(`   → Using Shazam result (higher confidence)`);
+              }
+            }
+          }
+          
+          // Log final selection
+          if (bestResult) {
+            console.log(`🎯 Final selection: ${bestResult.service} - "${bestResult.title}" by ${bestResult.artist} (confidence: ${bestResult.confidence})`);
+          } else {
+            console.log(`❌ Both audio recognition services failed or returned no results`);
           }
 
           if (bestResult && bestResult.success && bestResult.confidence >= 0.7) {
@@ -744,16 +1203,27 @@ serve(async (req) => {
 
 1. **Song Identification**: Find songs based on descriptions, lyrics, memories, partial information, humming, or background audio
 2. **Music Questions**: Answer questions about songs, artists, albums, genres, music history, trivia, and facts
-3. **Music Theory**: Explain music concepts, terminology, and theory
-4. **Comparisons**: Compare songs, artists, albums, or genres
-5. **Recommendations**: Suggest similar songs, artists, or playlists
-6. **Contextual Understanding**: Understand when users want to search vs. ask questions, and respond appropriately
+3. **Song Meaning & Lyrics Analysis**: When users ask about what a song is about, what it means, or what message it conveys, the system automatically fetches lyrics from lyrics.ovh and provides summaries. For foreign language songs, summaries are provided in both the original language and English translation.
+4. **Music Theory**: Explain music concepts, terminology, and theory
+5. **Comparisons**: Compare songs, artists, albums, or genres
+6. **Recommendations**: Suggest similar songs, artists, or playlists
+7. **Contextual Understanding**: Understand when users want to search vs. ask questions, and respond appropriately
 
 CRITICAL RULES FOR MAXIMUM ACCURACY:
-1. **INTENT DETECTION**: First, determine the user's intent:
-   - "search" - User wants to find/identify a song (keywords: "find", "search", "identify", "what song", "name that song", "who sings")
-   - "question" - User wants information about music (keywords: "who wrote", "when was", "what album", "tell me about", "explain", "how", "why")
-   - "both" - User wants both search and information (e.g., "find that song and tell me about the artist")
+1. **INTENT DETECTION**: First, determine the user's intent based on the detected intent type:
+   - "conversation" - Casual chat, greetings, small talk. Respond naturally and conversationally, no search needed.
+   - "information" - User wants information about music (keywords: "who wrote", "when was", "what album", "tell me about", "explain", "how", "why"). Use web search to answer questions, return answer object.
+   - "find_song" - User wants to find/identify a song (keywords: "find", "search", "identify", "what song", "name that song", "who sings"). Use audio recognition or search, return candidates.
+   - "generate_song" - User wants to create/generate music (keywords: "create", "generate", "make", "compose"). Provide guidance or route to generation service if available.
+   - "humming" - User is humming/singing. Use audio recognition services.
+   - "background_audio" - Background music detected. Use audio recognition services.
+   
+   Response type mapping:
+   - "conversation" → response_type: "answer" (conversational response)
+   - "information" → response_type: "answer" (information answer)
+   - "find_song" → response_type: "search" (return candidates)
+   - "generate_song" → response_type: "answer" (provide guidance)
+   - "humming" or "background_audio" → response_type: "search" (audio recognition results)
 
 2. **MANDATORY WEB SEARCH**: You MUST use web search to verify every song candidate and answer. Do not rely solely on training data - actively search the web for current, accurate information.
 
@@ -893,6 +1363,14 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
    - Keep answers concise but informative (2-4 sentences for most questions)
    - For complex topics, break into digestible chunks
    - Always respond with voice-friendly text (avoid complex formatting, use natural pauses)
+   - **SONG MEANING QUERIES**: When user asks about what a song is about, what it means, or what message it conveys:
+     * The system will automatically fetch lyrics from lyrics.ovh API
+     * Lyrics will be analyzed to generate a summary of the song's message
+     * For foreign language songs, summaries will be provided in both the original language and English translation
+     * Include the lyrics summary naturally in your answer
+     * Cite lyrics.ovh as a source when lyrics are used
+     * Format: For foreign songs, present summary in original language first, then English translation
+     * Example: "This song is about [original language summary]. In English, it means [English translation]."
 
 9. Provide up to 5 candidates for search queries, ranked by confidence (highest first)
 10. Deduplicate candidates (same title+artist = one entry, keep highest confidence)
@@ -1259,24 +1737,24 @@ Generate a follow-up question that is:
     // Context-based intent: if previous messages were searches, likely continuation
     const isSearchContinuation = conversationFlow !== 'initial' || previousQueries.length > 0;
     
-    let detectedIntent: 'search' | 'question' | 'both' = 'search';
+    let queryIntent: 'search' | 'question' | 'both' = 'search';
     if (hasQuestionIntent && !hasSearchIntent) {
-      detectedIntent = 'question';
+      queryIntent = 'question';
     } else if (hasSearchIntent && hasQuestionIntent) {
-      detectedIntent = 'both';
+      queryIntent = 'both';
     } else if (hasQuestionIntent && isSearchContinuation) {
       // If asking about something mentioned in search, it's a question
-      detectedIntent = 'question';
+      queryIntent = 'question';
     } else if (!hasSearchIntent && !hasQuestionIntent && isSearchContinuation) {
       // Ambiguous but in search context, assume search
-      detectedIntent = 'search';
+      queryIntent = 'search';
     } else if (!hasSearchIntent && !hasQuestionIntent) {
       // Completely ambiguous, try to infer from context
-      detectedIntent = previousQueries.length > 0 ? 'search' : 'question';
+      queryIntent = previousQueries.length > 0 ? 'search' : 'question';
     }
     
     let userPrompt = "";
-    if (detectedIntent === 'search') {
+    if (queryIntent === 'search') {
       userPrompt = `Find songs matching this description: "${queryText}"${audioTranscription ? `\n\nBackground audio from video transcribed as: "${audioTranscription}"` : ""}${contextText}
 
 INSTRUCTIONS:
@@ -1290,7 +1768,7 @@ INSTRUCTIONS:
 - Set response_type to "search"
 
 Return the best matches as JSON.`;
-    } else if (detectedIntent === 'question') {
+    } else if (queryIntent === 'question') {
       userPrompt = `Answer this music-related question: "${queryText}"${contextText}
 
 INSTRUCTIONS:
@@ -1303,7 +1781,7 @@ INSTRUCTIONS:
 - Include answer object with text, sources, and optionally related_songs
 
 Return your answer as JSON.`;
-    } else {
+    } else if (queryIntent === 'both') {
       // both
       userPrompt = `The user wants both to search for songs and get information. Query: "${queryText}"${audioTranscription ? `\n\nBackground audio from video transcribed as: "${audioTranscription}"` : ""}${contextText}
 
@@ -1319,11 +1797,11 @@ Return both search results and answers as JSON.`;
 
     const openaiStepTime = Date.now();
     console.log(`🔍 [RECALL-RESOLVE] Calling OpenAI API...`);
-    console.log(`📝 [RECALL-RESOLVE] Detected intent: ${detectedIntent}`);
+    console.log(`📝 [RECALL-RESOLVE] Detected query intent: ${queryIntent}`);
     console.log(`📝 [RECALL-RESOLVE] User prompt length: ${userPrompt.length} chars`);
     console.log(`📝 [RECALL-RESOLVE] System prompt length: ${systemPrompt.length} chars`);
     
-    console.log(`🤖 [GPT-4o] Calling OpenAI GPT-4o API for ${detectedIntent} response...`);
+    console.log(`🤖 [GPT-4o] Calling OpenAI GPT-4o API for ${queryIntent} response...`);
     console.log(`📝 [GPT-4o] User prompt length: ${userPrompt.length} chars`);
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -1602,8 +2080,69 @@ Return both search results and answers as JSON.`;
     let answerMessageId: string | null = null;
     if (aiResult.answer && (aiResult.response_type === "answer" || aiResult.response_type === "both")) {
       console.log(`📝 [RECALL-RESOLVE] Inserting answer message...`);
+      
+      // Check if this is a song meaning query and fetch lyrics if needed
+      let enhancedAnswerText = aiResult.answer.text;
+      let enhancedSources = [...aiResult.answer.sources];
+      
+      const meaningQuery = detectSongMeaningQuery(queryText, finalCandidates, previousMessages);
+      
+      if (meaningQuery.isSongMeaningQuery) {
+        const songTitle = meaningQuery.songTitle || (finalCandidates.length > 0 ? finalCandidates[0].title : undefined);
+        const artistName = meaningQuery.artistName || (finalCandidates.length > 0 ? finalCandidates[0].artist : undefined);
+        
+        if (songTitle && artistName) {
+          console.log(`🎵 [LYRICS] Detected song meaning query for "${songTitle}" by ${artistName}, fetching lyrics from lyrics.ovh...`);
+          
+          try {
+            // Fetch lyrics from lyrics.ovh
+            const lyricsResult = await fetchLyricsFromGenius(songTitle, artistName);
+            
+            if (lyricsResult.success && lyricsResult.lyrics) {
+              console.log(`✅ [LYRICS] Successfully fetched lyrics (${lyricsResult.lyrics.length} chars)`);
+              
+              // Detect language
+              const detectedLanguage = await detectLanguage(lyricsResult.lyrics, openaiApiKey);
+              console.log(`🌍 [LANG] Detected language: ${detectedLanguage}`);
+              
+              // Generate summary
+              const summary = await summarizeSongMessage(lyricsResult.lyrics, detectedLanguage, openaiApiKey);
+              
+              // Enhance answer with lyrics summary
+              const isEnglish = detectedLanguage.toLowerCase().includes("english");
+              
+              if (isEnglish) {
+                // English song - add summary to answer
+                enhancedAnswerText = `${enhancedAnswerText}\n\n**Song Summary:** ${summary.summary}`;
+              } else {
+                // Foreign language - add both original and English translation
+                enhancedAnswerText = `${enhancedAnswerText}\n\n**Song Summary (${detectedLanguage}):** ${summary.summary}`;
+                if (summary.englishTranslation) {
+                  enhancedAnswerText = `${enhancedAnswerText}\n\n**In English:** ${summary.englishTranslation}`;
+                }
+              }
+              
+              // Add lyrics source URL to sources
+              if (lyricsResult.sourceUrl) {
+                enhancedSources.push(lyricsResult.sourceUrl);
+              }
+              
+              console.log(`✅ [LYRICS] Enhanced answer with lyrics summary`);
+            } else {
+              console.log(`⚠️ [LYRICS] Could not fetch lyrics: ${lyricsResult.error || "Unknown error"}`);
+              // Continue without lyrics - answer will still be returned
+            }
+          } catch (lyricsError) {
+            console.error(`❌ [LYRICS] Error fetching/processing lyrics:`, lyricsError);
+            // Continue without lyrics - answer will still be returned
+          }
+        } else {
+          console.log(`⚠️ [LYRICS] Song meaning query detected but couldn't determine song title/artist`);
+        }
+      }
+      
       // Build sources array for answer
-      const answerSources = aiResult.answer.sources.map((url, index) => ({
+      const answerSources = enhancedSources.map((url, index) => ({
         title: `Source ${index + 1}`,
         url,
         snippet: undefined,
@@ -1617,7 +2156,7 @@ Return both search results and answers as JSON.`;
           user_id: userMessage.user_id,
           role: "assistant",
           message_type: "answer", // Use answer type for answers
-          text: aiResult.answer.text,
+          text: enhancedAnswerText,
           sources_json: answerSources,
         })
         .select("id")

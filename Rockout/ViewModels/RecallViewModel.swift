@@ -18,6 +18,8 @@ final class RecallViewModel: ObservableObject {
     @Published var showRepromptSheet: Bool = false
     @Published var repromptMessageId: UUID?
     @Published var repromptOriginalQuery: String?
+    @Published var pendingTranscript: (text: String, messageType: RecallMessageType, id: UUID)? // Track current speaking transcript
+    @Published var confirmedMessageIds: Set<UUID> = [] // Track confirmed messages
     
     private let service = RecallService.shared
     var rejectionCount: Int = 0
@@ -67,6 +69,7 @@ final class RecallViewModel: ObservableObject {
     private let hasSeenWelcomeKey = "recall_has_seen_welcome"
     
     // Helper function to store spoken text as a message for transcript visibility
+    // Only saves to database after confirmation
     private func storeSpokenMessage(_ text: String, messageType: RecallMessageType = .text) async {
         guard let threadId = currentThreadId else {
             print("🔴 [TRANSCRIPT] storeSpokenMessage: No threadId, cannot store message")
@@ -85,6 +88,8 @@ final class RecallViewModel: ObservableObject {
                 text: text
             )
             print("✅ [TRANSCRIPT] Message inserted successfully, ID: \(messageId)")
+            // Mark as confirmed since we're saving it
+            confirmedMessageIds.insert(messageId)
             await loadMessages()
             print("✅ [TRANSCRIPT] Messages reloaded after storing")
             print("   - Messages count after reload: \(messages.count)")
@@ -94,6 +99,167 @@ final class RecallViewModel: ObservableObject {
         } catch {
             print("⚠️ [TRANSCRIPT] Failed to store spoken message: \(error)")
         }
+    }
+    
+    // Store pending transcript (in memory only, not in database)
+    private func setPendingTranscript(_ text: String, messageType: RecallMessageType) {
+        let pendingId = UUID()
+        pendingTranscript = (text: text, messageType: messageType, id: pendingId)
+        print("📝 [TRANSCRIPT] Set pending transcript: \(text.prefix(50))... (ID: \(pendingId))")
+    }
+    
+    // Confirm and save pending transcript to database
+    func confirmPendingTranscript() async {
+        guard let pending = pendingTranscript else {
+            print("⚠️ [TRANSCRIPT] No pending transcript to confirm")
+            return
+        }
+        print("✅ [TRANSCRIPT] Confirming pending transcript: \(pending.text.prefix(50))...")
+        
+        // Save to database
+        let messageId = try? await service.insertMessage(
+            threadId: currentThreadId!,
+            role: .assistant,
+            messageType: pending.messageType,
+            text: pending.text
+        )
+        
+        // Mark as confirmed
+        if let messageId = messageId {
+            confirmedMessageIds.insert(messageId)
+        }
+        
+        // Clear pending transcript
+        pendingTranscript = nil
+        
+        // Reload messages to show the confirmed message in chat
+        await loadMessages()
+        
+        // Ensure UI updates on main thread to show saved message
+        await MainActor.run {
+            // Force UI refresh by accessing messages
+            let _ = messages.count
+        }
+        
+        // Speak confirmation message and save it immediately (no need for user to confirm the confirmation)
+        let confirmationText = "Got it! I've saved that response. Is there anything else you'd like to know?"
+        
+        // Save confirmation message directly to database (no pending transcript needed)
+        _ = try? await service.insertMessage(
+            threadId: currentThreadId!,
+            role: .assistant,
+            messageType: .text,
+            text: confirmationText
+        )
+        
+        // Reload messages to show the confirmation
+        await loadMessages()
+        
+        // Ensure UI updates on main thread to show confirmation message
+        await MainActor.run {
+            // Force UI refresh by accessing messages
+            let _ = messages.count
+        }
+        
+        // Set conversation mode to speaking so transcript is visible
+        conversationMode = .speaking
+        orbState = .idle
+        
+        // Speak the confirmation
+        voiceResponseService.speak(confirmationText) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                // After speaking confirmation, set to idle
+                self.conversationMode = .idle
+                self.orbState = .idle
+            }
+        }
+        
+        print("✅ [TRANSCRIPT] Transcript confirmed and saved to chat (message ID: \(messageId?.uuidString ?? "unknown"))")
+    }
+    
+    // Decline pending transcript (don't save, clear it)
+    func declinePendingTranscript() async {
+        guard let pending = pendingTranscript else {
+            print("⚠️ [TRANSCRIPT] No pending transcript to decline")
+            return
+        }
+        print("❌ [TRANSCRIPT] Declining pending transcript: \(pending.text.prefix(50))...")
+        pendingTranscript = nil
+        
+        // Re-answer the original query instead of just asking clarifying questions
+        // This gives the user another chance with a potentially better answer
+        if let messageId = lastUserMessageId, let threadId = currentThreadId {
+            print("🔄 [TRANSCRIPT] Re-answering original query (messageId: \(messageId))")
+            
+            // Get the original user message to retry
+            let userMessage = messages.first { $0.id == messageId }
+            let inputType: RecallInputType = userMessage?.messageType == .voice ? .voice : .text
+            let text = userMessage?.text
+            let mediaPath = userMessage?.mediaPath
+            
+            orbState = .thinking
+            conversationMode = .processing
+            
+            do {
+                // Insert status message
+                _ = try await service.insertMessage(
+                    threadId: threadId,
+                    role: .assistant,
+                    messageType: .status,
+                    text: "Searching again..."
+                )
+                await loadMessages()
+                
+                // Resolve again with the original query
+                let response = try await service.resolveRecall(
+                    threadId: threadId,
+                    messageId: messageId,
+                    inputType: inputType,
+                    text: text,
+                    mediaPath: mediaPath
+                )
+                
+                // Reload messages to get all candidates and answers inserted by edge function
+                await loadMessages()
+                
+                // Handle answer-type responses
+                if let answer = response.answer {
+                    setPendingTranscript(answer.text, messageType: .answer)
+                    conversationMode = .speaking
+                    orbState = .idle
+                    
+                    // Speak the answer
+                    voiceResponseService.speak(answer.text) { [weak self] in
+                        Task { @MainActor [weak self] in
+                            guard let self = self else { return }
+                            // Keep conversation mode as .speaking until user confirms/declines
+                        }
+                    }
+                } else if let candidates = response.candidates, !candidates.isEmpty {
+                    // Handle candidates
+                    orbState = .done(confidence: candidates.first?.confidence ?? 0.5)
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if case .done = orbState {
+                            orbState = .idle
+                        }
+                    }
+                } else {
+                    // No answer or candidates - ask clarifying questions as fallback
+                    await askClarifyingQuestions()
+                }
+            } catch {
+                print("❌ [TRANSCRIPT] Failed to re-answer: \(error)")
+                // Fallback to asking clarifying questions
+                await askClarifyingQuestions()
+            }
+        } else {
+            // No original query to retry - ask clarifying questions
+            await askClarifyingQuestions()
+        }
+        
+        print("❌ User declined pending transcript, re-answering original query")
     }
     
     init() {
@@ -260,7 +426,7 @@ final class RecallViewModel: ObservableObject {
             UserDefaults.standard.set(true, forKey: hasSeenWelcomeKey)
         
         // Speak welcome message
-        let welcomeMessage = "Hi! I'm Recall. I can help you find songs, answer music questions, or recommend music based on your mood. What would you like to know?"
+        let welcomeMessage = "Hi! I'm Recall. I can help you find songs, answer music questions, explain what songs mean and interpret lyrics, or recommend music based on your mood. What would you like to know?"
             
             // Store the welcome message so transcript is visible for deaf users
             if let threadId = currentThreadId {
@@ -272,6 +438,12 @@ final class RecallViewModel: ObservableObject {
                         text: welcomeMessage
                     )
                     await loadMessages()
+                    
+                    // Ensure UI updates on main thread to show welcome message
+                    await MainActor.run {
+                        // Force UI refresh by accessing messages
+                        let _ = messages.count
+                    }
                 } catch {
                     print("⚠️ Failed to store welcome message: \(error)")
                 }
@@ -325,10 +497,16 @@ final class RecallViewModel: ObservableObject {
             for (index, msg) in loadedMessages.enumerated() {
                 print("   - Message \(index): role=\(msg.role), type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil"), hasText=\(msg.text != nil && !msg.text!.isEmpty)")
             }
-            messages = loadedMessages
-            print("✅ [TRANSCRIPT] Messages array updated, now has \(messages.count) messages")
+            
+            // Update messages on main thread to ensure UI updates
+            await MainActor.run {
+                messages = loadedMessages
+                print("✅ [TRANSCRIPT] Messages array updated on main thread, now has \(messages.count) messages")
+            }
         } catch {
-            errorMessage = "Failed to load messages: \(error.localizedDescription)"
+            await MainActor.run {
+                errorMessage = "Failed to load messages: \(error.localizedDescription)"
+            }
             print("❌ [TRANSCRIPT] Failed to load messages: \(error)")
         }
     }
@@ -444,19 +622,12 @@ final class RecallViewModel: ObservableObject {
                     print("   - Answer \(idx): type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil")")
                 }
                 
-                // If edge function didn't insert it, store it ourselves
-                if answerMessages.isEmpty {
-                    print("⚠️ [TRANSCRIPT] Answer message not found, storing it ourselves")
-                    await storeSpokenMessage(answer.text, messageType: .answer)
-                    await loadMessages()
-                }
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(answer.text, messageType: .answer)
                 
                 // Set conversation mode to speaking so transcript is visible
                 print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
                 print("   - Current messages count: \(messages.count)")
-                if let lastMessage = messages.last {
-                    print("   - Last message: type=\(lastMessage.messageType), text=\(lastMessage.text?.prefix(50) ?? "none")")
-                }
                 conversationMode = .speaking
                 print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
                 orbState = .idle
@@ -520,24 +691,16 @@ final class RecallViewModel: ObservableObject {
                     resultText = "I found \(candidates.count) matches. The top match is \(topCandidate.title) by \(topCandidate.artist)."
                 }
                 
-                // Store the spoken result as a message so transcript is visible for deaf users
-                // Use .answer type so it shows with transcript and confirm buttons
-                if let threadId = currentThreadId {
-                    await storeSpokenMessage(resultText, messageType: .answer)
-                }
-                
-                // Ensure messages are loaded and visible before speaking
-                await loadMessages()
-                
-                // Set conversation mode to speaking so transcript is visible
-                print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
-                print("   - Current messages count: \(messages.count)")
-                print("   - Last message: \(messages.last?.text?.prefix(50) ?? "none")")
-                conversationMode = .speaking
-                print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
-                
-                print("🔊 [TRANSCRIPT] Starting to speak resultText: \(resultText.prefix(50))")
-                voiceResponseService.speak(resultText) { [weak self] in
+                    // Set pending transcript (in memory only, not saved yet)
+                    setPendingTranscript(resultText, messageType: .answer)
+                    
+                    // Set conversation mode to speaking so transcript is visible
+                    print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
+                    conversationMode = .speaking
+                    print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
+                    
+                    print("🔊 [TRANSCRIPT] Starting to speak resultText: \(resultText.prefix(50))")
+                    voiceResponseService.speak(resultText) { [weak self] in
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
                         print("🔇 [TRANSCRIPT] Finished speaking resultText")
@@ -559,14 +722,8 @@ final class RecallViewModel: ObservableObject {
                     // Speak the result
                     let resultText = "I found \(assistantMessage.songTitle) by \(assistantMessage.songArtist)."
                     
-                    // Store the spoken result as a message so transcript is visible for deaf users
-                    // Use .answer type so it shows with transcript and confirm buttons
-                    if let threadId = currentThreadId {
-                        await storeSpokenMessage(resultText, messageType: .answer)
-                    }
-                    
-                    // Ensure messages are loaded and visible before speaking
-                    await loadMessages()
+                    // Set pending transcript (in memory only, not saved yet)
+                    setPendingTranscript(resultText, messageType: .answer)
                     
                     // Set conversation mode to speaking so transcript is visible
                     conversationMode = .speaking
@@ -738,28 +895,11 @@ final class RecallViewModel: ObservableObject {
                     resultText = "I found \(candidates.count) matches. The top match is \(topCandidate.title) by \(topCandidate.artist)."
                 }
                 
-                // Store the spoken result as a message so transcript is visible for deaf users
-                // Use .answer type so it shows with transcript and confirm buttons
-                await storeSpokenMessage(resultText, messageType: .answer)
-                
-                // Double-check messages are loaded (storeSpokenMessage already calls loadMessages, but ensure it's done)
-                await loadMessages()
-                
-                // Verify the message is in the array before setting speaking mode
-                print("🔍 [TRANSCRIPT] Verifying message before speaking:")
-                print("   - Messages count: \(messages.count)")
-                let transcriptMessages = messages.filter { $0.text == resultText || $0.text?.hasPrefix("I found") == true }
-                print("   - Transcript messages found: \(transcriptMessages.count)")
-                for (idx, msg) in transcriptMessages.enumerated() {
-                    print("   - Transcript \(idx): type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil")")
-                }
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(resultText, messageType: .answer)
                 
                 // Set conversation mode to speaking so transcript is visible
                 print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
-                print("   - Current messages count: \(messages.count)")
-                if let lastMessage = messages.last {
-                    print("   - Last message: type=\(lastMessage.messageType), text=\(lastMessage.text?.prefix(50) ?? "none")")
-                }
                 conversationMode = .speaking
                 print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
                 
@@ -784,28 +924,11 @@ final class RecallViewModel: ObservableObject {
                 // Speak the result
                 let resultText = "I found \(assistantMessage.songTitle) by \(assistantMessage.songArtist)."
                 
-                // Store the spoken result as a message so transcript is visible for deaf users
-                // Use .answer type so it shows with transcript and confirm buttons
-                await storeSpokenMessage(resultText, messageType: .answer)
-                
-                // Double-check messages are loaded (storeSpokenMessage already calls loadMessages, but ensure it's done)
-                await loadMessages()
-                
-                // Verify the message is in the array before setting speaking mode
-                print("🔍 [TRANSCRIPT] Verifying message before speaking:")
-                print("   - Messages count: \(messages.count)")
-                let transcriptMessages = messages.filter { $0.text == resultText || $0.text?.hasPrefix("I found") == true }
-                print("   - Transcript messages found: \(transcriptMessages.count)")
-                for (idx, msg) in transcriptMessages.enumerated() {
-                    print("   - Transcript \(idx): type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil")")
-                }
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(resultText, messageType: .answer)
                 
                 // Set conversation mode to speaking so transcript is visible
                 print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
-                print("   - Current messages count: \(messages.count)")
-                if let lastMessage = messages.last {
-                    print("   - Last message: type=\(lastMessage.messageType), text=\(lastMessage.text?.prefix(50) ?? "none")")
-                }
                 conversationMode = .speaking
                 print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
                 
@@ -962,28 +1085,11 @@ final class RecallViewModel: ObservableObject {
                     resultText = "I found \(candidates.count) matches. The top match is \(topCandidate.title) by \(topCandidate.artist)."
                 }
                 
-                // Store the spoken result as a message so transcript is visible for deaf users
-                // Use .answer type so it shows with transcript and confirm buttons
-                await storeSpokenMessage(resultText, messageType: .answer)
-                
-                // Double-check messages are loaded (storeSpokenMessage already calls loadMessages, but ensure it's done)
-                await loadMessages()
-                
-                // Verify the message is in the array before setting speaking mode
-                print("🔍 [TRANSCRIPT] Verifying message before speaking:")
-                print("   - Messages count: \(messages.count)")
-                let transcriptMessages = messages.filter { $0.text == resultText || $0.text?.hasPrefix("I found") == true }
-                print("   - Transcript messages found: \(transcriptMessages.count)")
-                for (idx, msg) in transcriptMessages.enumerated() {
-                    print("   - Transcript \(idx): type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil")")
-                }
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(resultText, messageType: .answer)
                 
                 // Set conversation mode to speaking so transcript is visible
                 print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
-                print("   - Current messages count: \(messages.count)")
-                if let lastMessage = messages.last {
-                    print("   - Last message: type=\(lastMessage.messageType), text=\(lastMessage.text?.prefix(50) ?? "none")")
-                }
                 conversationMode = .speaking
                 print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
                 
@@ -1008,28 +1114,11 @@ final class RecallViewModel: ObservableObject {
                 // Speak the result
                 let resultText = "I found \(assistantMessage.songTitle) by \(assistantMessage.songArtist)."
                 
-                // Store the spoken result as a message so transcript is visible for deaf users
-                // Use .answer type so it shows with transcript and confirm buttons
-                await storeSpokenMessage(resultText, messageType: .answer)
-                
-                // Double-check messages are loaded (storeSpokenMessage already calls loadMessages, but ensure it's done)
-                await loadMessages()
-                
-                // Verify the message is in the array before setting speaking mode
-                print("🔍 [TRANSCRIPT] Verifying message before speaking:")
-                print("   - Messages count: \(messages.count)")
-                let transcriptMessages = messages.filter { $0.text == resultText || $0.text?.hasPrefix("I found") == true }
-                print("   - Transcript messages found: \(transcriptMessages.count)")
-                for (idx, msg) in transcriptMessages.enumerated() {
-                    print("   - Transcript \(idx): type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil")")
-                }
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(resultText, messageType: .answer)
                 
                 // Set conversation mode to speaking so transcript is visible
                 print("🎤 [TRANSCRIPT] Setting conversationMode to .speaking")
-                print("   - Current messages count: \(messages.count)")
-                if let lastMessage = messages.last {
-                    print("   - Last message: type=\(lastMessage.messageType), text=\(lastMessage.text?.prefix(50) ?? "none")")
-                }
                 conversationMode = .speaking
                 print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
                 
@@ -1103,8 +1192,28 @@ final class RecallViewModel: ObservableObject {
         
         // Check if there's a previous query to reprompt
         // If we have messages and a last user query, this is a reprompt
+        // Also check if there are any confirmed assistant messages (user can reprompt those)
         let hasPreviousQuery = !messages.isEmpty && lastUserQuery != nil && lastUserMessageId != nil
-        isReprompting = hasPreviousQuery && !shouldWaitForRefinement
+        
+        // Find the last confirmed assistant message to use as reprompt context
+        let lastConfirmedMessage = messages.filter { $0.role == .assistant && confirmedMessageIds.contains($0.id) }.last
+        let hasConfirmedMessages = lastConfirmedMessage != nil
+        
+        // If reprompting with a confirmed message, set the context
+        if hasConfirmedMessages, let confirmedMsg = lastConfirmedMessage {
+            // Use the confirmed message's text as the reprompt context
+            lastUserQuery = confirmedMsg.text ?? "Previous response"
+            // Find the user message that preceded this confirmed message for context
+            if let confirmedIndex = messages.firstIndex(where: { $0.id == confirmedMsg.id }) {
+                let precedingMessages = Array(messages[..<confirmedIndex])
+                if let precedingUserMessage = precedingMessages.last(where: { $0.role == .user }) {
+                    lastUserMessageId = precedingUserMessage.id
+                }
+            }
+        }
+        
+        // Allow reprompt if there's a previous query OR if there are confirmed messages
+        isReprompting = (hasPreviousQuery || hasConfirmedMessages) && !shouldWaitForRefinement
         
         // If we're waiting for refinement (follow-up question), we're continuing the conversation
         // Reset the flag when user starts responding
@@ -1142,9 +1251,20 @@ final class RecallViewModel: ObservableObject {
     }
     
     func orbLongPressEnded() async {
-        // Stop recording IMMEDIATELY on release
+        // Stop recording IMMEDIATELY on release - ensure it stops regardless of state
+        print("🛑 [LONG_PRESS] Long press ended - stopping recording if active")
+        
+        // ALWAYS stop recording when gesture ends - this is critical
+        // Even if isRecording is false, call stopRecording() to ensure cleanup
         if voiceRecorder.isRecording {
+            print("🛑 [LONG_PRESS] Recording is active, stopping immediately...")
             voiceRecorder.stopRecording()
+            
+            // Update orb state immediately to reflect that recording has stopped
+            if case .listening = orbState {
+                orbState = .thinking
+            }
+            
             conversationMode = .processing
             
             // Haptic feedback for recording stopped
@@ -1161,7 +1281,25 @@ final class RecallViewModel: ObservableObject {
             currentProcessingTask = Task {
                 await handleVoiceRecording()
             }
+        } else {
+            // Recording wasn't active, but ensure orb state is correct
+            print("🛑 [LONG_PRESS] Recording was not active, ensuring orb state is correct")
+            
+            // Force stop anyway to ensure cleanup (idempotent operation)
+            voiceRecorder.stopRecording()
+            
+            // Update orb state if it's still in listening mode
+            if case .listening = orbState {
+                orbState = .idle
+            }
+            
+            // Reset conversation mode if needed
+            if conversationMode == .processing && !isProcessing {
+                conversationMode = .idle
+            }
         }
+        
+        print("✅ [LONG_PRESS] Long press ended handling complete - recording stopped")
     }
     
     private func handleVoiceRecording() async {
@@ -1318,6 +1456,9 @@ final class RecallViewModel: ObservableObject {
                 print("   - Answer message text: \(answerMessage?.text?.prefix(50) ?? "none")")
                 print("   - Answer to speak: \(answer.text.prefix(50))")
                 
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(answer.text, messageType: .answer)
+                
                 // Set conversation mode to speaking so transcript is visible
                 conversationMode = .speaking
                 print("✅ [TRANSCRIPT] conversationMode is now: \(conversationMode)")
@@ -1331,6 +1472,9 @@ final class RecallViewModel: ObservableObject {
                         if let followUp = response.followUpQuestion {
                             self.shouldWaitForRefinement = true
                             self.conversationMode = .waitingForRefinement
+                            // Set pending transcript for follow-up (not saved yet)
+                            self.setPendingTranscript(followUp, messageType: .follow_up)
+                            self.conversationMode = .speaking
                             self.voiceResponseService.speak(followUp) { [weak self] in
                                 Task { @MainActor [weak self] in
                                     guard let self = self else { return }
@@ -1345,15 +1489,6 @@ final class RecallViewModel: ObservableObject {
                     }
                 }
                 
-                // If there's a follow-up question, handle it after answer is spoken
-                if let followUpQuestion = response.followUpQuestion {
-                    pendingFollowUpQuestion = followUpQuestion
-                    shouldWaitForRefinement = true
-                } else {
-                    orbState = .idle
-                    conversationMode = .idle
-                }
-                
                 return
             }
             
@@ -1363,6 +1498,10 @@ final class RecallViewModel: ObservableObject {
                 pendingFollowUpQuestion = followUpQuestion
                 shouldWaitForRefinement = true
                 conversationMode = .waitingForRefinement
+                
+                // Set pending transcript (in memory only, not saved yet)
+                setPendingTranscript(followUpQuestion, messageType: .follow_up)
+                conversationMode = .speaking
                 
                 // Speak the follow-up question
                 voiceResponseService.speak(followUpQuestion) { [weak self] in
@@ -1847,6 +1986,12 @@ final class RecallViewModel: ObservableObject {
     // MARK: - Confirm Answer Response
     
     func confirmAnswerResponse(messageId: UUID) async {
+        // If there's a pending transcript, confirm it first
+        if pendingTranscript != nil {
+            await confirmPendingTranscript()
+            return
+        }
+        
         // Provide haptic feedback that the answer was helpful
         let notificationFeedback = UINotificationFeedbackGenerator()
         notificationFeedback.notificationOccurred(.success)
@@ -1855,11 +2000,14 @@ final class RecallViewModel: ObservableObject {
         let confirmedMessage = messages.first { $0.id == messageId }
         let messageText = confirmedMessage?.text ?? "response"
         
+        // Mark as confirmed
+        confirmedMessageIds.insert(messageId)
+        
         // Speak confirmation with context
         let confirmationText = "Great! I'm glad that was helpful. Is there anything else you'd like to know?"
         
-        // Store the confirmation message so transcript is visible for deaf users
-        await storeSpokenMessage(confirmationText)
+        // Set pending transcript for confirmation (not saved yet)
+        setPendingTranscript(confirmationText, messageType: .text)
         
         // Speak the confirmation
         voiceResponseService.speak(confirmationText) { [weak self] in
@@ -1874,8 +2022,17 @@ final class RecallViewModel: ObservableObject {
     }
     
     func declineAnswerResponse(messageId: UUID) async {
+        // If there's a pending transcript, decline it first
+        if pendingTranscript != nil {
+            await declinePendingTranscript()
+            return
+        }
+        
         // Remove or mark the declined message
         let declinedMessage = messages.first { $0.id == messageId }
+        
+        // Remove from confirmed messages
+        confirmedMessageIds.remove(messageId)
         
         // Ask clarifying questions to better understand what the user needs
         await askClarifyingQuestions()

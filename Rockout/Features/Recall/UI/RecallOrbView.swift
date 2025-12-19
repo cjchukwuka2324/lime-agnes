@@ -37,7 +37,7 @@ struct RecallOrbView: View {
         }
         .frame(width: 200, height: 200)
         .gesture(
-            LongPressGesture(minimumDuration: 0.1)
+            LongPressGesture(minimumDuration: 3.0)
                 .onChanged { _ in
                     isPressed = true
                     withAnimation(.easeInOut(duration: 0.2)) {

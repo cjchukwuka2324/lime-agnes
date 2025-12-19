@@ -30,7 +30,7 @@ interface UserPreferences {
 }
 
 interface IntentDetection {
-  intent: "identify" | "knowledge" | "recommend";
+  intent: "identify" | "knowledge" | "recommend" | "conversation" | "generate";
   confidence: number;
   reasoning: string;
 }
@@ -85,6 +85,20 @@ async function detectIntent(
   ];
   const hasSearchIntent = searchKeywords.some(kw => queryLower.includes(kw));
 
+  // Conversation keywords (casual chat)
+  const conversationKeywords = [
+    "hi", "hello", "hey", "how are you", "what's up", "thanks", "thank you",
+    "cool", "nice", "awesome", "okay", "sure", "yeah", "yep", "nope"
+  ];
+  const hasConversationIntent = conversationKeywords.some(kw => queryLower.includes(kw));
+
+  // Generation keywords
+  const generateKeywords = [
+    "create", "generate", "make", "compose", "write a song", "produce", "build",
+    "make music", "create music", "generate music", "make a beat", "create a melody"
+  ];
+  const hasGenerateIntent = generateKeywords.some(kw => queryLower.includes(kw));
+
   // Use OpenAI for more sophisticated intent detection if available
   const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
   if (openaiApiKey && queryText.length > 10) {
@@ -101,14 +115,16 @@ async function detectIntent(
             {
               role: "system",
               content: `Determine the user's intent for this music query. Return JSON with:
-- intent: "identify" (finding a song), "knowledge" (asking a question), or "recommend" (wanting recommendations)
+- intent: "identify" (finding a song), "knowledge" (asking a question), "recommend" (wanting recommendations), "conversation" (casual chat), or "generate" (creating music)
 - confidence: 0.0-1.0
 - reasoning: brief explanation
 
 Examples:
 - "what song has the lyrics 'hello darkness my old friend'" → identify
 - "who wrote bohemian rhapsody" → knowledge
-- "I'm feeling sad, recommend some songs" → recommend`
+- "I'm feeling sad, recommend some songs" → recommend
+- "how are you" or "thanks" → conversation
+- "create a song" or "make a beat" → generate`
             },
             {
               role: "user",
@@ -139,6 +155,22 @@ Examples:
   }
 
   // Fallback to keyword-based detection
+  if (hasGenerateIntent) {
+    return {
+      intent: "generate",
+      confidence: 0.8,
+      reasoning: "Generation keywords detected"
+    };
+  }
+
+  if (hasConversationIntent && !hasQuestionIntent && !hasSearchIntent) {
+    return {
+      intent: "conversation",
+      confidence: 0.8,
+      reasoning: "Conversation keywords detected"
+    };
+  }
+
   if (hasMoodIntent && !hasQuestionIntent) {
     return {
       intent: "recommend",
@@ -391,8 +423,10 @@ serve(async (req) => {
     let jobType: "identify" | "knowledge" | "recommend";
     if (intentDetection.intent === "identify") {
       jobType = "identify";
-    } else if (intentDetection.intent === "knowledge") {
+    } else if (intentDetection.intent === "knowledge" || intentDetection.intent === "conversation") {
       jobType = "knowledge";
+    } else if (intentDetection.intent === "generate") {
+      jobType = "recommend"; // Map generate to recommend for now (could add new job type later)
     } else {
       jobType = "recommend";
     }

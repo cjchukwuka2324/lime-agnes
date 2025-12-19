@@ -15,7 +15,7 @@ struct RecallHomeView: View {
                 mainContent
             }
             .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.1)
+                LongPressGesture(minimumDuration: 3.0)
                     .sequenced(before: DragGesture(minimumDistance: 0))
                     .updating($isLongPressing) { value, state, _ in
                         switch value {
@@ -327,6 +327,25 @@ struct RecallHomeView: View {
                         messageBubble(for: message)
                             .id(message.id)
                     }
+                    
+                    // Pending transcript view - shown separately below all messages
+                    if let pending = viewModel.pendingTranscript {
+                        RecallMessageBubble.pendingTranscriptView(
+                            pendingTranscript: pending,
+                            voiceResponseService: VoiceResponseService.shared,
+                            onConfirm: {
+                                Task {
+                                    await viewModel.confirmPendingTranscript()
+                                }
+                            },
+                            onDecline: {
+                                Task {
+                                    await viewModel.declinePendingTranscript()
+                                }
+                            }
+                        )
+                        .id("pending-transcript")
+                    }
                 }
                 .padding(.vertical, 16)
                 .padding(.bottom, 100)
@@ -390,13 +409,6 @@ struct RecallHomeView: View {
                 viewModel.repromptMessageId = messageId
                 viewModel.repromptOriginalQuery = text
                 viewModel.showRepromptSheet = true
-            },
-            onTapToRespond: {
-                if viewModel.conversationMode == .waitingForRefinement {
-                    Task {
-                        await viewModel.orbLongPressed()
-                    }
-                }
             }
         )
     }

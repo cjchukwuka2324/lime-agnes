@@ -154,7 +154,7 @@ struct RecallOrbView: View {
             )
             .contentShape(Rectangle())
             .highPriorityGesture(
-                LongPressGesture(minimumDuration: 0.1)
+                LongPressGesture(minimumDuration: 3.0)
                     .sequenced(before: DragGesture(minimumDistance: 0))
                     .updating($isPressed) { value, state, _ in
                         switch value {

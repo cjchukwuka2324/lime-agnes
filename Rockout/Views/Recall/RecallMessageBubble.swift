@@ -6,7 +6,6 @@ struct RecallMessageBubble: View {
     let onNotIt: ((UUID) -> Void)?
     let onDecline: ((UUID) -> Void)?
     let onReprompt: ((UUID, String) -> Void)?
-    let onTapToRespond: (() -> Void)?
     // Use @ObservedObject instead of @StateObject for singleton to ensure updates are observed
     @ObservedObject private var voiceResponseService = VoiceResponseService.shared
     @State private var isPressed = false
@@ -16,15 +15,13 @@ struct RecallMessageBubble: View {
         onConfirm: (() -> Void)? = nil,
         onNotIt: ((UUID) -> Void)? = nil,
         onDecline: ((UUID) -> Void)? = nil,
-        onReprompt: ((UUID, String) -> Void)? = nil,
-        onTapToRespond: (() -> Void)? = nil
+        onReprompt: ((UUID, String) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirm = onConfirm
         self.onNotIt = onNotIt
         self.onDecline = onDecline
         self.onReprompt = onReprompt
-        self.onTapToRespond = onTapToRespond
     }
     
     var body: some View {
@@ -34,64 +31,72 @@ struct RecallMessageBubble: View {
         let _ = print("   - Message role: \(message.role)")
         let _ = print("   - Has text: \(message.text != nil)")
         
-        return HStack {
-            if message.role == .user {
-                Spacer()
-            }
-            
-            Group {
-                switch message.messageType {
-                case .text, .voice:
-                    if message.role == .assistant && (message.messageType == .text || message.messageType == .answer) {
+        return VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
+            HStack {
+                if message.role == .user {
+                    Spacer()
+                }
+                
+                Group {
+                    switch message.messageType {
+                    case .text, .voice:
+                        if message.role == .assistant && (message.messageType == .text || message.messageType == .answer) {
+                            answerMessageView
+                        } else {
+                            userMessageView
+                        }
+                    case .answer:
+                        // Answer messages always show the answer view
                         answerMessageView
-                    } else {
-                        userMessageView
-                    }
-                case .answer:
-                    // Answer messages always show the answer view with transcript
-                    answerMessageView
-                case .image:
-                    imageMessageView
-                case .status:
-                    statusMessageView
-                case .follow_up:
-                    followUpMessageView
-                case .candidate:
-                    if let candidate = message.candidate {
-                        RecallCandidateCard(
-                            candidate: candidate,
-                            sources: message.sourcesJson,
-                            songUrl: message.songUrl,
-                            onOpenSong: {
-                                if let urlString = message.songUrl,
-                                   let url = URL(string: urlString) {
-                                    UIApplication.shared.open(url)
+                    case .image:
+                        imageMessageView
+                    case .status:
+                        statusMessageView
+                    case .follow_up:
+                        followUpMessageView
+                    case .candidate:
+                        if let candidate = message.candidate {
+                            RecallCandidateCard(
+                                candidate: candidate,
+                                sources: message.sourcesJson,
+                                songUrl: message.songUrl,
+                                onOpenSong: {
+                                    if let urlString = message.songUrl,
+                                       let url = URL(string: urlString) {
+                                        UIApplication.shared.open(url)
+                                    }
+                                },
+                                onConfirm: {
+                                    onConfirm?()
+                                },
+                                onNotIt: {
+                                    onNotIt?(message.id)
+                                },
+                                onReprompt: { text in
+                                    onReprompt?(message.id, text)
                                 }
-                            },
-                            onConfirm: {
-                                onConfirm?()
-                            },
-                            onNotIt: {
-                                onNotIt?(message.id)
-                            },
-                            onReprompt: { text in
-                                onReprompt?(message.id, text)
-                            }
-                        )
-                    } else {
-                        Text(message.text ?? "Unknown message")
-                            .foregroundColor(.white)
+                            )
+                        } else {
+                            Text(message.text ?? "Unknown message")
+                                .foregroundColor(.white)
+                        }
                     }
                 }
+                .frame(maxWidth: message.role == .assistant && message.messageType == .candidate ? UIScreen.main.bounds.width * 0.95 : UIScreen.main.bounds.width * 0.75, alignment: message.role == .user ? .trailing : .leading)
+                
+                if message.role == .assistant {
+                    Spacer()
+                }
             }
-            .frame(maxWidth: message.role == .assistant && message.messageType == .candidate ? UIScreen.main.bounds.width * 0.95 : UIScreen.main.bounds.width * 0.75, alignment: message.role == .user ? .trailing : .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
             
+            // Transcript display below each assistant response
             if message.role == .assistant {
-                Spacer()
+                transcriptView
+                    .padding(.horizontal, 16)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
     
     private var userMessageView: some View {
@@ -280,16 +285,8 @@ struct RecallMessageBubble: View {
             .animation(.easeInOut(duration: 0.1), value: isPressed)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityLabel)
-            .accessibilityHint("Double tap to respond with your voice")
+            .accessibilityHint("Long press to respond with your voice")
             .accessibilityAddTraits(.isButton)
-            .onTapGesture {
-                // Trigger voice recording when tapped
-                if let onTapToRespond = onTapToRespond {
-                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                    impactFeedback.impactOccurred()
-                    onTapToRespond()
-                }
-            }
             .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
                 isPressed = pressing
             }, perform: {})
@@ -369,106 +366,6 @@ struct RecallMessageBubble: View {
                 .accessibilityHint("Double tap to \(voiceResponseService.isSpeaking ? "pause" : "play") the answer")
             }
             
-            // Live transcript display - shows what's currently being spoken in real-time
-            // This is critical for deaf users to see what Recall is saying as it speaks
-            // ALWAYS show transcript for answer messages so users can read and confirm
-            if let transcript = message.text, !transcript.isEmpty {
-                // Check if this message matches what's currently being spoken
-                let fullTextTrimmed = voiceResponseService.fullText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let transcriptTrimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // Match if: exact match, or one contains the other (for partial matches)
-                // Also match if we're speaking and this is an answer message (most recent answer)
-                let isSpeakingThisMessage = voiceResponseService.isSpeaking && 
-                                           (voiceResponseService.fullText == transcript || 
-                                            fullTextTrimmed == transcriptTrimmed ||
-                                            (fullTextTrimmed.count > 20 && transcriptTrimmed.count > 20 && 
-                                             (fullTextTrimmed.hasPrefix(transcriptTrimmed.prefix(20)) || 
-                                              transcriptTrimmed.hasPrefix(fullTextTrimmed.prefix(20)))) ||
-                                            (message.messageType == .answer && voiceResponseService.isSpeaking))
-                
-                // ALWAYS show transcript for answer messages (so users can read and confirm)
-                // For other messages, show if:
-                // 1. This message matches what's being spoken (show live transcript)
-                // 2. OR we're not speaking and this is an assistant message (show full transcript)
-                let shouldShowTranscript = message.messageType == .answer || 
-                                         isSpeakingThisMessage || 
-                                         (!voiceResponseService.isSpeaking && message.role == .assistant)
-                
-                if shouldShowTranscript {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 16))
-                                .foregroundColor(Color(hex: "#1ED760"))
-                            Text(voiceResponseService.isSpeaking && isSpeakingThisMessage ? "Speaking:" : "Spoken:")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .textCase(.uppercase)
-                        }
-                        
-                        // Show live transcript if speaking and we have currentSpokenText, OR if speaking and this is an answer message
-                        if voiceResponseService.isSpeaking && (isSpeakingThisMessage || message.messageType == .answer) {
-                            if !voiceResponseService.currentSpokenText.isEmpty {
-                                // Live transcript - updates as words are spoken in real-time
-                                HStack(alignment: .top, spacing: 4) {
-                                    Text("\"\(voiceResponseService.currentSpokenText)\"")
-                                        .font(.body)
-                                        .foregroundColor(.white)
-                                        .italic()
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .lineSpacing(4)
-                                    
-                                    // Cursor indicator to show live typing effect
-                                    Text("|")
-                                        .font(.body)
-                                        .foregroundColor(Color(hex: "#1ED760"))
-                                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: voiceResponseService.isSpeaking)
-                                }
-                                .animation(.easeInOut(duration: 0.1), value: voiceResponseService.currentSpokenText)
-                            } else {
-                                // Speaking but currentSpokenText not yet available - show full transcript with "Speaking" indicator
-                                HStack(alignment: .top, spacing: 4) {
-                                    Text("\"\(transcript)\"")
-                                        .font(.body)
-                                        .foregroundColor(.white.opacity(0.7))
-                                        .italic()
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .lineSpacing(4)
-                                    
-                                    // Cursor indicator to show live typing effect
-                                    Text("|")
-                                        .font(.body)
-                                        .foregroundColor(Color(hex: "#1ED760"))
-                                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: voiceResponseService.isSpeaking)
-                                }
-                            }
-                        } else {
-                            // Full transcript when not speaking or if live transcript not available
-                            // Always show the full transcript so users can read what Recall said
-                            Text("\"\(transcript)\"")
-                                .font(.body)
-                                .foregroundColor(.white)
-                                .italic()
-                                .fixedSize(horizontal: false, vertical: true)
-                                .lineSpacing(4)
-                        }
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.black.opacity(0.5))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 1)
-                            )
-                    )
-                    .accessibilityLabel("Transcript: \(transcript)")
-                }
-            }
-            
             if !message.sourcesJson.isEmpty {
                 Text("\(message.sourcesJson.count) source\(message.sourcesJson.count > 1 ? "s" : "")")
                     .font(.caption)
@@ -535,6 +432,179 @@ struct RecallMessageBubble: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Answer: \(message.text ?? "")")
         .accessibilityValue(message.sourcesJson.isEmpty ? "" : "\(message.sourcesJson.count) source\(message.sourcesJson.count > 1 ? "s" : "")")
+    }
+    
+    // Transcript view - displayed below each assistant response
+    // Only shows pending transcript (not saved) or confirmed saved messages
+    @ViewBuilder
+    private var transcriptView: some View {
+        // Check if this is a confirmed saved message - show its transcript
+        if let transcript = message.text, !transcript.isEmpty, message.role == .assistant {
+            // Only show transcript for confirmed messages (saved in database)
+            // Don't show for pending transcripts (those are shown separately)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "#1ED760"))
+                    Text("Spoken:")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .textCase(.uppercase)
+                }
+                
+                // Show full transcript for confirmed messages
+                Text("\"\(transcript)\"")
+                    .font(.body)
+                    .foregroundColor(.white)
+                    .italic()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(4)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black.opacity(0.5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 1)
+                    )
+            )
+            .accessibilityLabel("Transcript: \(transcript)")
+        }
+    }
+    
+    // Pending transcript view - shown separately for current speaking message
+    @ViewBuilder
+    static func pendingTranscriptView(
+        pendingTranscript: (text: String, messageType: RecallMessageType, id: UUID)?,
+        voiceResponseService: VoiceResponseService,
+        onConfirm: @escaping () -> Void,
+        onDecline: @escaping () -> Void
+    ) -> some View {
+        if let pending = pendingTranscript {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "#1ED760"))
+                    Text(voiceResponseService.isSpeaking ? "Speaking:" : "Preview:")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .textCase(.uppercase)
+                }
+                
+                // Show live transcript if speaking, or full preview if done
+                if voiceResponseService.isSpeaking {
+                    if !voiceResponseService.currentSpokenText.isEmpty {
+                        // Live transcript - updates as words are spoken in real-time
+                        HStack(alignment: .top, spacing: 4) {
+                            Text("\"\(voiceResponseService.currentSpokenText)\"")
+                                .font(.body)
+                                .foregroundColor(.white)
+                                .italic()
+                                .fixedSize(horizontal: false, vertical: true)
+                                .lineSpacing(4)
+                            
+                            // Cursor indicator to show live typing effect
+                            Text("|")
+                                .font(.body)
+                                .foregroundColor(Color(hex: "#1ED760"))
+                                .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: voiceResponseService.isSpeaking)
+                        }
+                        .animation(.easeInOut(duration: 0.1), value: voiceResponseService.currentSpokenText)
+                    } else {
+                        // Speaking but currentSpokenText not yet available - show full transcript with "Speaking" indicator
+                        HStack(alignment: .top, spacing: 4) {
+                            Text("\"\(pending.text)\"")
+                                .font(.body)
+                                .foregroundColor(.white.opacity(0.7))
+                                .italic()
+                                .fixedSize(horizontal: false, vertical: true)
+                                .lineSpacing(4)
+                            
+                            // Cursor indicator to show live typing effect
+                            Text("|")
+                                .font(.body)
+                                .foregroundColor(Color(hex: "#1ED760"))
+                                .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: voiceResponseService.isSpeaking)
+                        }
+                    }
+                } else {
+                    // Full preview when not speaking - ready for confirmation
+                    Text("\"\(pending.text)\"")
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .italic()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(4)
+                }
+                
+                // Confirm/Decline buttons - only show after speaking is done
+                if !voiceResponseService.isSpeaking {
+                    HStack(spacing: 12) {
+                        Button {
+                            onConfirm()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Confirm")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(hex: "#1ED760"))
+                            )
+                        }
+                        .accessibilityLabel("Confirm transcript")
+                        .accessibilityHint("Double tap to confirm and save this response")
+                        
+                        Button {
+                            onDecline()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                Text("Decline")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.red.opacity(0.7))
+                            )
+                        }
+                        .accessibilityLabel("Decline transcript")
+                        .accessibilityHint("Double tap to decline and request a new answer")
+                        
+                        Spacer()
+                    }
+                    .padding(.top, 8)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black.opacity(0.5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 1)
+                    )
+            )
+            .accessibilityLabel("Pending transcript: \(pending.text)")
+        }
     }
 }
 
