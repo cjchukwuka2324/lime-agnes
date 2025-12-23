@@ -76,7 +76,7 @@ class AudioPlayerViewModel: ObservableObject {
         
         // Check if we should increment replay count (for discovered albums)
         // Only increment once per album per session to avoid counting every track switch
-        if let currentAlbum = currentAlbum, 
+        if let currentAlbum = currentAlbum,
            lastTrackedAlbumForReplay != currentAlbum.id {
             // Check if this is a replay of a completed discovered album
             Task {
@@ -148,16 +148,64 @@ class AudioPlayerViewModel: ObservableObject {
                                 // Update again after starting playback to ensure playback rate is set
                                 self.updateNowPlayingInfo()
                             } else if status == .failed {
-                                // Try to get more detailed error info
+                                // DIAGNOSTIC: Get detailed error info
+                                var errorDetails: [String] = []
+                                
                                 if let error = self.playerItem?.error {
-                                    print("❌ AVPlayerItem error: \(error.localizedDescription)")
+                                    let errorDescription = error.localizedDescription
+                                    let errorCode = (error as NSError).code
+                                    errorDetails.append("Error: \(errorDescription)")
+                                    errorDetails.append("Code: \(errorCode)")
+                                    
+                                    print("❌ AVPlayerItem error: \(errorDescription)")
+                                    print("   Error code: \(errorCode)")
+                                    
                                     if let underlyingError = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError {
-                                        print("   Underlying error: \(underlyingError.localizedDescription)")
+                                        let underlyingCode = underlyingError.code
+                                        let underlyingDesc = underlyingError.localizedDescription
+                                        errorDetails.append("Underlying: \(underlyingDesc) (code: \(underlyingCode))")
+                                        print("   Underlying error: \(underlyingDesc)")
+                                        print("   Underlying code: \(underlyingCode)")
+                                    }
+                                    
+                                    // Log the URL being used
+                                    if let currentTrack = self.currentTrack {
+                                        print("   Track URL: \(currentTrack.audio_url)")
+                                        errorDetails.append("URL: \(currentTrack.audio_url)")
+                                    }
+                                    
+                                    // Check asset status
+                                    if let asset = self.playerItem?.asset as? AVURLAsset {
+                                        print("   Asset URL: \(asset.url.absoluteString)")
+                                        errorDetails.append("Asset URL: \(asset.url.absoluteString)")
+                                        
+                                        // Check if we can access the URL
+                                        Task {
+                                            do {
+                                                var request = URLRequest(url: asset.url)
+                                                request.httpMethod = "HEAD"
+                                                request.timeoutInterval = 5.0
+                                                let (_, response) = try await URLSession.shared.data(for: request)
+                                                if let httpResponse = response as? HTTPURLResponse {
+                                                    print("   🔍 URL accessibility check: HTTP \(httpResponse.statusCode)")
+                                                    errorDetails.append("HTTP Status: \(httpResponse.statusCode)")
+                                                }
+                                            } catch {
+                                                print("   🔍 URL accessibility check failed: \(error.localizedDescription)")
+                                                errorDetails.append("URL check error: \(error.localizedDescription)")
+                                            }
+                                        }
                                     }
                                 }
                                 
+                                // Set user-friendly error message
+                                let userMessage = errorDetails.isEmpty ? "Failed to load audio file" : errorDetails.joined(separator: "\n")
                                 self.errorMessage = "Failed to load audio file"
                                 self.isLoading = false
+                                
+                                // Log full diagnostic info
+                                print("📊 FULL DIAGNOSTIC INFO:")
+                                errorDetails.forEach { print("   \($0)") }
                             }
                         }
                         .store(in: &self.cancellables)
@@ -198,59 +246,89 @@ class AudioPlayerViewModel: ObservableObject {
                 let bucket = pathComponents[publicIndex + 1]
                 let filePath = pathComponents.dropFirst(publicIndex + 2).joined(separator: "/")
                 
-                print("   Extracted bucket: '\(bucket)', path: '\(filePath)'")
+                print("   📦 Extracted bucket: '\(bucket)', path: '\(filePath)'")
                 
-                // Try to create a signed URL first (works even if bucket is public)
-                print("   Attempting to create signed URL for path: '\(filePath)' in bucket: '\(bucket)'...")
-                do {
-                    let supabase = SupabaseService.shared.client
+                // DIAGNOSTIC STEP 1: Verify file exists in storage
+                print("   🔍 STEP 1: Checking if file exists in storage...")
+                let supabase = SupabaseService.shared.client
+                let pathComponents = filePath.split(separator: "/")
+                var fileExists = false
+                
+                if pathComponents.count >= 2 {
+                    let directoryPath = pathComponents.dropLast().joined(separator: "/")
+                    let fileName = String(pathComponents.last ?? "")
                     
-                    // First, try to verify the file exists by listing the directory
-                    let pathComponents = filePath.split(separator: "/")
-                    if pathComponents.count >= 2 {
-                        let directoryPath = pathComponents.dropLast().joined(separator: "/")
-                        let fileName = String(pathComponents.last ?? "")
+                    print("      Directory: '\(directoryPath)'")
+                    print("      Filename: '\(fileName)'")
+                    
+                    do {
+                        let files = try await supabase.storage
+                            .from(bucket)
+                            .list(path: directoryPath)
                         
-                        print("   Checking if file exists in directory: '\(directoryPath)'...")
-                        do {
-                            let files = try await supabase.storage
-                                .from(bucket)
-                                .list(path: directoryPath)
-                            
-                            let matchingFiles = files.filter { $0.name == fileName }
-                            if matchingFiles.isEmpty {
-                                print("   ⚠️ File '\(fileName)' not found in directory '\(directoryPath)'")
-                                print("   Available files: \(files.map { $0.name })")
-                            } else {
-                                print("   ✅ File found in storage")
+                        let matchingFiles = files.filter { $0.name == fileName }
+                        if matchingFiles.isEmpty {
+                            print("      ❌ FILE NOT FOUND in storage!")
+                            print("      Available files in directory: \(files.map { $0.name })")
+                            fileExists = false
+                        } else {
+                            print("      ✅ File found in storage")
+                            if let fileInfo = matchingFiles.first {
+                                print("      File size: \(fileInfo.metadata?["size"] ?? "unknown") bytes")
                             }
-                        } catch {
-                            print("   ⚠️ Could not list directory (may be RLS issue): \(error.localizedDescription)")
+                            fileExists = true
                         }
+                    } catch {
+                        print("      ⚠️ Could not list directory: \(error.localizedDescription)")
+                        print("      This might be an RLS (Row Level Security) issue")
+                        // Continue anyway - file might exist but we can't list
                     }
-                    
+                } else {
+                    print("      ⚠️ Could not parse file path components")
+                }
+                
+                // DIAGNOSTIC STEP 2: Try to create signed URL
+                print("   🔍 STEP 2: Attempting to create signed URL...")
+                do {
                     let signedURL = try await supabase.storage
                         .from(bucket)
                         .createSignedURL(path: filePath, expiresIn: 3600)
                     
-                    print("✅ Created signed URL: \(signedURL.absoluteString)")
+                    print("      ✅ Created signed URL successfully")
+                    print("      Signed URL: \(signedURL.absoluteString)")
                     return signedURL
                 } catch {
-                    print("⚠️ Failed to create signed URL: \(error.localizedDescription)")
+                    print("      ❌ Failed to create signed URL")
+                    print("      Error: \(error.localizedDescription)")
+                    
                     if let nsError = error as NSError? {
-                        print("   Error domain: \(nsError.domain), code: \(nsError.code)")
+                        print("      Error domain: \(nsError.domain), code: \(nsError.code)")
                         if let userInfo = nsError.userInfo as? [String: Any] {
-                            print("   Error userInfo: \(userInfo)")
+                            print("      Error details: \(userInfo)")
                         }
                     }
                     
-                    // If signed URL fails with "Object not found", the file might not exist
-                    // or the path is incorrect. Try public URL as fallback anyway.
-                    print("   Falling back to public URL...")
-                    print("   NOTE: If this also fails, check:")
-                    print("   1. The file exists at path: \(filePath)")
-                    print("   2. The '\(bucket)' bucket is public OR has proper RLS policies")
-                    print("   3. The storage bucket allows signed URL creation")
+                    // DIAGNOSTIC STEP 3: Check error type
+                    let errorDescription = error.localizedDescription.lowercased()
+                    if errorDescription.contains("not found") || errorDescription.contains("404") {
+                        print("      🔍 DIAGNOSIS: File not found error")
+                        if !fileExists {
+                            print("      ❌ CONFIRMED: File does not exist in storage")
+                        }
+                    } else if errorDescription.contains("permission") || errorDescription.contains("forbidden") || errorDescription.contains("403") {
+                        print("      🔍 DIAGNOSIS: Permission denied - RLS policy may be blocking access")
+                    } else if errorDescription.contains("timeout") || errorDescription.contains("network") {
+                        print("      🔍 DIAGNOSIS: Network/timeout error")
+                    }
+                    
+                    // DIAGNOSTIC STEP 4: Fallback to public URL
+                    print("   🔍 STEP 3: Falling back to public URL...")
+                    print("      Public URL: \(originalURL.absoluteString)")
+                    print("   📝 NOTE: If playback still fails, check:")
+                    print("      1. File exists at path: \(filePath) in bucket: \(bucket)")
+                    print("      2. Bucket '\(bucket)' is public OR has proper RLS policies")
+                    print("      3. Storage bucket allows signed URL creation")
+                    print("      4. File format is supported (m4a, mp3, etc.)")
                     return originalURL
                 }
             } else {

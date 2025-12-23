@@ -88,9 +88,84 @@ struct StudioSessionsView: View {
                 Color.black.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
+                    // Fixed header with title and search bar (always visible)
+                    VStack(spacing: 0) {
+                        // First row: Buttons on the right
+                        HStack {
+                            Spacer()
+                            // Toolbar buttons with glassmorphism effect
+                            HStack(spacing: 12) {
+                                // Discover button - always visible
+                                Button {
+                                    showDiscoverSheet = true
+                                } label: {
+                                    Image(systemName: "globe")
+                                        .font(.title2)
+                                        .foregroundColor(.white)
+                                }
+                                
+                                // Create album button - only on My Albums tab
+                                if selectedTab == .myAlbums {
+                                    Button {
+                                        showCreateAlbumSheet = true
+                                    } label: {
+                                        Image(systemName: "plus")
+                                            .font(.title2)
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                            }
+                            .padding(.trailing, 20)
+                            .padding(.top, 8)
+                        }
+                        .frame(height: 44)
+                        
+                        // Second row: StudioSessions title on the left
+                        HStack {
+                            Text("StudioSessions")
+                                .font(.system(size: 34, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.leading, 20)
+                                .padding(.top, 8)
+                            Spacer()
+                        }
+                        .frame(height: 44)
+                        .background(Color.black)
+                        
+                        // Third row: Custom search bar
+                        HStack {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(.white.opacity(0.6))
+                                .padding(.leading, 12)
+                            
+                            TextField("Search local albums...", text: $searchText)
+                                .foregroundColor(.white)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .padding(.vertical, 10)
+                            
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.white.opacity(0.6))
+                                        .padding(.trailing, 12)
+                                }
+                            }
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.15))
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 16)
+                    }
+                    .background(Color.black)
+                    
                     // Custom Tab Bar
                     StudioSessionsTabBar(tabs: AlbumTab.allCases, selectedTab: $selectedTab)
-                        .padding(.top, 10)
                         .padding(.bottom, 16)
                     .onChange(of: selectedTab) { _, _ in
                         Task {
@@ -192,10 +267,7 @@ struct StudioSessionsView: View {
                     }
                 }
             }
-            .navigationTitle("StudioSessions")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarBackground(.black, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationBarHidden(true)
             .onAppear {
                 // Ensure navigation bar is opaque for this view
                 let appearance = UINavigationBarAppearance()
@@ -218,32 +290,6 @@ struct StudioSessionsView: View {
                 UINavigationBar.appearance().scrollEdgeAppearance = appearance
                 UINavigationBar.appearance().compactAppearance = appearance
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        // Discover button - always visible
-                        Button {
-                            showDiscoverSheet = true
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.title2)
-                                .foregroundColor(.white)
-                        }
-                        
-                        // Create album button - only on My Albums tab
-                        if selectedTab == .myAlbums {
-                            Button {
-                                showCreateAlbumSheet = true
-                            } label: {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.title2)
-                                    .foregroundColor(.white)
-                            }
-                        }
-                    }
-                }
-            }
-            .searchable(text: $searchText, prompt: "Search local albums...")
             .sheet(isPresented: $showCreateAlbumSheet) {
                 createAlbumSheet
             }
@@ -697,12 +743,6 @@ struct AlbumCard: View {
                             .foregroundColor(.white.opacity(0.7))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                    }
-                    
-                    if let status = album.release_status, !status.isEmpty {
-                        Text(status.capitalized)
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.6))
                     }
                 }
             }

@@ -12,7 +12,7 @@ struct MainTabView: View {
     @State private var shareTokenToAccept: String?
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
 
             // MARK: - MAIN TABVIEW
             // Note: SoundPrint and RockList features exist in the codebase but are intentionally
@@ -136,6 +136,7 @@ struct MainTabView: View {
             if playerVM.currentTrack != nil {
                 BottomPlayerBar(playerVM: playerVM)
                     .background(Color.black)
+                    .padding(.bottom, 50) // Constant padding above tab bar
                     .transition(.move(edge: .bottom))
             }
 

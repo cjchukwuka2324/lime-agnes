@@ -16,6 +16,10 @@ struct EditAlbumView: View {
     @State private var isPublic: Bool
     @State private var trackToDelete: StudioTrackRecord?
     @State private var showDeleteTrackConfirmation = false
+    @State private var trackTitles: [UUID: String] = [:]
+    @State private var trackToEdit: StudioTrackRecord?
+    @State private var showEditTrackNameSheet = false
+    @State private var editedTrackName: String = ""
     
     private let albumService = AlbumService.shared
     private let trackService = TrackService.shared
@@ -106,6 +110,9 @@ struct EditAlbumView: View {
                 if let track = trackToDelete {
                     Text("Are you sure you want to delete \"\(track.title)\"? This action cannot be undone.")
                 }
+            }
+            .sheet(isPresented: $showEditTrackNameSheet) {
+                editTrackNameSheet
             }
         }
     }
@@ -222,14 +229,19 @@ struct EditAlbumView: View {
                 
                 // Public/Private Toggle
                 VStack(alignment: .leading, spacing: 8) {
+                    Text("Visibility")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.8))
+                    
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Visibility")
+                            Text("Currently: \(isPublic ? "Public" : "Private")")
                                 .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.white.opacity(0.8))
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
                             
-                            Text(isPublic ? "Public - Discoverable by your @username or email" : "Private - Only you and people you share with can see it")
+                            Text(isPublic ? "Switch to Private - Only you and people you share with can see it" : "Switch to Public - Discoverable by your @username or email")
                                 .font(.caption)
                                 .foregroundColor(.white.opacity(0.6))
                         }
@@ -264,6 +276,7 @@ struct EditAlbumView: View {
                 TrackReorderRow(
                     track: track,
                     trackNumber: index + 1,
+                    displayTitle: trackTitles[track.id] ?? track.title,
                     onMoveUp: index > 0 ? {
                         withAnimation {
                             tracks.swapAt(index, index - 1)
@@ -274,6 +287,11 @@ struct EditAlbumView: View {
                             tracks.swapAt(index, index + 1)
                         }
                     } : nil,
+                    onEdit: {
+                        trackToEdit = track
+                        editedTrackName = trackTitles[track.id] ?? track.title
+                        showEditTrackNameSheet = true
+                    },
                     onDelete: {
                         trackToDelete = track
                         showDeleteTrackConfirmation = true
@@ -346,6 +364,57 @@ struct EditAlbumView: View {
         )
     }
     
+    // MARK: - Edit Track Name Sheet
+    private var editTrackNameSheet: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Track Name")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white.opacity(0.8))
+                        
+                        TextField("Enter track name", text: $editedTrackName)
+                            .textFieldStyle(CustomTextFieldStyle())
+                    }
+                    .padding(20)
+                    
+                    Spacer()
+                }
+                .padding(.top, 20)
+            }
+            .navigationTitle("Edit Track Name")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        showEditTrackNameSheet = false
+                    }
+                    .foregroundColor(.white)
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        if let track = trackToEdit {
+                            let trimmedName = editedTrackName.trimmingCharacters(in: .whitespaces)
+                            if !trimmedName.isEmpty {
+                                trackTitles[track.id] = trimmedName
+                            }
+                        }
+                        showEditTrackNameSheet = false
+                    }
+                    .foregroundColor(.white)
+                    .disabled(editedTrackName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+    
     // MARK: - Functions
     private func loadTracks() async {
         do {
@@ -382,6 +451,16 @@ struct EditAlbumView: View {
             
             try await trackService.reorderTracks(albumId: album.id, trackOrder: trackOrder)
             
+            // Update track titles if changed
+            for track in tracks {
+                if let editedTitle = trackTitles[track.id], editedTitle != track.title {
+                    let trimmedTitle = editedTitle.trimmingCharacters(in: .whitespaces)
+                    if !trimmedTitle.isEmpty {
+                        try await trackService.updateTrack(track, title: trimmedTitle, trackNumber: nil)
+                    }
+                }
+            }
+            
             await MainActor.run {
                 onUpdated(updatedAlbum)
                 dismiss()
@@ -413,8 +492,10 @@ struct EditAlbumView: View {
 struct TrackReorderRow: View {
     let track: StudioTrackRecord
     let trackNumber: Int
+    let displayTitle: String
     let onMoveUp: (() -> Void)?
     let onMoveDown: (() -> Void)?
+    let onEdit: () -> Void
     let onDelete: () -> Void
     
     var body: some View {
@@ -426,14 +507,14 @@ struct TrackReorderRow: View {
                 .frame(width: 30)
             
             // Track Title
-            Text(track.title)
+            Text(displayTitle)
                 .font(.headline)
                 .foregroundColor(.white)
                 .lineLimit(1)
             
             Spacer()
             
-            // Move and Delete Buttons
+            // Move, Edit, and Delete Buttons
             HStack(spacing: 8) {
                 if let moveUp = onMoveUp {
                     Button {
@@ -459,6 +540,18 @@ struct TrackReorderRow: View {
                             .background(Color.white.opacity(0.1))
                             .cornerRadius(8)
                     }
+                }
+                
+                // Edit Button
+                Button {
+                    onEdit()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                        .padding(8)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(8)
                 }
                 
                 // Delete Button

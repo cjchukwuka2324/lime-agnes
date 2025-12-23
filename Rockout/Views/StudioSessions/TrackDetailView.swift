@@ -53,17 +53,9 @@ struct TrackDetailView: View {
         }
         .navigationTitle("Track")
         .sheet(isPresented: $showPlayer) {
-            NavigationStack {
-                AudioPlayerView(track: track)
-                    .navigationTitle("Player")
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Done") {
-                                showPlayer = false
-                            }
-                        }
-                    }
-            }
+            AudioPlayerView(track: track)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showShare) {
             ShareSheetView(resourceType: "track", resourceId: track.id)

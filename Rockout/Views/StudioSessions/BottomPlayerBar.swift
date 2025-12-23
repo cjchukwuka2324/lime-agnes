@@ -89,6 +89,8 @@ struct BottomPlayerBar: View {
             .sheet(isPresented: $showFullPlayer) {
                 if let track = playerVM.currentTrack {
                     AudioPlayerView(track: track)
+                        .presentationDetents([.large])
+                        .presentationDragIndicator(.visible)
                 }
             }
         }
@@ -156,3 +158,4 @@ struct RoundedCorner: Shape {
         return Path(path.cgPath)
     }
 }
+

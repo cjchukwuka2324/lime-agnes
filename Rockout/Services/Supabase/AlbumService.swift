@@ -843,15 +843,43 @@ final class AlbumService {
     func fetchPublicAlbumsByUserId(userId: UUID) async throws -> [StudioAlbumRecord] {
         print("🔍 Fetching public albums for user: \(userId.uuidString)")
         
+        // First, fetch ALL albums for the user (without is_public filter) for debugging
+        let allAlbumsResponse = try await supabase
+            .from("albums")
+            .select()
+            .eq("artist_id", value: userId.uuidString)
+            .order("created_at", ascending: false)
+            .limit(1000)
+            .execute()
+        
+        let allAlbums = try JSONDecoder().decode([StudioAlbumRecord].self, from: allAlbumsResponse.data)
+        print("📊 DEBUG: Found \(allAlbums.count) total album(s) for user \(userId.uuidString)")
+        
+        // Log each album's is_public status
+        for album in allAlbums {
+            let isPublicValue = album.is_public ?? false
+            print("📊 DEBUG: Album '\(album.title)' (ID: \(album.id.uuidString)) - is_public: \(isPublicValue)")
+        }
+        
+        // Now filter for public albums in the database query
         let response = try await supabase
             .from("albums")
             .select()
             .eq("artist_id", value: userId.uuidString)
             .eq("is_public", value: true)
             .order("created_at", ascending: false)
+            .limit(1000)  // Explicit limit to ensure all albums are fetched
             .execute()
         
         var albums = try JSONDecoder().decode([StudioAlbumRecord].self, from: response.data)
+        print("✅ Found \(albums.count) public album(s) for user \(userId.uuidString) (filtered by is_public = true)")
+        
+        // Also filter in code to compare
+        let codeFilteredAlbums = allAlbums.filter { $0.is_public == true }
+        print("📊 DEBUG: Code-filtered public albums: \(codeFilteredAlbums.count)")
+        if codeFilteredAlbums.count != albums.count {
+            print("⚠️ WARNING: Database filter returned \(albums.count) albums, but code filter found \(codeFilteredAlbums.count) albums")
+        }
         
         // Fetch artist names for albums that don't have them
         let albumsNeedingArtistName = albums.filter { $0.artist_name == nil || $0.artist_name?.isEmpty == true }
@@ -888,7 +916,7 @@ final class AlbumService {
         }
         
         // Update albums with artist names and saved counts
-        return albums.map { album in
+        let finalAlbums = albums.map { album in
             var updatedAlbum = album
             if updatedAlbum.artist_name == nil || updatedAlbum.artist_name?.isEmpty == true {
                 updatedAlbum.artist_name = artistNames[album.artist_id]
@@ -896,6 +924,9 @@ final class AlbumService {
             updatedAlbum.saved_count = savedCounts[album.id] ?? 0
             return updatedAlbum
         }
+        
+        print("✅ Returning \(finalAlbums.count) public album(s) for user \(userId.uuidString)")
+        return finalAlbums
     }
     
     // MARK: - DELETE CONTEXT

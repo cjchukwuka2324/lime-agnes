@@ -392,12 +392,6 @@ struct AlbumDetailView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
                 }
-                
-                if let status = currentAlbum.release_status, !status.isEmpty {
-                    Text(status.capitalized)
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.6))
-                }
             }
         }
         .padding(.horizontal, 24)
