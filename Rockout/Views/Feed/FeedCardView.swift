@@ -546,14 +546,15 @@ struct FeedCardView: View {
     @ViewBuilder
     private var actionButtons: some View {
         // Ensure action buttons are clearly below media with proper spacing
+        // Order: adlib, echo, amp
         HStack(spacing: 0) {
-            likeButton
+            replyButton  // adlib
             Spacer()
                 .frame(width: 12)
-            echoButton
+            echoButton   // echo
             Spacer()
                 .frame(width: 12)
-            replyButton
+            likeButton   // amp
             Spacer()
                 .frame(width: 12)
             deleteButton

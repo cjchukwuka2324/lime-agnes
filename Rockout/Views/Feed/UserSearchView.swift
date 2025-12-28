@@ -3,8 +3,21 @@ import Supabase
 import Combine
 import Foundation
 
+enum UserFilter: String, CaseIterable {
+    case all = "All"
+    case following = "Following"
+    case notFollowing = "Not Following"
+}
+
+enum SortOption: String, CaseIterable {
+    case relevance = "Relevance"
+    case name = "Name"
+    case newest = "Newest"
+}
+
 struct UserSearchView: View {
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var isSearchFocused: Bool
     @State private var searchText = ""
     @State private var searchResults: [UserProfileCard] = []
     @State private var isLoading = false
@@ -13,6 +26,9 @@ struct UserSearchView: View {
     @State private var errorMessage: String?
     @State private var selectedUserId: UUID?
     @State private var currentOffset = 0
+    @State private var selectedFilter: UserFilter = .all
+    @State private var sortOption: SortOption = .relevance
+    @AppStorage("recentSearches") private var recentSearchesData: Data = Data()
     
     private let profileService = UserProfileService.shared
     private let followService = FollowService.shared
@@ -35,22 +51,53 @@ struct UserSearchView: View {
     @State private var mutualSuggestions: [MutualFollowSuggestion] = []
     @State private var isLoadingMutuals = false
     
+    // Recent searches helper functions
+    private func getRecentSearches() -> [UserProfileCard] {
+        guard let decoded = try? JSONDecoder().decode([UserProfileCard].self, from: recentSearchesData) else {
+            return []
+        }
+        return Array(decoded.prefix(15)) // Keep last 15 profiles
+    }
+    
+    private func setRecentSearches(_ searches: [UserProfileCard]) {
+        if let encoded = try? JSONEncoder().encode(Array(searches.prefix(15))) {
+            recentSearchesData = encoded
+        }
+    }
+    
+    private var filteredAndSortedResults: [UserProfileCard] {
+        var results = searchResults
+        
+        // Apply filter
+        switch selectedFilter {
+        case .all:
+            break
+        case .following:
+            results = results.filter { $0.isFollowing }
+        case .notFollowing:
+            results = results.filter { !$0.isFollowing }
+        }
+        
+        // Apply sorting
+        switch sortOption {
+        case .relevance:
+            // Already sorted by relevance from search
+            break
+        case .name:
+            results = results.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        case .newest:
+            // Not applicable without timestamps, keep as is
+            break
+        }
+        
+        return results
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
-                // Green gradient background
-                LinearGradient(
-                    colors: [
-                        Color(hex: "#050505"),
-                        Color(hex: "#0C7C38"),
-                        Color(hex: "#1DB954"),
-                        Color(hex: "#1ED760"),
-                        Color(hex: "#050505")
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                // Solid black background
+                Color.black.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
                     // Search Bar
@@ -62,6 +109,7 @@ struct UserSearchView: View {
                             .foregroundColor(.white)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
+                            .focused($isSearchFocused)
                             .onChange(of: searchText) { _, newValue in
                                 // Cancel previous search task
                                 searchTask?.cancel()
@@ -91,10 +139,11 @@ struct UserSearchView: View {
                             }
                         }
                     }
-                    .padding()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.15))
+                            .fill(Color.white.opacity(0.1))
                     )
                     .padding(.horizontal, 20)
                     .padding(.top, 10)
@@ -114,15 +163,63 @@ struct UserSearchView: View {
                             .foregroundColor(.red)
                             .padding()
                         Spacer()
-                    } else if searchResults.isEmpty && !searchText.isEmpty {
+                    } else if filteredAndSortedResults.isEmpty && !searchText.isEmpty {
                         Spacer()
-                        Text("No users found")
-                            .foregroundColor(.white.opacity(0.7))
+                        VStack(spacing: 16) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 48))
+                                .foregroundColor(.white.opacity(0.6))
+                            Text("No users found")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            Text(selectedFilter != .all ? "Try changing the filter" : "Try a different search term")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.7))
+                        }
                         Spacer()
                     } else if searchResults.isEmpty && searchText.isEmpty {
-                        // Show mutual and contact suggestions when search is empty
+                        // Show recent searches, mutual and contact suggestions when search is empty
                         ScrollView {
                             VStack(alignment: .leading, spacing: 20) {
+                                // Recent Searches
+                                if !getRecentSearches().isEmpty {
+                                    VStack(alignment: .leading, spacing: 16) {
+                                        HStack {
+                                            Text("Recent Searches")
+                                                .font(.headline)
+                                                .foregroundColor(.white)
+                                            Spacer()
+                                            Button("Clear") {
+                                                setRecentSearches([])
+                                            }
+                                            .font(.subheadline)
+                                            .foregroundColor(.white.opacity(0.7))
+                                        }
+                                        .padding(.horizontal, 20)
+                                        .padding(.top, 20)
+                                        
+                                        ForEach(getRecentSearches()) { recentProfile in
+                                            NavigationLink {
+                                                UserProfileDetailView(userId: recentProfile.id)
+                                            } label: {
+                                                UserProfileCardView(
+                                                    user: recentProfile,
+                                                    onFollowChanged: { isFollowing in
+                                                        // Update the profile in recent searches
+                                                        var searches = getRecentSearches()
+                                                        if let index = searches.firstIndex(where: { $0.id == recentProfile.id }) {
+                                                            searches[index].isFollowing = isFollowing
+                                                            setRecentSearches(searches)
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                            .padding(.horizontal, 20)
+                                        }
+                                    }
+                                }
+                                
                                 // Mutual Follow Suggestions
                                 if !mutualSuggestions.isEmpty {
                                     VStack(alignment: .leading, spacing: 16) {
@@ -207,35 +304,7 @@ struct UserSearchView: View {
                                         }
                                     }
                                 } else if mutualSuggestions.isEmpty && contactSuggestions.isEmpty && !isLoadingContacts && !isLoadingMutuals {
-                        Spacer()
-                        VStack(spacing: 16) {
-                            Image(systemName: "person.2.fill")
-                                .font(.system(size: 48))
-                                .foregroundColor(.white.opacity(0.6))
-                            Text("Search for users")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            Text("Find and follow other music lovers")
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.7))
-                                .multilineTextAlignment(.center)
-                                        
-                                        Button {
-                                            Task {
-                                                await syncContactsAndLoadSuggestions()
-                                            }
-                                        } label: {
-                                            Text("Find Friends from Contacts")
-                                                .font(.subheadline.weight(.semibold))
-                                                .foregroundColor(.black)
-                                                .padding(.horizontal, 24)
-                                                .padding(.vertical, 12)
-                                                .background(Color(hex: "#1ED760"))
-                                                .cornerRadius(20)
-                                        }
-                                        .padding(.top, 8)
-                                    }
-                                    .padding()
+                                    // Empty state - recent searches will show above if available
                                     Spacer()
                                 }
                             }
@@ -247,25 +316,34 @@ struct UserSearchView: View {
                             .foregroundColor(.white.opacity(0.7))
                         Spacer()
                     } else {
+                        let filtered = filteredAndSortedResults
                         ScrollView {
                             LazyVStack(spacing: 16) {
-                                ForEach(searchResults.indices, id: \.self) { index in
+                                        ForEach(filtered.indices, id: \.self) { index in
                                     NavigationLink {
-                                        UserProfileDetailView(userId: searchResults[index].id)
+                                        UserProfileDetailView(userId: filtered[index].id)
                                     } label: {
                                         UserProfileCardView(
-                                            user: searchResults[index],
+                                            user: filtered[index],
                                             onFollowChanged: { isFollowing in
                                                 // Update the search result when follow status changes
-                                                searchResults[index].isFollowing = isFollowing
+                                                if let originalIndex = searchResults.firstIndex(where: { $0.id == filtered[index].id }) {
+                                                    searchResults[originalIndex].isFollowing = isFollowing
+                                                }
+                                                // Also update in recent searches if it exists there
+                                                var recent = getRecentSearches()
+                                                if let recentIndex = recent.firstIndex(where: { $0.id == filtered[index].id }) {
+                                                    recent[recentIndex].isFollowing = isFollowing
+                                                    setRecentSearches(recent)
+                                                }
                                             }
                                         )
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                     .padding(.horizontal, 20)
                                     .onAppear {
-                                        // Load more when we reach the last item
-                                        if index == searchResults.count - 1 && hasMorePages && !isLoadingMore {
+                                        // Load more when we reach the last item (based on original results, not filtered)
+                                        if index == filtered.count - 1 && hasMorePages && !isLoadingMore {
                                             Task {
                                                 await searchUsers(query: searchText, resetPagination: false)
                                             }
@@ -289,6 +367,51 @@ struct UserSearchView: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if !searchResults.isEmpty {
+                        Menu {
+                            // Filter options
+                            Menu {
+                                ForEach(UserFilter.allCases, id: \.self) { filter in
+                                    Button {
+                                        selectedFilter = filter
+                                    } label: {
+                                        HStack {
+                                            Text(filter.rawValue)
+                                            if selectedFilter == filter {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+                            }
+                            
+                            // Sort options
+                            Menu {
+                                ForEach(SortOption.allCases, id: \.self) { sort in
+                                    Button {
+                                        sortOption = sort
+                                    } label: {
+                                        HStack {
+                                            Text(sort.rawValue)
+                                            if sortOption == sort {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort", systemImage: "arrow.up.arrow.down")
+                            }
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .foregroundColor(.white)
+                        }
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
@@ -412,6 +535,9 @@ struct UserSearchView: View {
                 offset: currentOffset
             )
             
+            // Check if task was cancelled before updating UI
+            guard !Task.isCancelled else { return }
+            
             // Convert UserSummary to UserProfileCard
             let cards = result.users.map { userSummary in
                 UserProfileCard(
@@ -419,12 +545,15 @@ struct UserSearchView: View {
                     displayName: userSummary.displayName,
                     handle: userSummary.handle,
                     avatarInitials: userSummary.avatarInitials,
+                    profilePictureURLString: userSummary.profilePictureURL?.absoluteString,
                     isFollowing: userSummary.isFollowing
                 )
             }
             
             if resetPagination {
                 searchResults = cards
+                // Save profiles to recent searches
+                addProfilesToRecentSearches(cards)
             } else {
                 searchResults.append(contentsOf: cards)
             }
@@ -433,11 +562,37 @@ struct UserSearchView: View {
             hasMorePages = result.hasMore
             
         } catch {
+            // Only show error if task wasn't cancelled
+            guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
             if resetPagination {
                 searchResults = []
             }
         }
+    }
+    
+    private func addProfilesToRecentSearches(_ profiles: [UserProfileCard]) {
+        guard !profiles.isEmpty else { return }
+        
+        var recent = getRecentSearches()
+        var recentIds = Set(recent.map { $0.id })
+        
+        // Add new profiles, avoiding duplicates by ID
+        for profile in profiles {
+            if recentIds.contains(profile.id) {
+                // Update existing profile and move to front
+                if let index = recent.firstIndex(where: { $0.id == profile.id }) {
+                    recent.remove(at: index)
+                    recent.insert(profile, at: 0)
+                }
+            } else {
+                // Add new profile at the beginning
+                recent.insert(profile, at: 0)
+                recentIds.insert(profile.id) // Track added IDs to prevent duplicates within batch
+            }
+        }
+        
+        setRecentSearches(recent)
     }
     
     private func generateInitials(firstName: String?, lastName: String?, displayName: String) -> String {
@@ -455,13 +610,60 @@ struct UserSearchView: View {
 
 struct UserProfileCard: Identifiable, Equatable {
     let id: UUID
-    let displayName: String
-    let handle: String
-    let avatarInitials: String
+    var displayName: String
+    var handle: String
+    var avatarInitials: String
+    var profilePictureURLString: String?
     var isFollowing: Bool
+    
+    var profilePictureURL: URL? {
+        guard let urlString = profilePictureURLString else { return nil }
+        return URL(string: urlString)
+    }
     
     static func == (lhs: UserProfileCard, rhs: UserProfileCard) -> Bool {
         return lhs.id == rhs.id
+    }
+}
+
+extension UserProfileCard: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case handle
+        case avatarInitials
+        case profilePictureURLString
+        case profilePictureURL  // Support old field name for backward compatibility (stored as String in JSON)
+        case isFollowing
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        handle = try container.decode(String.self, forKey: .handle)
+        avatarInitials = try container.decode(String.self, forKey: .avatarInitials)
+        isFollowing = try container.decode(Bool.self, forKey: .isFollowing)
+        
+        // Try new field name first, then fall back to old field name for backward compatibility
+        // Note: In JSON, URLs are always strings, so we decode both as String
+        if let urlString = try container.decodeIfPresent(String.self, forKey: .profilePictureURLString) {
+            profilePictureURLString = urlString
+        } else if let urlString = try container.decodeIfPresent(String.self, forKey: .profilePictureURL) {
+            profilePictureURLString = urlString
+        } else {
+            profilePictureURLString = nil
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(handle, forKey: .handle)
+        try container.encode(avatarInitials, forKey: .avatarInitials)
+        try container.encode(isFollowing, forKey: .isFollowing)
+        try container.encodeIfPresent(profilePictureURLString, forKey: .profilePictureURLString)
     }
 }
 
@@ -482,35 +684,47 @@ struct UserProfileCardView: View {
     }
     
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             // Avatar
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(hex: "#1DB954"),
-                            Color(hex: "#1ED760")
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 56, height: 56)
-                .overlay(
-                    Text(user.avatarInitials)
-                        .font(.title3.bold())
-                        .foregroundColor(.white)
-                )
+            Group {
+                if let pictureURL = user.profilePictureURL {
+                    AsyncImage(url: pictureURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .tint(.white.opacity(0.6))
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            avatarFallback
+                        @unknown default:
+                            avatarFallback
+                        }
+                    }
+                } else {
+                    avatarFallback
+                }
+            }
+            .frame(width: 48, height: 48)
+            .clipShape(Circle())
             
             // User Info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(user.displayName)
-                    .font(.headline)
+                    .font(.subheadline)
                     .foregroundColor(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 
                 Text(user.handle)
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
             Spacer()
@@ -538,7 +752,7 @@ struct UserProfileCardView: View {
             }
             .disabled(isUpdatingFollow)
         }
-        .padding(16)
+        .padding(12)
         .glassMorphism()
         .onAppear {
             // Sync internal state with user object when view appears
@@ -548,6 +762,27 @@ struct UserProfileCardView: View {
             // Update internal state when user object changes
             isFollowing = newValue
         }
+    }
+    
+    private var avatarFallback: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: "#1DB954"),
+                            Color(hex: "#1ED760")
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            
+            Text(user.avatarInitials)
+                .font(.title3.bold())
+                .foregroundColor(.white)
+        }
+        .frame(width: 48, height: 48)
     }
     
     private func toggleFollow() async {

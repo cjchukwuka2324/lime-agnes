@@ -11,6 +11,10 @@ struct CameraPickerView: UIViewControllerRepresentable {
         let picker = UIImagePickerController()
         picker.delegate = context.coordinator
         
+        picker.modalPresentationStyle = .fullScreen
+        picker.modalPresentationCapturesStatusBarAppearance = true
+        picker.view.backgroundColor = .black
+        
         // Check if camera is available
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             picker.sourceType = .camera

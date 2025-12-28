@@ -178,148 +178,147 @@ struct SpotifyLinkAddView: View {
     
     private var searchView: some View {
         VStack(spacing: 0) {
-            // Platform selector
-            Picker("Platform", selection: $selectedPlatform) {
-                Text("Spotify").tag(0)
-                Text("Apple Music").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.bottom, 12)
-            
-            // Search Bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.white.opacity(0.6))
-                
-                TextField("Search tracks...", text: $searchQuery)
-                    .foregroundColor(.white)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .onSubmit {
-                        Task {
-                            await performSearch()
+            // Top controls pinned at top
+            VStack(spacing: 12) {
+                // Platform selector
+                Picker("Platform", selection: $selectedPlatform) {
+                    Text("Spotify").tag(0)
+                    Text("Apple Music").tag(1)
+                }
+                .pickerStyle(.segmented)
+
+                // Search Bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.white.opacity(0.6))
+
+                    TextField("Search tracks...", text: $searchQuery)
+                        .foregroundColor(.white)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit {
+                            Task {
+                                await performSearch()
+                            }
+                        }
+
+                    if !searchQuery.isEmpty {
+                        Button {
+                            searchQuery = ""
+                            clearSearchResults()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.white.opacity(0.6))
                         }
                     }
-                
-                if !searchQuery.isEmpty {
-                    Button {
-                        searchQuery = ""
-                        clearSearchResults()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.white.opacity(0.6))
-                    }
                 }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.15))
+                )
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.15))
-            )
             .padding(.horizontal)
-            
-            // Search Results
-            if isSearching {
-                Spacer()
-                ProgressView()
-                    .tint(.white)
-                Spacer()
-            } else if hasSearchResults {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if selectedPlatform == 0 {
-                            // Spotify results
-                            if !spotifyTracks.isEmpty {
-                                Text("Tracks")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal)
-                                
-                                ForEach(spotifyTracks) { track in
-                                    spotifyTrackRow(track: track)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+
+            // Results/content fill the rest so controls stay at top
+            Group {
+                if isSearching {
+                    VStack { Spacer(); ProgressView().tint(.white); Spacer() }
+                } else if hasSearchResults {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            if selectedPlatform == 0 {
+                                // Spotify results
+                                if !spotifyTracks.isEmpty {
+                                    Text("Tracks")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal)
+
+                                    ForEach(spotifyTracks) { track in
+                                        spotifyTrackRow(track: track)
+                                    }
+                                }
+
+                                if !spotifyPlaylists.isEmpty {
+                                    Text("Playlists")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal)
+                                        .padding(.top, spotifyTracks.isEmpty ? 0 : 20)
+
+                                    ForEach(spotifyPlaylists) { playlist in
+                                        spotifyPlaylistRow(playlist: playlist)
+                                    }
+                                }
+                            } else {
+                                // Apple Music results
+                                if !appleMusicSongs.isEmpty {
+                                    Text("Songs")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal)
+
+                                    ForEach(appleMusicSongs) { song in
+                                        appleMusicSongRow(song: song)
+                                    }
                                 }
                             }
-                            
-                            if !spotifyPlaylists.isEmpty {
-                                Text("Playlists")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
+                        }
+                        .padding(.vertical)
+                    }
+                } else if !searchQuery.isEmpty && !isSearching {
+                    VStack(spacing: 12) {
+                        if let error = errorMessage {
+                            VStack(spacing: 12) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.red)
+                                Text(error)
+                                    .font(.subheadline)
+                                    .foregroundColor(.red)
+                                    .multilineTextAlignment(.center)
                                     .padding(.horizontal)
-                                    .padding(.top, spotifyTracks.isEmpty ? 0 : 20)
-                                
-                                ForEach(spotifyPlaylists) { playlist in
-                                    spotifyPlaylistRow(playlist: playlist)
+
+                                if error.contains("connect your Spotify account") {
+                                    Button {
+                                        dismiss()
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "link")
+                                            Text("Connect Spotify")
+                                        }
+                                        .font(.subheadline)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 8)
+                                        .background(Color(hex: "#1ED760"))
+                                        .cornerRadius(8)
+                                    }
+                                    .padding(.top, 8)
                                 }
                             }
                         } else {
-                            // Apple Music results
-                            if !appleMusicSongs.isEmpty {
-                                Text("Songs")
+                            VStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.title2)
+                                    .foregroundColor(.white.opacity(0.5))
+                                Text("No results found")
                                     .font(.headline)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal)
-                                
-                                ForEach(appleMusicSongs) { song in
-                                    appleMusicSongRow(song: song)
-                                }
+                                    .foregroundColor(.white.opacity(0.7))
+                                Text("Try a different search term")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.5))
                             }
                         }
                     }
-                    .padding(.vertical)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // Idle state filler to keep controls at top
+                    Spacer()
                 }
-            } else if !searchQuery.isEmpty && !isSearching {
-                Spacer()
-                VStack(spacing: 12) {
-                    if let error = errorMessage {
-                        // Show error message prominently
-                        VStack(spacing: 12) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.title2)
-                                .foregroundColor(.red)
-                            Text(error)
-                                .font(.subheadline)
-                                .foregroundColor(.red)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                            
-                            // If error suggests connecting Spotify, show a button
-                            if error.contains("connect your Spotify account") {
-                                Button {
-                                    // Navigate to profile to connect Spotify
-                                    // This will be handled by the parent view
-                                    dismiss()
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "link")
-                                        Text("Connect Spotify")
-                                    }
-                                    .font(.subheadline)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(Color(hex: "#1ED760"))
-                                    .cornerRadius(8)
-                                }
-                                .padding(.top, 8)
-                            }
-                        }
-                    } else {
-                        // No error, just no results
-                        VStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.title2)
-                                .foregroundColor(.white.opacity(0.5))
-                            Text("No results found")
-                                .font(.headline)
-                                .foregroundColor(.white.opacity(0.7))
-                            Text("Try a different search term")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.5))
-                        }
-                    }
-                }
-                Spacer()
             }
         }
     }
@@ -797,3 +796,4 @@ struct SpotifyLinkAddView: View {
         return nil
     }
 }
+

@@ -9,19 +9,8 @@ struct NotificationsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Green gradient background
-                LinearGradient(
-                    colors: [
-                        Color(hex: "#050505"),
-                        Color(hex: "#0C7C38"),
-                        Color(hex: "#1DB954"),
-                        Color(hex: "#1ED760"),
-                        Color(hex: "#050505")
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                // Solid black background
+                Color.black.ignoresSafeArea()
                 
                 if viewModel.isLoading {
                     VStack(spacing: 16) {
@@ -30,17 +19,19 @@ struct NotificationsView: View {
                         Text("Loading notifications...")
                             .foregroundColor(.white.opacity(0.8))
                     }
-                } else if viewModel.notifications.isEmpty {
+                } else if viewModel.filteredNotifications.isEmpty {
                     VStack(spacing: 20) {
                         Image(systemName: "bell.fill")
                             .font(.system(size: 64))
                             .foregroundColor(.white.opacity(0.6))
                         
-                        Text("No Notifications")
+                        Text(viewModel.selectedFilter == .all ? "No Notifications" : "No \(viewModel.selectedFilter.rawValue) Notifications")
                             .font(.title2.bold())
                             .foregroundColor(.white)
                         
-                        Text("When someone amps, adlibs, or follows you, you'll see it here")
+                        Text(viewModel.selectedFilter == .all 
+                             ? "When someone amps, adlibs, or follows you, you'll see it here"
+                             : "Try changing the filter to see more notifications")
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
@@ -49,12 +40,50 @@ struct NotificationsView: View {
                     .padding()
                 } else {
                     ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(viewModel.notifications) { notification in
-                                NotificationCard(notification: notification)
-                                    .padding(.horizontal, 20)
-                                    .onTapGesture {
-                                        handleNotificationTap(notification)
+                        LazyVStack(spacing: 20) {
+                            ForEach(viewModel.groupedNotifications) { group in
+                                VStack(alignment: .leading, spacing: 12) {
+                                    // Section header
+                                    Text(group.title)
+                                        .font(.headline)
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .padding(.horizontal, 20)
+                                    
+                                    // Notifications in group
+                                    ForEach(group.notifications) { notification in
+                                        NotificationCard(notification: notification)
+                                            .padding(.horizontal, 20)
+                                            .onTapGesture {
+                                                handleNotificationTap(notification)
+                                            }
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                                if notification.readAt == nil {
+                                                    Button {
+                                                        Task {
+                                                            await viewModel.markAsRead(notification.id)
+                                                        }
+                                                    } label: {
+                                                        Label("Mark Read", systemImage: "checkmark.circle")
+                                                    }
+                                                    .tint(Color(hex: "#1ED760"))
+                                                }
+                                            }
+                                    }
+                                }
+                            }
+                            
+                            // Load more indicator
+                            if viewModel.isLoadingMore {
+                                ProgressView()
+                                    .tint(.white)
+                                    .padding()
+                            } else if viewModel.hasMorePages {
+                                Color.clear
+                                    .frame(height: 1)
+                                    .onAppear {
+                                        Task {
+                                            await viewModel.loadMore()
+                                        }
                                     }
                             }
                         }
@@ -67,13 +96,31 @@ struct NotificationsView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Mark All Read") {
-                        Task {
-                            await viewModel.markAllAsRead()
+                    Menu {
+                        ForEach(NotificationFilter.allCases, id: \.self) { filter in
+                            Button {
+                                viewModel.selectedFilter = filter
+                            } label: {
+                                HStack {
+                                    Text(filter.rawValue)
+                                    if viewModel.selectedFilter == filter {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
                         }
+                        
+                        Divider()
+                        
+                        Button("Mark All Read") {
+                            Task {
+                                await viewModel.markAllAsRead()
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .foregroundColor(.white)
                     }
-                    .foregroundColor(.white)
-                    .font(.subheadline)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -174,7 +221,7 @@ struct NotificationCard: View {
                         EmptyView()
                     }
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: 56, height: 56)
                 .clipShape(Circle())
             } else {
                 // Fallback icon
@@ -190,16 +237,16 @@ struct NotificationCard: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 44, height: 44)
+                        .frame(width: 56, height: 56)
                     
                     Image(systemName: iconName)
                         .foregroundColor(.white)
-                        .font(.system(size: 20))
+                        .font(.system(size: 24))
                 }
             }
             
             // Content
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(notification.message.transformedForGreenRoom())
                     .font(.body)
                     .foregroundColor(.white)
@@ -216,19 +263,11 @@ struct NotificationCard: View {
             if notification.readAt == nil {
                 Circle()
                     .fill(Color(hex: "#1ED760"))
-                    .frame(width: 8, height: 8)
+                    .frame(width: 10, height: 10)
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                )
-        )
-        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+        .glassMorphism()
     }
     
     private var iconName: String {

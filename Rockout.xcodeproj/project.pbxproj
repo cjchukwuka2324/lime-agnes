@@ -155,6 +155,7 @@
 		BF94888A6D49C4967FFA3B0F /* Dictionary+PercentEncoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB70812ECC400E0084B284 /* Dictionary+PercentEncoding.swift */; };
 		C0D8CF7F58C10E3D60A5D7E5 /* AlbumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B462ECD1EBF00368E8B /* AlbumService.swift */; };
 		C114BC05F14F71EFDA37828B /* PostComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4EB236CDB1F90DC9977D655 /* PostComposerView.swift */; };
+		D6E7F8A9B0C1D2E3F4A5B6C7 /* VoiceRecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5FC347DE2F01A1B2C3D4E5F /* VoiceRecordingView.swift */; };
 		C2042DEE86BF7517FE092394 /* GenreStat.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B232ECCA06800368E8B /* GenreStat.swift */; };
 		C81F634CB0665E9188BDD195 /* studiosessions_onboarding.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 6DEE7A41E4C297EB4C8FB686 /* studiosessions_onboarding.mp4 */; };
 		C9DBC14D995AF89926BD2027 /* PostDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A6750D9BC81A6202E2526A /* PostDetailViewModel.swift */; };
@@ -341,6 +342,7 @@
 		9DD354A3411CE5BC7ADCB59C /* Views/Recall/GifImage.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; includeInIndex = 1; path = Views/Recall/GifImage.swift; sourceTree = "<group>"; };
 		A41845955871E5560DEFC396 /* ShareSheetView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareSheetView.swift; path = Views/StudioSessions/ShareSheetView.swift; sourceTree = "<group>"; };
 		A4EB236CDB1F90DC9977D655 /* PostComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostComposerView.swift; sourceTree = "<group>"; };
+		B5FC347DE2F01A1B2C3D4E5F /* VoiceRecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingView.swift; sourceTree = "<group>"; };
 		A6C9D80A7860D1EA28902FF6 /* Views/Shared/HashtagTextView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Views/Shared/HashtagTextView.swift; sourceTree = "<group>"; };
 		A79C85E966CD1FCAC9F75CAD /* VersionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VersionService.swift; path = Services/Supabase/VersionService.swift; sourceTree = "<group>"; };
 		A79C85E966CD1FCAC9F75CAE /* WaveformService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WaveformService.swift; path = Services/Waveform/WaveformService.swift; sourceTree = "<group>"; };
@@ -1338,6 +1340,7 @@
 				01A0FE3FE6DB47BDB3D7B752 /* FeedView.swift */,
 				AB65FA62EA134D19BB36570F /* TrendingFeedView.swift */,
 				A4EB236CDB1F90DC9977D655 /* PostComposerView.swift */,
+				B5FC347DE2F01A1B2C3D4E5F /* VoiceRecordingView.swift */,
 				F723194939AFB374976591CB /* PostDetailView.swift */,
 				316564356664323034653239346266396134336563353636 /* ThreadReplyView.swift */,
 				5F4A6B7C8D9E0F1A2B3C4D5E /* FeedCardView.swift */,
@@ -1716,6 +1719,7 @@
 				4D68B903B05B5BB9F00B5AAD /* GreenRoomBranding.swift in Sources */,
 				5B4C6D7E8F9A0B1C2D3E4F5 /* Notification.swift in Sources */,
 				C114BC05F14F71EFDA37828B /* PostComposerView.swift in Sources */,
+				D6E7F8A9B0C1D2E3F4A5B6C7 /* VoiceRecordingView.swift in Sources */,
 				396535363333386333636238343032396234323864353837 /* MentionAutocompleteView.swift in Sources */,
 				333836663162643138663035343438623839393936363466 /* HashtagAutocompleteView.swift in Sources */,
 				78DCD47C4FD6E12C6DB07A3F /* UserSearchView.swift in Sources */,
