@@ -21,6 +21,7 @@ final class FeedViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var currentFeedType: FeedType = .forYou
     private var cursors: [FeedType: Date] = [:] // Track cursor per feed type
+    private var isUserProfileMode = false // Track if loading user-specific content
     
     // MARK: - Initialization
     
@@ -44,6 +45,9 @@ final class FeedViewModel: ObservableObject {
     }
     
     private func filterPostsFromStore() async {
+        // Don't override user-specific posts with feed store posts
+        guard !isUserProfileMode else { return }
+        
         // Get posts for the current feed type
         let cachedPosts = feedStore.getPostsForFeed(currentFeedType)
         
@@ -78,6 +82,7 @@ final class FeedViewModel: ObservableObject {
     // MARK: - Load Feed
     
     func load(feedType: FeedType = .forYou, region: String? = nil) async {
+        isUserProfileMode = false // Reset to allow FeedStore updates for main feed
         isLoading = true
         errorMessage = nil
         currentFeedType = feedType
@@ -187,6 +192,9 @@ final class FeedViewModel: ObservableObject {
         let deletedPost = posts.first(where: { $0.id == postId })
         posts.removeAll { $0.id == postId }
         
+        // Also remove from FeedStore to prevent it from reappearing
+        feedStore.removePost(postId)
+        
         do {
             try await service.deletePost(postId: postId)
             print("✅ Post deleted successfully: \(postId)")
@@ -196,6 +204,7 @@ final class FeedViewModel: ObservableObject {
             // Revert optimistic delete on error
             if let post = deletedPost {
                 posts.insert(post, at: 0)
+                // Note: We don't re-add to FeedStore here as it will be refetched on next load
             }
         }
     }
@@ -360,6 +369,7 @@ final class FeedViewModel: ObservableObject {
     // MARK: - Load User Posts
     
     func loadUserPosts(userId: String) async {
+        isUserProfileMode = true
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -377,6 +387,7 @@ final class FeedViewModel: ObservableObject {
     }
     
     func loadUserReplies(userId: String) async {
+        isUserProfileMode = true
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -390,6 +401,7 @@ final class FeedViewModel: ObservableObject {
     }
     
     func loadUserLikedPosts(userId: String) async {
+        isUserProfileMode = true
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -403,6 +415,7 @@ final class FeedViewModel: ObservableObject {
     }
     
     func loadUserEchoedPosts(userId: String) async {
+        isUserProfileMode = true
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }

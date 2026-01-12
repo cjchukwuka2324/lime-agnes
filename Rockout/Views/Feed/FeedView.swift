@@ -27,6 +27,7 @@ struct FeedView: View {
     @State private var selectedProfile: ProfileNavigationWrapper?
     @State private var fabOffset: CGSize = .zero
     @State private var selectedHashtag: String?
+    @ObservedObject private var tabBarState = TabBarState.shared
     
     var body: some View {
         NavigationStack {
@@ -202,51 +203,38 @@ struct FeedView: View {
                     floatingActionButton
                 }
             }
-            .padding(.top, 100) // Space for fixed title and toolbar
+            .padding(.top, tabBarState.isCollapsed ? 0 : 100) // Adjust padding when collapsed
             
-            // Fixed title and toolbar at top - always visible
+            // Fixed title and toolbar at top - hides on scroll
             VStack(spacing: 0) {
                 // Fixed GreenRoom title
-                HStack {
+                HStack(alignment: .center) {
                     Text("GreenRoom")
-                        .font(.system(size: 34, weight: .bold))
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundColor(.white)
-                        .padding(.leading, 20)
-                        .padding(.top, 8)
+                        .padding(.leading, 24)
                     Spacer()
-                    // Toolbar buttons
-                    HStack(spacing: 16) {
+                    // Toolbar buttons with refined spacing
+                    HStack(spacing: 20) {
                         notificationsButton
                         searchButton
                     }
-                    .padding(.trailing, 20)
-                    .padding(.top, 8)
+                    .padding(.trailing, 24)
                 }
-                .frame(height: 44)
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color(hex: "#050505").opacity(0.95),
-                            Color(hex: "#0C7C38").opacity(0.95)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                .frame(height: 52)
+                .padding(.vertical, 8)
                 
                 // Feed type picker
                 feedTypePicker
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "#0C7C38").opacity(0.95),
-                                Color(hex: "#050505").opacity(0.95)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
             }
+            .background(
+                // Unified solid background
+                Color.black
+                    .ignoresSafeArea(edges: .top)
+            )
+            .offset(y: tabBarState.isCollapsed ? -250 : 0)
+            .opacity(tabBarState.isCollapsed ? 0 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: tabBarState.isCollapsed)
         }
     }
     
@@ -254,8 +242,18 @@ struct FeedView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 16) {
-                    ScrollViewOffsetReader()
-                        .id("scrollTop")
+                    GeometryReader { geometry in
+                        let frame = geometry.frame(in: .named("scrollView"))
+                        let offset = -frame.minY
+                        
+                        Color.clear
+                            .onChange(of: offset) { oldValue, newValue in
+                                print("📊 Offset changed: \(oldValue) → \(newValue)")
+                                updateScrollOffset(newValue)
+                            }
+                    }
+                    .frame(height: 0)
+                    .id("scrollTop")
                     
                     ForEach(viewModel.posts) { post in
                         postCardView(for: post)
@@ -297,10 +295,45 @@ struct FeedView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 100)
             }
-            .detectScroll(collapseThreshold: 50)
+            .coordinateSpace(name: "scrollView")
             .refreshable {
                 await viewModel.refresh(feedType: selectedFeedType)
             }
+        }
+    }
+    
+    @State private var lastTriggerOffset: CGFloat?
+    // Direction thresholds to trigger hide/show (in points)
+    private let hideThreshold: CGFloat = 12
+    private let showThreshold: CGFloat = 12
+    
+    private func updateScrollOffset(_ newOffset: CGFloat) {
+        // Initialize on first call
+        if lastTriggerOffset == nil {
+            lastTriggerOffset = newOffset
+            print("🎬 Initial offset: \(newOffset)")
+            return
+        }
+        
+        let delta = newOffset - lastTriggerOffset!
+        
+        // Debug
+        print("🔄 Scroll: offset=\(newOffset), deltaFromLastTrigger=\(delta), collapsed=\(tabBarState.isCollapsed)")
+        
+        // IMPORTANT: offset = -minY, so when scrolling DOWN content, minY becomes negative, offset becomes POSITIVE
+        // So: scroll down = delta POSITIVE, scroll up = delta NEGATIVE
+        
+        // Hide on sufficient downward movement (delta becomes MORE positive)
+        if !tabBarState.isCollapsed && delta > hideThreshold {
+            print("⬇️ HIDING BARS (delta: \(delta))")
+            TabBarState.shared.collapse()
+            lastTriggerOffset = newOffset
+        }
+        // Show on sufficient upward movement (delta becomes MORE negative)
+        else if tabBarState.isCollapsed && delta < -showThreshold {
+            print("⬆️ SHOWING BARS (delta: \(delta))")
+            TabBarState.shared.expand()
+            lastTriggerOffset = newOffset
         }
     }
     
@@ -323,10 +356,10 @@ struct FeedView: View {
             onNavigateToParent: { parentPostId in
                 selectedPostId = PostIdWrapper(id: parentPostId)
             },
-            onTapProfile: {
-                if let userId = UUID(uuidString: post.author.id) {
+            onTapProfile: { author in
+                if let userId = UUID(uuidString: author.id) {
                     // Pre-load with author data for immediate rendering
-                    selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: post.author)
+                    selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: author)
                 }
             },
             onDelete: { postId in
@@ -345,21 +378,13 @@ struct FeedView: View {
                     await self.handleMentionTap(handle: handle)
                 }
             },
+            onTapCard: {
+                selectedPostId = PostIdWrapper(id: post.id)
+            },
             showInlineReplies: true,
             service: viewModel.service
         )
         .padding(.horizontal, 16)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            // If this is an echo post, navigate to the original post's thread
-            if let resharedPostId = post.resharedPostId {
-                selectedPostId = PostIdWrapper(id: resharedPostId)
-            } else if let parentPostId = post.parentPostId {
-                selectedPostId = PostIdWrapper(id: parentPostId)
-            } else {
-                selectedPostId = PostIdWrapper(id: post.id)
-            }
-        }
     }
     
     private var floatingActionButton: some View {
@@ -383,7 +408,19 @@ struct FeedView: View {
         Button {
             showNotifications = true
         } label: {
-            NotificationBadgeView(viewModel: notificationsViewModel)
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "bell")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(.white)
+                
+                // Unread badge
+                if notificationsViewModel.unreadCount > 0 {
+                    Circle()
+                        .fill(Color(hex: "#1ED760"))
+                        .frame(width: 8, height: 8)
+                        .offset(x: 6, y: -4)
+                }
+            }
         }
     }
     
@@ -392,7 +429,7 @@ struct FeedView: View {
             showUserSearch = true
         } label: {
             Image(systemName: "magnifyingglass")
-                .font(.title3)
+                .font(.system(size: 20, weight: .medium))
                 .foregroundColor(.white)
         }
     }
@@ -450,50 +487,20 @@ struct FeedView: View {
     // MARK: - Feed Type Picker
     
     private var feedTypePicker: some View {
-        HStack(spacing: 4) {
-            feedTypeButton(title: "For You", type: .forYou)
-            feedTypeButton(title: "Following", type: .following)
-            feedTypeButton(title: "Trending 🔥", type: .trending)
+        Picker("Feed Type", selection: $selectedFeedType) {
+            Text("For You").tag(FeedType.forYou)
+            Text("Following").tag(FeedType.following)
+            Text("Trending 🔥").tag(FeedType.trending)
         }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.15))
-        )
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
-    }
-    
-    private func feedTypeButton(title: String, type: FeedType) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                selectedFeedType = type
-            }
-        } label: {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(selectedFeedType == type ? .white : .white.opacity(0.7))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    Group {
-                        if selectedFeedType == type {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color(hex: "#1ED760"),
-                                            Color(hex: "#1DB954")
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .shadow(color: Color(hex: "#1ED760").opacity(0.3), radius: 8, x: 0, y: 2)
-                        }
-                    }
-                )
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .onAppear {
+            // Customize segmented control appearance with visible capsule
+            UISegmentedControl.appearance().selectedSegmentTintColor = UIColor(white: 0.95, alpha: 1.0) // Light grey/white capsule
+            UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor.black], for: .selected)
+            UISegmentedControl.appearance().setTitleTextAttributes([.foregroundColor: UIColor.white.withAlphaComponent(0.6)], for: .normal)
+            UISegmentedControl.appearance().backgroundColor = UIColor(white: 0.2, alpha: 1.0) // Dark background
         }
     }
     

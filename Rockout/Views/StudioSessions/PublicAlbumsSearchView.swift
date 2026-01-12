@@ -10,7 +10,7 @@ struct PublicAlbumsSearchView: View {
     
     private let socialService = SupabaseSocialGraphService.shared
     private let albumService = AlbumService.shared
-    @StateObject private var viewModel = StudioSessionsViewModel()
+    @StateObject private var viewModel = StudioSessionsViewModel.shared
     @State private var searchTask: Task<Void, Never>?
     
     var body: some View {
