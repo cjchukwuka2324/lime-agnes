@@ -10,7 +10,7 @@ struct NotificationsView: View {
         NavigationStack {
             ZStack {
                 // Solid black background
-                Color.black.ignoresSafeArea()
+                 Color.black.ignoresSafeArea()
                 
                 if viewModel.isLoading {
                     VStack(spacing: 16) {
@@ -92,8 +92,19 @@ struct NotificationsView: View {
                 }
             }
             .navigationTitle("Notifications")
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .onAppear {
+                // Ensure navigation bar is always opaque black
+                let appearance = UINavigationBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = .black
+                appearance.shadowColor = .clear
+                
+                UINavigationBar.appearance().standardAppearance = appearance
+                UINavigationBar.appearance().scrollEdgeAppearance = appearance
+                UINavigationBar.appearance().compactAppearance = appearance
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {

@@ -3,6 +3,16 @@ import SwiftUI
 
 @MainActor
 final class StudioSessionsViewModel: ObservableObject {
+    
+    // MARK: - Shared Instance
+    
+    static let shared = StudioSessionsViewModel()
+    
+    // MARK: - Initializer
+    
+    private init() {
+        // Private initializer to enforce singleton pattern
+    }
 
     // MARK: - Published Properties
 

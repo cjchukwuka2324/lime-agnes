@@ -171,12 +171,12 @@ struct TrendingFeedView: View {
                     await viewModel.selectHashtagByString(hashtag)
                 }
             },
+                            onTapCard: {
+                                selectedPostId = post.id
+                            },
                             service: SupabaseFeedService.shared
                         )
                         .padding(.horizontal, 16)
-                        .onTapGesture {
-                            selectedPostId = post.id
-                        }
                     }
                 }
                 .padding(.top, 16)
@@ -257,11 +257,11 @@ struct TrendingFeedView: View {
                                     await viewModel.selectHashtagByString(hashtag)
                                 }
                             },
+                            onTapCard: {
+                                selectedPostId = post.id
+                            },
                             service: SupabaseFeedService.shared
                         )
-                        .onTapGesture {
-                            selectedPostId = post.id
-                        }
                         .onAppear {
                             // Trigger load more when near the end
                             if let lastPost = viewModel.hashtagPosts.last,

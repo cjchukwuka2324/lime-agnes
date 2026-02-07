@@ -2,6 +2,7 @@ import SwiftUI
 import Supabase
 import Foundation
 import AVFoundation
+import UIKit
 
 struct FeedCardView: View {
     let post: Post
@@ -11,10 +12,11 @@ struct FeedCardView: View {
     let onEcho: ((String) -> Void)?
     let onEchoWithCommentary: ((String) -> Void)?
     let onNavigateToParent: ((String) -> Void)?
-    let onTapProfile: (() -> Void)?
+    let onTapProfile: ((UserSummary) -> Void)?
     let onDelete: ((String) -> Void)?
     let onHashtagTap: ((String) -> Void)?
     let onMentionTap: ((String) -> Void)?
+    let onTapCard: (() -> Void)?
     let showInlineReplies: Bool
     let service: FeedService?
     
@@ -24,11 +26,16 @@ struct FeedCardView: View {
     @State private var isLoadingReplies = false
     @State private var isExpanded = false
     @State private var showFullScreenMedia = false
+    @State private var selectedImageIndex = 0
     @State private var showDeleteConfirmation = false
     @State private var postToDelete: String?
     @State private var mutablePoll: Poll?
     @State private var originalPost: Post?
     @State private var isLoadingOriginalPost = false
+    @State private var showMuteConfirmation = false
+    @State private var showBlockConfirmation = false
+    @State private var userToMute: String?
+    @State private var userToBlock: String?
     
     init(
         post: Post,
@@ -38,10 +45,11 @@ struct FeedCardView: View {
         onEcho: ((String) -> Void)? = nil,
         onEchoWithCommentary: ((String) -> Void)? = nil,
         onNavigateToParent: ((String) -> Void)? = nil,
-        onTapProfile: (() -> Void)? = nil,
+        onTapProfile: ((UserSummary) -> Void)? = nil,
         onDelete: ((String) -> Void)? = nil,
         onHashtagTap: ((String) -> Void)? = nil,
         onMentionTap: ((String) -> Void)? = nil,
+        onTapCard: (() -> Void)? = nil,
         showInlineReplies: Bool = false,
         service: FeedService? = nil
     ) {
@@ -56,33 +64,40 @@ struct FeedCardView: View {
         self.onDelete = onDelete
         self.onHashtagTap = onHashtagTap
         self.onMentionTap = onMentionTap
+        self.onTapCard = onTapCard
         self.showInlineReplies = showInlineReplies
         self.service = service
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if post.resharedPostId != nil && post.text.isEmpty {
-                // This is an echo post - show "Echoed by" indicator and original post
-                echoedPostView
-            } else {
-                // Regular post or echo with comment
-                parentPostReference
-                if post.resharedPostId != nil {
-                    echoedByIndicator
+            VStack(alignment: .leading, spacing: 0) {
+                if post.resharedPostId != nil && post.text.isEmpty {
+                    // This is an echo post - show "Echoed by" indicator and original post
+                    echoedPostView
+                } else {
+                    // Regular post or echo with comment
+                    parentPostReference
+                    if post.resharedPostId != nil {
+                        echoedByIndicator
+                    }
+                    authorHeader
+                    leaderboardAttachment
+                    postContent
+                    mediaAttachments
+                    actionButtons
+                    inlineReplies
                 }
-                authorHeader
-                leaderboardAttachment
-                postContent
-                mediaAttachments
-                actionButtons
-                inlineReplies
             }
+        .padding(.horizontal, isReply ? 12 : 14)
+        .padding(.top, isReply ? 12 : 14)
+        .padding(.bottom, isReply ? 12 : (post.resharedPostId != nil && post.text.isEmpty ? 8 : 14))
+            .background(cardBackground)
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTapCard?()
         }
-        .padding(isReply ? 12 : 14)
-        .background(cardBackground)
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
         .sheet(isPresented: $showReplyComposer) {
             PostComposerView(
                 service: service ?? SupabaseFeedService.shared,
@@ -98,7 +113,7 @@ struct FeedCardView: View {
             FullScreenMediaView(
                 imageURLs: post.imageURLs,
                 videoURL: post.videoURL,
-                initialIndex: 0
+                initialIndex: selectedImageIndex
             )
         }
         .alert(GreenRoomBranding.Actions.deleteBar, isPresented: $showDeleteConfirmation) {
@@ -123,6 +138,34 @@ struct FeedCardView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .alert("Mute User", isPresented: $showMuteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                userToMute = nil
+            }
+            Button("Mute", role: .destructive) {
+                if let userId = userToMute {
+                    // TODO: Implement mute user functionality
+                    print("Mute user: \(userId)")
+                }
+                userToMute = nil
+            }
+        } message: {
+            Text("You won't see posts from this user in your feed.")
+        }
+        .alert("Block User", isPresented: $showBlockConfirmation) {
+            Button("Cancel", role: .cancel) {
+                userToBlock = nil
+            }
+            Button("Block", role: .destructive) {
+                if let userId = userToBlock {
+                    // TODO: Implement block user functionality
+                    print("Block user: \(userId)")
+                }
+                userToBlock = nil
+            }
+        } message: {
+            Text("You won't see posts from this user and they won't be able to see your posts.")
+        }
     }
     
     // MARK: - View Components
@@ -130,7 +173,7 @@ struct FeedCardView: View {
     @ViewBuilder
     private var echoedByIndicator: some View {
         Button {
-            onTapProfile?()
+            onTapProfile?(post.author)  // Pass echoer's author
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.2.squarepath")
@@ -147,10 +190,10 @@ struct FeedCardView: View {
     
     @ViewBuilder
     private var echoedPostView: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             // Echo indicator (clickable to view echo author's profile)
             Button {
-                onTapProfile?()
+                onTapProfile?(post.author)  // Pass echoer's author
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.2.squarepath")
@@ -162,7 +205,6 @@ struct FeedCardView: View {
                 }
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 8)
             
             // Display full original post if available
             if let originalPostId = post.resharedPostId {
@@ -191,7 +233,7 @@ struct FeedCardView: View {
                             // Navigate to original post thread
                             onNavigateToParent?(originalPostId)
                         },
-                        onTapProfile: onTapProfile,
+                        onTapProfile: onTapProfile,  // Pass through, will use original post's author
                         onDelete: onDelete,
                         onHashtagTap: onHashtagTap,
                         onMentionTap: onMentionTap,
@@ -239,7 +281,7 @@ struct FeedCardView: View {
                         onEcho: { _ in onEcho?(originalPostId) },
                         onEchoWithCommentary: { _ in onEchoWithCommentary?(originalPostId) },
                         onNavigateToParent: { _ in onNavigateToParent?(originalPostId) },
-                        onTapProfile: onTapProfile,
+                        onTapProfile: onTapProfile,  // Pass through, will use original post's author
                         onDelete: onDelete,
                         onHashtagTap: onHashtagTap,
                         onMentionTap: onMentionTap,
@@ -273,8 +315,6 @@ struct FeedCardView: View {
                             .lineLimit(1)
                     }
                     .padding(12)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(8)
                     .task(id: originalPostId) {
                         // Try to fetch the original post
                         if originalPost == nil && !isLoadingOriginalPost {
@@ -284,7 +324,6 @@ struct FeedCardView: View {
                 }
             }
         }
-        .padding(.bottom, 12)
     }
     
     private func loadOriginalPost(id: String) async {
@@ -329,6 +368,7 @@ struct FeedCardView: View {
                 Text(timeAgoDisplay(for: post.createdAt))
                     .font(.caption2)
                     .foregroundColor(.white.opacity(0.5))
+                threeDotMenu
             }
             
             // Background music subtitle (subtle, underneath username)
@@ -380,9 +420,56 @@ struct FeedCardView: View {
         return "now"
     }
     
+    private func generatePostURL() -> URL? {
+        // Generate post URL - this will need to be implemented based on your app's URL scheme
+        // For now, return nil or implement based on your deep linking structure
+        // Example: return URL(string: "rockout://post/\(post.id)")
+        return nil
+    }
+    
+    private func sharePost() {
+        // Implement share functionality using UIActivityViewController
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              let rootViewController = window.rootViewController else {
+            return
+        }
+        
+        var shareItems: [Any] = []
+        
+        // Add post text if available
+        if !post.text.isEmpty {
+            shareItems.append(post.text)
+        }
+        
+        // Add post URL if available
+        if let postURL = generatePostURL() {
+            shareItems.append(postURL)
+        }
+        
+        // If no content to share, create a default message
+        if shareItems.isEmpty {
+            shareItems.append("Check out this post on GreenRoom!")
+        }
+        
+        let activityViewController = UIActivityViewController(
+            activityItems: shareItems,
+            applicationActivities: nil
+        )
+        
+        // For iPad
+        if let popover = activityViewController.popoverPresentationController {
+            popover.sourceView = window
+            popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        
+        rootViewController.present(activityViewController, animated: true)
+    }
+    
     private var avatarButton: some View {
         Button {
-            onTapProfile?()
+            onTapProfile?(post.author)  // Pass post's author
         } label: {
             Group {
                 // If this is a reply to a rank post, show rank owner's profile picture
@@ -457,15 +544,57 @@ struct FeedCardView: View {
         }
     }
     
+    private var threeDotMenu: some View {
+        Menu {
+            let currentUserId = SupabaseService.shared.client.auth.currentUser?.id.uuidString
+            let isOwnPost = post.author.id == currentUserId
+            
+            if isOwnPost {
+                Button(role: .destructive) {
+                    postToDelete = post.id
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete Bar", systemImage: "trash")
+                }
+            } else {
+                Button {
+                    userToMute = post.author.id
+                    showMuteConfirmation = true
+                } label: {
+                    Label("Mute \(post.author.displayName)", systemImage: "bell.slash")
+                }
+                
+                Button(role: .destructive) {
+                    userToBlock = post.author.id
+                    showBlockConfirmation = true
+                } label: {
+                    Label("Block \(post.author.displayName)", systemImage: "person.crop.circle.badge.xmark")
+                }
+            }
+            // Copy Link removed - share button handles this
+        } label: {
+            Image(systemName: "ellipsis")
+                .foregroundColor(.white.opacity(0.7))
+                .font(.system(size: 16, weight: .medium))
+                .padding(8)
+                .background(
+                    Circle()
+                        .fill(Color.black.opacity(0.8))
+                )
+        }
+    }
+    
     private var nameHandleButton: some View {
         Button {
-            onTapProfile?()
+            onTapProfile?(post.author)  // Pass post's author
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(displayName)
                         .font(isReply ? .subheadline.weight(.bold) : .headline.weight(.bold))
                         .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                     
                     if post.parentPostId != nil && !isReply {
                         Text(GreenRoomBranding.adlibbed.lowercased())
@@ -534,15 +663,9 @@ struct FeedCardView: View {
                 MediaGridView(
                     imageURLs: post.imageURLs,
                     videoURL: post.videoURL,
-                    onTap: {
+                    onTap: { tappedIndex in
+                        selectedImageIndex = tappedIndex
                         showFullScreenMedia = true
-                    }
-                )
-                .simultaneousGesture(
-                    TapGesture(count: 2)
-                        .onEnded {
-                            // Double tap to like
-                            handleDoubleTapLike()
                         }
                 )
                 .padding(.bottom, 12)
@@ -578,22 +701,20 @@ struct FeedCardView: View {
     @ViewBuilder
     private var actionButtons: some View {
         // Ensure action buttons are clearly below media with proper spacing
-        // Order: adlib, echo, amp
+        // Order: adlib, echo, amp, share
         HStack(spacing: 0) {
             replyButton  // adlib
             Spacer()
-                .frame(width: 12)
+                .frame(width: 8)
             echoButton   // echo
             Spacer()
-                .frame(width: 12)
+                .frame(width: 8)
             likeButton   // amp
             Spacer()
-                .frame(width: 12)
-            deleteButton
-            Spacer()
+            shareButton  // share - positioned at bottom-right
         }
         .padding(.top, 12)
-        .padding(.bottom, 4)
+        .padding(.bottom, 0)
     }
     
     private var likeButton: some View {
@@ -602,23 +723,23 @@ struct FeedCardView: View {
                 onLike?(post.id)
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 3) {
                 Image(systemName: post.isLiked ? "bolt.fill" : "bolt")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(post.isLiked ? Color(hex: "#1ED760") : .white.opacity(0.7))
                     .symbolEffect(.bounce, value: post.isLiked)
                 if post.likeCount > 0 {
                     Text("\(post.likeCount)")
-                        .font(.subheadline)
+                        .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(post.isLiked ? Color(hex: "#1ED760") : .white.opacity(0.7))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(post.isLiked ? Color(hex: "#1ED760").opacity(0.2) : Color.white.opacity(0.1))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black)
             )
             .accessibilityLabel(post.isLiked ? "\(post.likeCount) \(GreenRoomBranding.amps)" : GreenRoomBranding.ampAction)
         }
@@ -637,23 +758,23 @@ struct FeedCardView: View {
                 }
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 3) {
                 Image(systemName: post.isEchoed ? "arrow.2.squarepath" : "arrow.2.squarepath")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(post.isEchoed ? Color(hex: "#1ED760") : .white.opacity(0.7))
                     .symbolEffect(.bounce, value: post.isEchoed)
                 if post.echoCount > 0 {
                     Text("\(post.echoCount)")
-                        .font(.subheadline)
+                        .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(post.isEchoed ? Color(hex: "#1ED760") : .white.opacity(0.7))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(post.isEchoed ? Color(hex: "#1ED760").opacity(0.2) : Color.white.opacity(0.1))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black)
             )
             .accessibilityLabel(post.isEchoed ? "\(post.echoCount) \(GreenRoomBranding.echoes)" : GreenRoomBranding.echoAction)
         }
@@ -684,48 +805,43 @@ struct FeedCardView: View {
                 onReply?(post)
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 3) {
                 Image(systemName: "bubble.left")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
                 if post.replyCount > 0 {
                     Text("\(post.replyCount)")
-                        .font(.subheadline)
+                        .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(.white.opacity(0.7))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.white.opacity(0.1))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black)
             )
             .accessibilityLabel(post.replyCount > 0 ? "\(post.replyCount) \(GreenRoomBranding.adlibs)" : GreenRoomBranding.adlibAction)
         }
         .buttonStyle(.plain)
     }
     
-    @ViewBuilder
-    private var deleteButton: some View {
-        if let currentUserId = SupabaseService.shared.client.auth.currentUser?.id.uuidString,
-           post.author.id == currentUserId {
-            Button {
-                postToDelete = post.id
-                showDeleteConfirmation = true
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.red.opacity(0.8))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.red.opacity(0.1))
-                    )
-            }
-            .buttonStyle(.plain)
+    private var shareButton: some View {
+        Button {
+            sharePost()
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.black)
+        )
+        .buttonStyle(.plain)
     }
     
     @ViewBuilder

@@ -8,7 +8,7 @@ struct UserPublicAlbumsView: View {
     @State private var publicAlbums: [StudioAlbumRecord] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @StateObject private var viewModel = StudioSessionsViewModel()
+    @StateObject private var viewModel = StudioSessionsViewModel.shared
     
     private let albumService = AlbumService.shared
     

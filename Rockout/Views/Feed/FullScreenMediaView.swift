@@ -12,6 +12,7 @@ struct FullScreenMediaView: View {
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @State private var dismissOffset: CGFloat = 0
     @State private var player: AVPlayer?
     @State private var isMuted: Bool = true
     
@@ -54,6 +55,30 @@ struct FullScreenMediaView: View {
                 }
             }
         }
+        .offset(y: dismissOffset)
+        .gesture(
+            // Only allow vertical swipe-to-dismiss when not zoomed
+            scale <= 1.0 ?
+            DragGesture()
+                .onChanged { value in
+                    // Only track vertical drag
+                    if abs(value.translation.height) > abs(value.translation.width) {
+                        dismissOffset = value.translation.height
+                    }
+                }
+                .onEnded { value in
+                    // Dismiss if dragged up or down more than 100 points
+                    if abs(value.translation.height) > 100 {
+                        dismiss()
+                    } else {
+                        // Spring back to original position
+                        withAnimation(.spring()) {
+                            dismissOffset = 0
+                        }
+                    }
+                }
+            : nil
+        )
         .onAppear {
             // Initialize player when view appears if we have a video
             if let videoURL = videoURL, player == nil {
@@ -78,43 +103,38 @@ struct FullScreenMediaView: View {
                             .scaleEffect(scale)
                             .offset(offset)
                             .gesture(
-                                SimultaneousGesture(
-                                    // Zoom gesture
-                                    MagnificationGesture()
-                                        .onChanged { value in
-                                            let newScale = lastScale * value
-                                            // Constrain zoom between 1.0 and 4.0
-                                            scale = min(max(newScale, 1.0), 4.0)
-                                        }
-                                        .onEnded { _ in
-                                            lastScale = scale
-                                            // If zoomed back to 1.0, reset offset
-                                            if scale <= 1.0 {
-                                                withAnimation {
-                                                    offset = .zero
-                                                    lastOffset = .zero
-                                                }
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        let newScale = lastScale * value
+                                        // Constrain zoom between 1.0 and 4.0
+                                        scale = min(max(newScale, 1.0), 4.0)
+                                    }
+                                    .onEnded { _ in
+                                        lastScale = scale
+                                        // If zoomed back to 1.0, reset offset
+                                        if scale <= 1.0 {
+                                            withAnimation {
+                                                offset = .zero
+                                                lastOffset = .zero
                                             }
-                                        },
-                                    // Pan gesture - only allow when zoomed in
-                                    DragGesture()
-                                        .onChanged { value in
-                                            // Only allow panning when zoomed (scale > 1.0)
-                                            guard scale > 1.0 else { return }
-                                            
-                                            let newOffset = CGSize(
-                                                width: lastOffset.width + value.translation.width,
-                                                height: lastOffset.height + value.translation.height
-                                            )
-                                            
-                                            // Constrain panning to keep image within bounds
-                                            // This is a simple constraint - you can make it more sophisticated
-                                            offset = newOffset
                                         }
-                                        .onEnded { _ in
-                                            lastOffset = offset
-                                        }
-                                )
+                                    }
+                            )
+                            .simultaneousGesture(
+                                scale > 1.0 ? 
+                                AnyGesture(DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let newOffset = CGSize(
+                                            width: lastOffset.width + value.translation.width,
+                                            height: lastOffset.height + value.translation.height
+                                        )
+                                        offset = newOffset
+                                    }
+                                    .onEnded { _ in
+                                        lastOffset = offset
+                                    }) : AnyGesture(DragGesture(minimumDistance: CGFloat.infinity)
+                                    .onChanged { _ in }
+                                    .onEnded { _ in })
                             )
                             .onTapGesture(count: 2) {
                                 // Double tap to reset zoom

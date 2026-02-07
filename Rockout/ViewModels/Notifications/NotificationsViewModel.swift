@@ -5,9 +5,10 @@ enum NotificationFilter: String, CaseIterable {
     case all = "All"
     case unread = "Unread"
     case follows = "Follows"
-    case likes = "Likes"
-    case replies = "Replies"
-    case mentions = "Mentions"
+    case likes = "Amps"
+    case replies = "Adlibs"
+    case mentions = "ShoutOuts"
+    case echoes = "Echoes"
     
     var typeFilter: String? {
         switch self {
@@ -17,6 +18,7 @@ enum NotificationFilter: String, CaseIterable {
         case .likes: return "post_like"
         case .replies: return "post_reply"
         case .mentions: return "post_mention"
+        case .echoes: return "post_echo"
         }
     }
 }

@@ -23,7 +23,7 @@ struct AlbumDetailView: View {
     @State private var saveConfirmationMessage = ""
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playerVM = AudioPlayerViewModel.shared
-    @StateObject private var viewModel = StudioSessionsViewModel()
+    @StateObject private var viewModel = StudioSessionsViewModel.shared
 
     private let trackService = TrackService.shared
     private let albumService = AlbumService.shared

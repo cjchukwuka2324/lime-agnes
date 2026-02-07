@@ -4,7 +4,7 @@ import SwiftUI
 struct MediaGridView: View {
     let imageURLs: [URL]
     let videoURL: URL?
-    let onTap: () -> Void
+    let onTap: (Int) -> Void
     
     private var mediaCount: Int {
         imageURLs.count + (videoURL != nil ? 1 : 0)
@@ -50,9 +50,9 @@ struct MediaGridView: View {
     private var singleMediaView: some View {
         Group {
             if let videoURL = videoURL {
-                VideoThumbnailView(videoURL: videoURL, onTap: onTap)
+                VideoThumbnailView(videoURL: videoURL, onTap: { onTap(0) })
             } else if let firstImage = imageURLs.first {
-                ImageThumbnailView(imageURL: firstImage, onTap: onTap)
+                ImageThumbnailView(imageURL: firstImage, onTap: { onTap(0) })
             }
         }
         .frame(maxWidth: .infinity)
@@ -65,15 +65,15 @@ struct MediaGridView: View {
     private func twoMediaGrid(availableWidth: CGFloat) -> some View {
         HStack(spacing: 2) {
             if let videoURL = videoURL {
-                VideoThumbnailView(videoURL: videoURL, onTap: onTap)
+                VideoThumbnailView(videoURL: videoURL, onTap: { onTap(0) })
             } else if let firstImage = imageURLs.first {
-                ImageThumbnailView(imageURL: firstImage, onTap: onTap)
+                ImageThumbnailView(imageURL: firstImage, onTap: { onTap(0) })
             }
             
             if imageURLs.count > 1 {
-                ImageThumbnailView(imageURL: imageURLs[1], onTap: onTap)
+                ImageThumbnailView(imageURL: imageURLs[1], onTap: { onTap(1) })
             } else if videoURL != nil && imageURLs.count > 0 {
-                ImageThumbnailView(imageURL: imageURLs[0], onTap: onTap)
+                ImageThumbnailView(imageURL: imageURLs[0], onTap: { onTap(0) })
             }
         }
         .frame(height: 200)
@@ -87,10 +87,10 @@ struct MediaGridView: View {
             // Large image on left (50%)
             let leftWidth = (availableWidth - 2) * 0.5
             if let firstImage = imageURLs.first {
-                ImageThumbnailView(imageURL: firstImage, onTap: onTap)
+                ImageThumbnailView(imageURL: firstImage, onTap: { onTap(0) })
                     .frame(width: leftWidth)
             } else if let videoURL = videoURL {
-                VideoThumbnailView(videoURL: videoURL, onTap: onTap)
+                VideoThumbnailView(videoURL: videoURL, onTap: { onTap(0) })
                     .frame(width: leftWidth)
             }
             
@@ -98,15 +98,15 @@ struct MediaGridView: View {
             let rightWidth = (availableWidth - 2) * 0.5
             VStack(spacing: 2) {
                 if imageURLs.count > 1 {
-                    ImageThumbnailView(imageURL: imageURLs[1], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[1], onTap: { onTap(1) })
                 } else if videoURL != nil {
-                    VideoThumbnailView(videoURL: videoURL!, onTap: onTap)
+                    VideoThumbnailView(videoURL: videoURL!, onTap: { onTap(0) })
                 }
                 
                 if imageURLs.count > 2 {
-                    ImageThumbnailView(imageURL: imageURLs[2], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[2], onTap: { onTap(2) })
                 } else if videoURL != nil && imageURLs.count > 0 {
-                    ImageThumbnailView(imageURL: imageURLs[0], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[0], onTap: { onTap(0) })
                 }
             }
             .frame(width: rightWidth)
@@ -121,25 +121,25 @@ struct MediaGridView: View {
         VStack(spacing: 2) {
             HStack(spacing: 2) {
                 if imageURLs.count > 0 {
-                    ImageThumbnailView(imageURL: imageURLs[0], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[0], onTap: { onTap(0) })
                 } else if let videoURL = videoURL {
-                    VideoThumbnailView(videoURL: videoURL, onTap: onTap)
+                    VideoThumbnailView(videoURL: videoURL, onTap: { onTap(0) })
                 }
                 
                 if imageURLs.count > 1 {
-                    ImageThumbnailView(imageURL: imageURLs[1], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[1], onTap: { onTap(1) })
                 }
             }
             
             HStack(spacing: 2) {
                 if imageURLs.count > 2 {
-                    ImageThumbnailView(imageURL: imageURLs[2], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[2], onTap: { onTap(2) })
                 }
                 
                 if imageURLs.count > 3 {
-                    ImageThumbnailView(imageURL: imageURLs[3], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[3], onTap: { onTap(3) })
                 } else if videoURL != nil {
-                    VideoThumbnailView(videoURL: videoURL!, onTap: onTap)
+                    VideoThumbnailView(videoURL: videoURL!, onTap: { onTap(0) })
                 }
             }
         }
@@ -153,27 +153,27 @@ struct MediaGridView: View {
         VStack(spacing: 2) {
             HStack(spacing: 2) {
                 if imageURLs.count > 0 {
-                    ImageThumbnailView(imageURL: imageURLs[0], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[0], onTap: { onTap(0) })
                 } else if let videoURL = videoURL {
-                    VideoThumbnailView(videoURL: videoURL, onTap: onTap)
+                    VideoThumbnailView(videoURL: videoURL, onTap: { onTap(0) })
                 }
                 
                 if imageURLs.count > 1 {
-                    ImageThumbnailView(imageURL: imageURLs[1], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[1], onTap: { onTap(1) })
                 }
             }
             
             HStack(spacing: 2) {
                 if imageURLs.count > 2 {
-                    ImageThumbnailView(imageURL: imageURLs[2], onTap: onTap)
+                    ImageThumbnailView(imageURL: imageURLs[2], onTap: { onTap(2) })
                 }
                 
                 // Last cell with "+N" overlay
                 ZStack {
                     if imageURLs.count > 3 {
-                        ImageThumbnailView(imageURL: imageURLs[3], onTap: onTap)
+                        ImageThumbnailView(imageURL: imageURLs[3], onTap: { onTap(3) })
                     } else if videoURL != nil {
-                        VideoThumbnailView(videoURL: videoURL!, onTap: onTap)
+                        VideoThumbnailView(videoURL: videoURL!, onTap: { onTap(0) })
                     }
                     
                     // Overlay showing remaining count

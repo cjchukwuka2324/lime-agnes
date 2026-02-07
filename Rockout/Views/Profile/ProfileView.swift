@@ -42,13 +42,13 @@ struct ProfileView: View {
                     .ignoresSafeArea()
                 
                 ScrollView {
-                    VStack(spacing: 24) {
+                    VStack(spacing: 20) {
                         ScrollViewOffsetReader()
                         
                         // Profile Header with Picture
                         profileHeaderSection
                             .padding(.horizontal, 20)
-                            .padding(.top, 20)
+                            .padding(.top, 8)
                         
                         // Social Media Buttons
                         SocialMediaButtonsView(
@@ -164,7 +164,7 @@ struct ProfileView: View {
     // MARK: - Profile Header Section
     
     private var profileHeaderSection: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 12) {
             // Profile Picture
             ZStack(alignment: .bottomTrailing) {
                 Button {
@@ -425,6 +425,21 @@ struct ProfileView: View {
                 ForEach(viewModel.posts) { post in
                     FeedCardView(
                         post: post,
+                        onLike: { postId in
+                            Task {
+                                await viewModel.toggleLike(postId: postId)
+                            }
+                        },
+                        onEcho: { postId in
+                            Task {
+                                await viewModel.toggleEcho(postId: postId)
+                            }
+                        },
+                        onDelete: { postId in
+                            Task {
+                                await viewModel.deletePost(postId: postId)
+                            }
+                        },
                         showInlineReplies: true,
                         service: SupabaseFeedService.shared
                     )

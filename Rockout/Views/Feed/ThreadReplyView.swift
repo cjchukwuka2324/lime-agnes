@@ -46,9 +46,7 @@ struct ThreadReplyView: View {
                             showReplyComposer = true
                         },
                         onNavigateToParent: nil,
-                        onTapProfile: {
-                            onTapProfile?(post.author)
-                        },
+                        onTapProfile: onTapProfile,
                         onDelete: onDelete,
                         onMentionTap: onMentionTap,
                         showInlineReplies: false,

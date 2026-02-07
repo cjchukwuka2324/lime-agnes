@@ -14,71 +14,43 @@ struct MainTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
 
-            // MARK: - MAIN TABVIEW
+            // MARK: - MAIN CONTENT VIEWS
             // Note: SoundPrint and RockList features exist in the codebase but are intentionally
             // hidden from the tab bar for the current MVP. They can be activated in the future by
-            // uncommenting their tab entries below.
+            // adding additional cases to the tab selection.
             //
             // Available but hidden features:
             // - SoundPrint: Music analytics dashboard (Views/SoundPrint/)
             // - RockList: Competitive leaderboards (Views/RockList/, Models/RockList/, Services/RockList/, ViewModels/RockList/)
-            TabView(selection: $selectedTab) {
-
-                FeedView()
-                    .tabItem {
-                        Label("GreenRoom", systemImage: "house.fill")
-                    }
-                    .tag(0)
-
-                RecallHomeView()
-                    .tabItem {
-                        Label("Recall", systemImage: "sparkles.magnifyingglass")
-                    }
-                    .tag(1)
-                    .onAppear {
-                        setupRecallTabBarIcon()
-                    }
-                    .onChange(of: selectedTab) { oldValue, newValue in
-                        // Ensure icon is set when tab is selected
-                        if newValue == 1 {
+            
+            ZStack {
+                if selectedTab == 0 {
+                    FeedView()
+                }
+                
+                if selectedTab == 1 {
+                    RecallHomeView()
+                        .onAppear {
                             setupRecallTabBarIcon()
                         }
-                    }
-
-                StudioSessionsView()
-                    .environmentObject(shareHandler)
-                    .tabItem {
-                        Label("StudioSessions", systemImage: "slider.horizontal.3")
-                    }
-                    .tag(2)
-
-                ProfileView()
-                    .environmentObject(spotifyAuth)
-                    .tabItem {
-                        Label("Profile", systemImage: "person.crop.circle")
-                    }
-                    .tag(3)
+                }
                 
-                // MARK: - HIDDEN FEATURES (Available for future MVP phases)
-                // Uncomment below to enable SoundPrint tab:
-                /*
-                SoundPrintView()
-                    .environmentObject(spotifyAuth)
-                    .tabItem {
-                        Label("SoundPrint", systemImage: "waveform.circle.fill")
-                    }
-                    .tag(4)
-                */
+                if selectedTab == 2 {
+                    StudioSessionsView()
+                        .environmentObject(shareHandler)
+                }
                 
-                // Uncomment below to enable RockList tab:
-                /*
-                RockListView()
-                    .tabItem {
-                        Label("RockList", systemImage: "chart.bar.fill")
-                    }
-                    .tag(5)
-                */
+                if selectedTab == 3 {
+                    DiscoveriesView()
+                        .environmentObject(shareHandler)
+                }
+                
+                if selectedTab == 4 {
+                    ProfileView()
+                        .environmentObject(spotifyAuth)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 20)
                     .onChanged { value in
@@ -118,12 +90,12 @@ struct MainTabView: View {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 selectedTab -= 1
                             }
-                        } else if shouldSwipeLeft && selectedTab < 3 {
+                        } else if shouldSwipeLeft && selectedTab < 4 {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 selectedTab += 1
                             }
                         }
-                        // Note: Max tab is still 3 (Profile), but SoundPrint removed
+                        // Note: Max tab is now 4 (Profile)
                     }
             )
             .onReceive(NotificationCenter.default.publisher(for: .navigateToFeed)) { _ in
@@ -131,13 +103,25 @@ struct MainTabView: View {
                     selectedTab = 0
                 }
             }
+            .onChange(of: selectedTab) { oldValue, newValue in
+                // Ensure Recall icon is set when tab is selected
+                if newValue == 1 {
+                    setupRecallTabBarIcon()
+                }
+            }
 
             // MARK: - BOTTOM MINI PLAYER
             if playerVM.currentTrack != nil {
                 BottomPlayerBar(playerVM: playerVM)
-                    .background(Color.black)
                     .padding(.bottom, 50) // Constant padding above tab bar
                     .transition(.move(edge: .bottom))
+            }
+            
+            // MARK: - CUSTOM TAB BAR
+            VStack(spacing: 0) {
+                Spacer()
+                CustomTabBar(selectedTab: $selectedTab)
+                    .edgesIgnoringSafeArea(.bottom)
             }
 
         }

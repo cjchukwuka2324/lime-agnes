@@ -192,10 +192,12 @@
 		B9716CBAAEA89CB340B87460 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97A6B372ECCC71800368E8B /* LoginView.swift */; };
 		B992CF2F2EEA221700F4F099 /* StudioSessionsTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B992CF2E2EEA221700F4F099 /* StudioSessionsTabBar.swift */; };
 		B992CF312EEA28E900F4F099 /* PublicAlbumCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B992CF302EEA28E900F4F099 /* PublicAlbumCard.swift */; };
+		B9A8BA6B2F158A9D002D7BAA /* DiscoveriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9A8BA692F158A9D002D7BAA /* DiscoveriesView.swift */; };
 		B9ACA0252EE93554004D8E8F /* ListeningStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9ACA0232EE93554004D8E8F /* ListeningStatsService.swift */; };
 		B9B6C49A2EEA0AB50016867F /* ErrorMessageBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9B6C4982EEA0AB50016867F /* ErrorMessageBanner.swift */; };
 		B9C25F1C2ED10D7C003AA60B /* Rockout/Views/Profile/SpotifyPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1A2ED10D7C003AA60B /* Rockout/Views/Profile/SpotifyPresentationContextProvider.swift */; };
 		B9C25F1E2ED10E47003AA60B /* Rockout/Services/Supabase/SpotifyConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C25F1D2ED10E47003AA60B /* Rockout/Services/Supabase/SpotifyConnectionService.swift */; };
+		B9C9FE0B2F04739800D5E017 /* CustomTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C9FE0A2F04739800D5E017 /* CustomTabBar.swift */; };
 		B9E0E7EA2ECBE021006C7549 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B9E0E7E92ECBE021006C7549 /* Supabase */; };
 		B9F8A0562EEA6FC600C57F95 /* View+ScrollDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F8A0552EEA6FC600C57F95 /* View+ScrollDetection.swift */; };
 		B9F8A0582EEA702200C57F95 /* TabBarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F8A0572EEA702200C57F95 /* TabBarState.swift */; };
@@ -535,10 +537,12 @@
 		B996EA972ECFE7540035E084 /* SignupForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignupForm.swift; sourceTree = "<group>"; };
 		B996EA992ECFE79B0035E084 /* GoogleLoginButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleLoginButton.swift; sourceTree = "<group>"; };
 		B99CD56F2ECFE30D005C2A23 /* RootAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootAppView.swift; sourceTree = "<group>"; };
+		B9A8BA692F158A9D002D7BAA /* DiscoveriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveriesView.swift; sourceTree = "<group>"; };
 		B9ACA0232EE93554004D8E8F /* ListeningStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningStatsService.swift; sourceTree = "<group>"; };
 		B9B6C4982EEA0AB50016867F /* ErrorMessageBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorMessageBanner.swift; sourceTree = "<group>"; };
 		B9C25F1A2ED10D7C003AA60B /* Rockout/Views/Profile/SpotifyPresentationContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rockout/Views/Profile/SpotifyPresentationContextProvider.swift; sourceTree = "<group>"; };
 		B9C25F1D2ED10E47003AA60B /* Rockout/Services/Supabase/SpotifyConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rockout/Services/Supabase/SpotifyConnectionService.swift; sourceTree = "<group>"; };
+		B9C9FE0A2F04739800D5E017 /* CustomTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CustomTabBar.swift; path = Rockout/Views/Main/CustomTabBar.swift; sourceTree = "<group>"; };
 		B9D75F9A2ECE96C800DC607F /* ForgotPasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForgotPasswordView.swift; sourceTree = "<group>"; };
 		B9D75F9C2ECE971400DC607F /* ResetPasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetPasswordView.swift; sourceTree = "<group>"; };
 		B9D75F9F2ECE993A00DC607F /* AuthFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthFlowView.swift; sourceTree = "<group>"; };
@@ -833,6 +837,63 @@
 			path = StudioSessions;
 			sourceTree = "<group>";
 		};
+		92930F796246F96616418344 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				B9C25F1A2ED10D7C003AA60B /* Rockout/Views/Profile/SpotifyPresentationContextProvider.swift */,
+				CF6B5338B168FDDBCD7299C7 /* ProfileView.swift */,
+			);
+			name = Profile;
+			sourceTree = "<group>";
+		};
+		9E251A55B706F429A1BB9D6F /* Main */ = {
+			isa = PBXGroup;
+			children = (
+				B9C9FE0A2F04739800D5E017 /* CustomTabBar.swift */,
+				34791C15E878105EC4FAA7EE /* MainTabView.swift */,
+			);
+			name = Main;
+			sourceTree = "<group>";
+		};
+		A28D5A292857E9818146C11E /* Recall */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Recall;
+			sourceTree = "<group>";
+		};
+		A9C809A5309096F01E2D03EA /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				3AF88374377E9449D8FFDF05 /* Views/Onboarding/OnboardingFlowView.swift */,
+				D931C32A0B87E94C2A77339A /* Views/Onboarding/OnboardingSlideView.swift */,
+				7FD1CB8F6BDC2E97974AC690 /* Views/Onboarding/OnboardingState.swift */,
+				9B16160B37E4BA85D9FAEB52 /* Views/Onboarding/OnboardingVideoScreen.swift */,
+				CD0A6D3FA0874B344C02BAC4 /* Components */,
+				D77E0903FA5CD71772413117 /* Slides */,
+			);
+			name = Onboarding;
+			sourceTree = "<group>";
+		};
+		AA7AC14C37351940D38A6AA5 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				CCA649B64E36993E03A01A18 /* Views/Shared/CameraPickerView.swift */,
+				A6C9D80A7860D1EA28902FF6 /* Views/Shared/HashtagTextView.swift */,
+				363138313134613939643965343135656138373735663135 /* Views/Shared/MentionHashtagTextView.swift */,
+			);
+			name = Shared;
+			sourceTree = "<group>";
+		};
+		AB8692D70AD8D73BC58266A3 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				BF90BE75A10EBFB7124757BC /* StudioSessions */,
+				9E251A55B706F429A1BB9D6F /* Main */,
+			);
+			name = Views;
+			sourceTree = "<group>";
+		};
 		B0116ACB1170A3A698D5656B /* Feed */ = {
 			isa = PBXGroup;
 			children = (
@@ -978,6 +1039,14 @@
 				3F1E3BBCACB4F204BF35378F /* TrackVersion.swift */,
 			);
 			path = StudioSessions;
+			sourceTree = "<group>";
+		};
+		B9A8BA6A2F158A9D002D7BAA /* Discoveries */ = {
+			isa = PBXGroup;
+			children = (
+				B9A8BA692F158A9D002D7BAA /* DiscoveriesView.swift */,
+			);
+			path = Discoveries;
 			sourceTree = "<group>";
 		};
 		B9ACA0242EE93554004D8E8F /* Stats */ = {
@@ -1247,6 +1316,7 @@
 		D1BDF91AD37D6724954A790D /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				B9A8BA6A2F158A9D002D7BAA /* Discoveries */,
 				CA10B6EC2EEBEBCF002E7042 /* Recall */,
 				B9B6C4992EEA0AB50016867F /* Components */,
 				CAAC9A462EE6497500A37733 /* Onboarding */,
@@ -1624,6 +1694,7 @@
 				5C6D7E8F9A0B1C2D3E4F5A6B7 /* FeedAudioPlayerView.swift in Sources */,
 				F5A6B7C8D9E0F1A2B3C4D5E6F /* BackgroundMusicPlayerView.swift in Sources */,
 				F6B7C8D9E0F1A2B3C4D5E6F7A /* SpotifyLinkCardView.swift in Sources */,
+				B9A8BA6B2F158A9D002D7BAA /* DiscoveriesView.swift in Sources */,
 				F7C8D9E0F1A2B3C4D5E6F7A8B /* PollView.swift in Sources */,
 				B9F8A05A2EEA727800C57F95 /* TabBarController.swift in Sources */,
 				F8D9E0F1A2B3C4D5E6F7A8B9C /* SpotifyLinkAddView.swift in Sources */,
@@ -1691,6 +1762,7 @@
 				4B1D8EDD9D3D60772AEBA4CF /* ConnectSpotifyView.swift in Sources */,
 				B9716CBAAEA89CB340B87460 /* LoginView.swift in Sources */,
 				B9ACA0252EE93554004D8E8F /* ListeningStatsService.swift in Sources */,
+				B9C9FE0B2F04739800D5E017 /* CustomTabBar.swift in Sources */,
 				26FAEF98B1FA126C9846CE7A /* ForgotPasswordView.swift in Sources */,
 				4BE77DA8FFD3BFEBB4AE4F62 /* ResetPasswordView.swift in Sources */,
 				7FA76E7EEDDE43CEA7572B01 /* AuthFlowView.swift in Sources */,

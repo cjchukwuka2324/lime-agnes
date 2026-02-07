@@ -59,9 +59,12 @@ struct PostDetailView: View {
                                     await viewModel.toggleLike(postId: postId)
                                 }
                             },
-                            onTapProfile: {
-                                if let userId = UUID(uuidString: rootPost.author.id) {
-                                    selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: rootPost.author)
+                            onReply: { parentPost in
+                                showComposer = true
+                            },
+                            onTapProfile: { author in
+                                if let userId = UUID(uuidString: author.id) {
+                                    selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: author)
                                 }
                             },
                             onDelete: { postId in
@@ -141,7 +144,7 @@ struct PostDetailView: View {
                 Button {
                     showComposer = true
                 } label: {
-                    Image(systemName: "arrowshape.turn.up.left")
+                    Image(systemName: "bubble.left.and.text.bubble.right")
                         .foregroundColor(.white)
                 }
                 .accessibilityLabel(GreenRoomBranding.adlib)
