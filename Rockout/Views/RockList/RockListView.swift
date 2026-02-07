@@ -119,9 +119,9 @@ struct RockListView: View {
             }
             .sheet(isPresented: $showShareSheet) {
                 if let image = shareImage {
-                    ShareSheet(activityItems: [image])
+                    ShareSheet(items: [image])
                 } else {
-                    ShareSheet(activityItems: [viewModel.shareMessage()])
+                    ShareSheet(items: [viewModel.shareMessage()])
                 }
             }
             .sheet(isPresented: $showPostComposer) {

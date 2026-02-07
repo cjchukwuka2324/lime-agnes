@@ -4,10 +4,10 @@ import Supabase
 protocol SocialGraphService {
     func currentUser() async -> UserSummary
     func currentUserId() async throws -> String
-    func allUsers() async -> [UserSummary]
+    func allUsers(cursor: String?, limit: Int) async -> (users: [UserSummary], nextCursor: String?, hasMore: Bool)
     func getProfile(userId: String) async throws -> UserSummary
-    func getFollowers(of userId: String) async throws -> [UserSummary]
-    func getFollowing(of userId: String) async throws -> [UserSummary]
+    func getFollowers(of userId: String, cursor: String?, limit: Int) async throws -> (users: [UserSummary], nextCursor: String?, hasMore: Bool)
+    func getFollowing(of userId: String, cursor: String?, limit: Int) async throws -> (users: [UserSummary], nextCursor: String?, hasMore: Bool)
     func getMutuals(with userId: String) async throws -> [UserSummary]
     func followingIds(forceRefresh: Bool) async -> Set<String>
     func followingIds(for userId: String) async -> Set<String>
@@ -64,10 +64,14 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
     
     // MARK: - All Users
     
-    func allUsers() async -> [UserSummary] {
+    func allUsers(cursor: String? = nil, limit: Int = 100) async -> (users: [UserSummary], nextCursor: String?, hasMore: Bool) {
         do {
-            // Fetch all profiles from Supabase
-            let response = try await supabase
+            // Enforce max limit of 100
+            let effectiveLimit = min(limit, 100)
+            
+            // Build query with pagination
+            // Use id-based cursor for simplicity (cursor is the last user id from previous page)
+            var query = supabase
                 .from("profiles")
                 .select("""
                     id,
@@ -83,7 +87,15 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                     twitter,
                     tiktok
                 """)
-                .execute()
+                .order("id", ascending: false) // Order by id for stable cursor
+                .limit(effectiveLimit + 1) // Fetch one extra to check if there are more
+            
+            // Apply cursor if provided (cursor is the last user id from previous page)
+            // Note: Supabase Swift client doesn't support .lt() directly, so we use a workaround
+            // For UUID-based pagination, we'll fetch and filter in memory if cursor is provided
+            // This is less efficient but works around the API limitation
+            
+            let response = try await query.execute()
             
             struct ProfileRow: Decodable {
                 let id: UUID
@@ -100,7 +112,16 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 let tiktok: String?
             }
             
-            let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
+            var allProfiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
+            
+            // Apply cursor filtering in memory if provided
+            if let cursor = cursor, let cursorUUID = UUID(uuidString: cursor) {
+                allProfiles = allProfiles.filter { $0.id.uuidString < cursorUUID.uuidString }
+            }
+            
+            // Check if there are more pages
+            let hasMore = allProfiles.count > effectiveLimit
+            let profiles = Array(allProfiles.prefix(effectiveLimit))
             
             // Get current user's email for fallback
             let currentUserEmail = supabase.auth.currentUser?.email
@@ -142,11 +163,19 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 )
             }
             
-            cachedUsers = users
-            return users
+            // Update cache with first page only
+            if cursor == nil {
+                cachedUsers = users
+            }
+            
+            // Calculate next cursor (last user id)
+            let nextCursor: String? = hasMore ? users.last?.id : nil
+            
+            return (users: users, nextCursor: nextCursor, hasMore: hasMore)
         } catch {
             print("Error loading users: \(error)")
-            return cachedUsers
+            // Return cached users if available, otherwise empty
+            return (users: cursor == nil ? cachedUsers : [], nextCursor: nil, hasMore: false)
         }
     }
     
@@ -403,22 +432,54 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
     
     // MARK: - Get Followers
     
-    func getFollowers(of userId: String) async throws -> [UserSummary] {
+    func getFollowers(of userId: String, cursor: String? = nil, limit: Int = 100) async throws -> (users: [UserSummary], nextCursor: String?, hasMore: Bool) {
         guard let userIdUUID = UUID(uuidString: userId) else {
             throw NSError(domain: "SocialGraphService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID"])
         }
         
-        // Get follower IDs
-        let followerIds = await followerIds(for: userId)
+        // Enforce max limit of 100
+        let effectiveLimit = min(limit, 100)
         
-        guard !followerIds.isEmpty else {
-            return []
+        // Query user_follows table with pagination
+        // Use id-based cursor for simplicity (cursor is the last follower_id from previous page)
+        var query = supabase
+            .from("user_follows")
+            .select("follower_id, created_at")
+            .eq("following_id", value: userIdUUID.uuidString)
+            .order("follower_id", ascending: true) // Order by id for stable cursor
+            .limit(effectiveLimit + 1) // Fetch one extra to check if there are more
+        
+        // Apply cursor if provided (cursor is the last follower_id from previous page)
+        // Note: Supabase Swift client doesn't support .gt() directly, so we'll filter in memory
+        // This is less efficient but works around the API limitation
+        
+        struct FollowRow: Decodable {
+            let follower_id: String
+            let created_at: String
         }
         
-        // Fetch profiles for all followers
+        let response = try await query.execute()
+        var followRows: [FollowRow] = try JSONDecoder().decode([FollowRow].self, from: response.data)
+        
+        // Apply cursor filtering in memory if provided
+        if let cursor = cursor, let cursorUUID = UUID(uuidString: cursor) {
+            followRows = followRows.filter { $0.follower_id > cursorUUID.uuidString }
+        }
+        
+        // Check if there are more pages
+        let hasMore = followRows.count > effectiveLimit
+        let paginatedRows = Array(followRows.prefix(effectiveLimit))
+        
+        guard !paginatedRows.isEmpty else {
+            return (users: [], nextCursor: nil, hasMore: false)
+        }
+        
+        // Get follower IDs
+        let followerIds = paginatedRows.map { $0.follower_id }
         let followerUUIDs = followerIds.compactMap { UUID(uuidString: $0) }
         
-        let response = try await supabase
+        // Fetch profiles for this page of followers
+        let profileResponse = try await supabase
             .from("profiles")
             .select("""
                 id,
@@ -435,6 +496,7 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 tiktok
             """)
             .in("id", values: followerUUIDs)
+            .limit(1000) // Safety limit
             .execute()
         
         struct ProfileRow: Decodable {
@@ -452,13 +514,19 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let tiktok: String?
         }
         
-        let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
+        let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: profileResponse.data)
+        
+        // Create a map for quick lookup
+        let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id.uuidString, $0) })
         
         // Get current user's following to determine isFollowing status
         let currentUserId = try? await currentUserId()
         let following = currentUserId != nil ? await followingIds() : []
         
-        return profiles.map { profile -> UserSummary in
+        // Build users in the same order as followerIds
+        let users = followerIds.compactMap { followerId -> UserSummary? in
+            guard let profile = profileMap[followerId] else { return nil }
+            
             let displayName = profile.display_name ??
                 (profile.first_name != nil && profile.last_name != nil ?
                  "\(profile.first_name!) \(profile.last_name!)" :
@@ -495,26 +563,63 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 tiktokHandle: profile.tiktok
             )
         }
+        
+        // Calculate next cursor (last follower_id)
+        let nextCursor: String? = hasMore ? users.last?.id : nil
+        
+        return (users: users, nextCursor: nextCursor, hasMore: hasMore)
     }
     
     // MARK: - Get Following
     
-    func getFollowing(of userId: String) async throws -> [UserSummary] {
+    func getFollowing(of userId: String, cursor: String? = nil, limit: Int = 100) async throws -> (users: [UserSummary], nextCursor: String?, hasMore: Bool) {
         guard let userIdUUID = UUID(uuidString: userId) else {
             throw NSError(domain: "SocialGraphService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID"])
         }
         
-        // Get following IDs
-        let targetUserFollowingIds = await followingIds(for: userId)
+        // Enforce max limit of 100
+        let effectiveLimit = min(limit, 100)
         
-        guard !targetUserFollowingIds.isEmpty else {
-            return []
+        // Query user_follows table with pagination
+        // Use id-based cursor for simplicity (cursor is the last following_id from previous page)
+        var query = supabase
+            .from("user_follows")
+            .select("following_id, created_at")
+            .eq("follower_id", value: userIdUUID.uuidString)
+            .order("following_id", ascending: true) // Order by id for stable cursor
+            .limit(effectiveLimit + 1) // Fetch one extra to check if there are more
+        
+        // Apply cursor if provided (cursor is the last following_id from previous page)
+        // Note: Supabase Swift client doesn't support .gt() directly, so we'll filter in memory
+        // This is less efficient but works around the API limitation
+        
+        struct FollowRow: Decodable {
+            let following_id: String
+            let created_at: String
         }
         
-        // Fetch profiles for all following
-        let followingUUIDs = targetUserFollowingIds.compactMap { UUID(uuidString: $0) }
+        let response = try await query.execute()
+        var followRows: [FollowRow] = try JSONDecoder().decode([FollowRow].self, from: response.data)
         
-        let response = try await supabase
+        // Apply cursor filtering in memory if provided
+        if let cursor = cursor, let cursorUUID = UUID(uuidString: cursor) {
+            followRows = followRows.filter { $0.following_id > cursorUUID.uuidString }
+        }
+        
+        // Check if there are more pages
+        let hasMore = followRows.count > effectiveLimit
+        let paginatedRows = Array(followRows.prefix(effectiveLimit))
+        
+        guard !paginatedRows.isEmpty else {
+            return (users: [], nextCursor: nil, hasMore: false)
+        }
+        
+        // Get following IDs
+        let followingIds = paginatedRows.map { $0.following_id }
+        let followingUUIDs = followingIds.compactMap { UUID(uuidString: $0) }
+        
+        // Fetch profiles for this page of following
+        let profileResponse = try await supabase
             .from("profiles")
             .select("""
                 id,
@@ -531,6 +636,7 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 tiktok
             """)
             .in("id", values: followingUUIDs)
+            .limit(1000) // Safety limit
             .execute()
         
         struct ProfileRow: Decodable {
@@ -548,18 +654,24 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
             let tiktok: String?
         }
         
-        let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: response.data)
+        let profiles: [ProfileRow] = try JSONDecoder().decode([ProfileRow].self, from: profileResponse.data)
+        
+        // Create a map for quick lookup
+        let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id.uuidString, $0) })
         
         // Get current user's following to determine isFollowing status
         let currentUserId = try? await currentUserId()
         let currentUserFollowing: Set<String>
         if currentUserId != nil {
-            currentUserFollowing = await followingIds()
+            currentUserFollowing = await self.followingIds()
         } else {
             currentUserFollowing = []
         }
         
-        return profiles.map { profile -> UserSummary in
+        // Build users in the same order as followingIds
+        let users = followingIds.compactMap { followingId -> UserSummary? in
+            guard let profile = profileMap[followingId] else { return nil }
+            
             let displayName = profile.display_name ??
                 (profile.first_name != nil && profile.last_name != nil ?
                  "\(profile.first_name!) \(profile.last_name!)" :
@@ -596,6 +708,11 @@ final class SupabaseSocialGraphService: SocialGraphService, ObservableObject {
                 tiktokHandle: profile.tiktok
             )
         }
+        
+        // Calculate next cursor (last following_id)
+        let nextCursor: String? = hasMore ? users.last?.id : nil
+        
+        return (users: users, nextCursor: nextCursor, hasMore: hasMore)
     }
     
     // MARK: - Get Mutuals

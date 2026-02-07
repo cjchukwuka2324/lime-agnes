@@ -36,27 +36,44 @@ final class RecallFeedbackService: ObservableObject {
             throw NSError(domain: "RecallFeedbackService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
         
-        var body: [String: Any] = [
-            "recall_id": recallId.uuidString,
-            "user_id": userId.uuidString,
-            "feedback_type": feedbackType.rawValue
-        ]
-        
-        if let messageId = messageId {
-            body["message_id"] = messageId.uuidString
+        struct FeedbackBody: Encodable {
+            let recallId: String
+            let userId: String
+            let feedbackType: String
+            let messageId: String?
+            let rating: Int?
+            let correctionText: String?
+            let contextJson: String?
+            
+            enum CodingKeys: String, CodingKey {
+                case recallId = "recall_id"
+                case userId = "user_id"
+                case feedbackType = "feedback_type"
+                case messageId = "message_id"
+                case rating
+                case correctionText = "correction_text"
+                case contextJson = "context_json"
+            }
         }
         
-        if let rating = rating {
-            body["rating"] = rating
+        let contextJson: String?
+        if let context = context,
+           let jsonData = try? JSONSerialization.data(withJSONObject: context),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            contextJson = jsonString
+        } else {
+            contextJson = nil
         }
         
-        if let correctionText = correctionText {
-            body["correction_text"] = correctionText
-        }
-        
-        if let context = context {
-            body["context_json"] = context
-        }
+        let body = FeedbackBody(
+            recallId: recallId.uuidString,
+            userId: userId.uuidString,
+            feedbackType: feedbackType.rawValue,
+            messageId: messageId?.uuidString,
+            rating: rating,
+            correctionText: correctionText,
+            contextJson: contextJson
+        )
         
         let response = try await supabase
             .from("recall_feedback")
@@ -198,6 +215,14 @@ final class RecallFeedbackService: ObservableObject {
         }
     }
 }
+
+
+
+
+
+
+
+
 
 
 

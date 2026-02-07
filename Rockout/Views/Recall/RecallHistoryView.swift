@@ -30,9 +30,9 @@ struct RecallHistoryView: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                     ForEach(viewModel.recalls) { recall in
-                        RecallHistoryRow(recall: recall, viewModel: viewModel) {
+                        RecallHistoryRow(recall: recall, onTap: {
                             onSelectRecall(recall.id)
-                        }
+                        }, viewModel: viewModel)
                     }
                         }
                         .padding()

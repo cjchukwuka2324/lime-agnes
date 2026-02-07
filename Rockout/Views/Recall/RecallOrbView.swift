@@ -2,14 +2,14 @@ import SwiftUI
 
 struct RecallOrbView: View {
     let state: RecallOrbState
-    let conversationMode: RecallViewModel.ConversationMode?
+    let conversationMode: ConversationMode?
     let isSpeaking: Bool
     let onLongPress: () -> Void
     let onLongPressEnd: () -> Void
     
     init(
         state: RecallOrbState,
-        conversationMode: RecallViewModel.ConversationMode? = nil,
+        conversationMode: ConversationMode? = nil,
         isSpeaking: Bool = false,
         onLongPress: @escaping () -> Void,
         onLongPressEnd: @escaping () -> Void
@@ -115,10 +115,21 @@ struct RecallOrbView: View {
                             .onAppear {
                                 pulseAnimation = true
                             }
-                    } else if conversationMode == .speaking || isSpeaking {
+                    } else if conversationMode == .speaking || isSpeaking || state == .responding {
                         Circle()
                             .stroke(Color(hex: "#1ED760").opacity(0.5), lineWidth: 2)
                             .frame(width: size * 1.1, height: size * 1.1)
+                    } else if state == .armed {
+                        // Show subtle pulsing when armed
+                        Circle()
+                            .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 2)
+                            .frame(width: size * 1.05, height: size * 1.05)
+                            .scaleEffect(pulseAnimation ? 1.05 : 1.0)
+                            .opacity(pulseAnimation ? 0.5 : 0.3)
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
+                            .onAppear {
+                                pulseAnimation = true
+                            }
                     }
                 }
             )
@@ -128,7 +139,7 @@ struct RecallOrbView: View {
                     if case .listening = state {
                         VStack(spacing: 8) {
                             Image(systemName: "mic.fill")
-                                .font(.system(size: 24))
+                                .font(.title2)
                                 .foregroundColor(Color(hex: "#1ED760"))
                                 .symbolEffect(.pulse, options: .repeating)
                             
@@ -154,8 +165,8 @@ struct RecallOrbView: View {
             )
             .contentShape(Rectangle())
             .highPriorityGesture(
-                LongPressGesture(minimumDuration: 3.0)
-                    .sequenced(before: DragGesture(minimumDistance: 0))
+                LongPressGesture(minimumDuration: 1.5)
+                    .sequenced(before: DragGesture(minimumDistance: 10))
                     .updating($isPressed) { value, state, _ in
                         switch value {
                         case .first(true):
@@ -173,8 +184,15 @@ struct RecallOrbView: View {
                                 // Don't show indicator here - wait for state to change to .listening
                                 onLongPress()
                             }
-                        case .second(true, _):
-                            // Still pressing and dragging
+                        case .second(true, let dragValue):
+                            // Still pressing and dragging - check if drag distance is too large
+                            if let drag = dragValue, abs(drag.translation.width) > 50 || abs(drag.translation.height) > 50 {
+                                // User dragged too far - cancel
+                                state = false
+                                onLongPressEnd()
+                                return
+                            }
+                            // Still pressing within acceptable range - keep recording
                             break
                         default:
                             break
@@ -188,7 +206,7 @@ struct RecallOrbView: View {
                         withAnimation(.easeOut(duration: 0.3)) {
                             glowIntensity = 0.0
                         }
-                        // Indicator will hide when state changes from .listening
+                        // Contact lost - stop recording immediately
                         onLongPressEnd()
                     }
             )
@@ -266,10 +284,14 @@ struct RecallOrbView: View {
         switch state {
         case .idle:
             return "Idle"
+        case .armed:
+            return "Armed, ready to record"
         case .listening:
             return "Recording"
         case .thinking:
             return "Thinking"
+        case .responding:
+            return "Responding"
         case .done:
             return "Done"
         case .error:
@@ -290,10 +312,14 @@ struct RecallOrbView: View {
         switch state {
         case .idle:
             return 1.0
+        case .armed:
+            return 0.95
         case .listening:
             return 0.9
         case .thinking:
             return 0.85
+        case .responding:
+            return 0.9
         case .done:
             return 1.0
         case .error:
@@ -331,10 +357,14 @@ struct RecallOrbView: View {
                 switch newState {
                 case .idle:
                     scale = 1.0
+                case .armed:
+                    scale = 1.02 // Slight expand when armed
                 case .listening(let level):
                     scale = 1.0 + level * 0.1
                 case .thinking:
                     scale = 1.05
+                case .responding:
+                    scale = 1.03 // Subtle animation when responding
                 case .done(let confidence):
                     if confidence >= 0.85 {
                         scale = 1.1
@@ -357,7 +387,7 @@ struct RecallOrbView: View {
     ZStack {
         Color.black
         VStack {
-            RecallOrbView(state: .idle, onLongPress: {}, onLongPressEnd: {})
+            RecallOrbView(state: RecallOrbState.idle, onLongPress: {}, onLongPressEnd: {})
             RecallOrbView(state: .listening(level: 0.5), onLongPress: {}, onLongPressEnd: {})
             RecallOrbView(state: .thinking, onLongPress: {}, onLongPressEnd: {})
             RecallOrbView(state: .done(confidence: 0.9), onLongPress: {}, onLongPressEnd: {})

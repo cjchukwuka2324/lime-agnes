@@ -54,12 +54,6 @@ struct PollView: View {
         .task {
             await loadPollVotes()
         }
-        .onAppear {
-            // Reload votes when view appears (in case other users voted)
-            Task {
-                await loadPollVotes()
-            }
-        }
         .refreshable {
             // Allow pull-to-refresh to reload votes
             await loadPollVotes()

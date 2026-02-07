@@ -30,8 +30,10 @@ CREATE TABLE IF NOT EXISTS public.recall_messages (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
-  message_type TEXT NOT NULL CHECK (message_type IN ('text', 'voice', 'image', 'candidate', 'status', 'follow_up')),
+  message_type TEXT NOT NULL CHECK (message_type IN ('text', 'voice', 'image', 'candidate', 'status', 'follow_up', 'answer')),
   text TEXT,
+  raw_transcript TEXT,
+  edited_transcript TEXT,
   media_path TEXT,
   candidate_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   sources_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -123,12 +125,18 @@ CREATE POLICY "Users can update their own messages" ON public.recall_messages
 -- Helper function to insert messages (bypasses RLS for FK check)
 -- ============================================
 
+-- Drop old version if it exists (to avoid ambiguity)
+DROP FUNCTION IF EXISTS public.insert_recall_message(UUID, UUID, TEXT, TEXT, TEXT, TEXT, JSONB, JSONB, NUMERIC, TEXT, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.insert_recall_message(UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, JSONB, NUMERIC, TEXT, TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION public.insert_recall_message(
   p_thread_id UUID,
   p_user_id UUID,
   p_role TEXT,
   p_message_type TEXT,
   p_text TEXT DEFAULT NULL,
+  p_raw_transcript TEXT DEFAULT NULL,
+  p_edited_transcript TEXT DEFAULT NULL,
   p_media_path TEXT DEFAULT NULL,
   p_candidate_json JSONB DEFAULT '{}'::jsonb,
   p_sources_json JSONB DEFAULT '[]'::jsonb,
@@ -174,6 +182,8 @@ BEGIN
     role,
     message_type,
     text,
+    raw_transcript,
+    edited_transcript,
     media_path,
     candidate_json,
     sources_json,
@@ -187,6 +197,8 @@ BEGIN
     p_role,
     p_message_type,
     p_text,
+    p_raw_transcript,
+    p_edited_transcript,
     p_media_path,
     COALESCE(p_candidate_json, '{}'::jsonb),
     COALESCE(p_sources_json, '[]'::jsonb),

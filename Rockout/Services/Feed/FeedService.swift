@@ -15,7 +15,7 @@ protocol FeedService {
     func fetchHomeFeed(feedType: FeedType, region: String?, cursor: Date?, limit: Int) async throws -> (posts: [Post], nextCursor: String?, hasMore: Bool)
     func fetchThread(for postId: String) async throws -> (root: Post, replies: [Post])
     func fetchPostById(_ postId: String) async throws -> Post
-    func fetchReplies(for postId: String) async throws -> [Post]
+    func fetchReplies(for postId: String, cursor: Date?, limit: Int) async throws -> (replies: [Post], nextCursor: String?, hasMore: Bool)
     
     func createPost(
         text: String,
@@ -26,7 +26,8 @@ protocol FeedService {
         spotifyLink: SpotifyLink?,
         poll: Poll?,
         backgroundMusic: BackgroundMusic?,
-        mentionedUserIds: [String]
+        mentionedUserIds: [String],
+        resharedPostId: String?
     ) async throws -> Post
     
     func reply(
@@ -116,7 +117,8 @@ final class InMemoryFeedService: FeedService {
     
     private func loadFromPersisted(_ persisted: PersistedFeed) async {
         let social = SupabaseSocialGraphService.shared
-        let allUsers = await social.allUsers()
+        let allUsersResult = await social.allUsers(cursor: nil, limit: 100)
+        let allUsers = allUsersResult.users
         
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             self.queue.async {
@@ -515,7 +517,8 @@ final class InMemoryFeedService: FeedService {
         spotifyLink: SpotifyLink? = nil,
         poll: Poll? = nil,
         backgroundMusic: BackgroundMusic? = nil,
-        mentionedUserIds: [String] = []
+        mentionedUserIds: [String] = [],
+        resharedPostId: String? = nil
     ) async throws -> Post {
         let author = await currentUserSummary()
         return try await withCheckedThrowingContinuation { continuation in
@@ -536,7 +539,7 @@ final class InMemoryFeedService: FeedService {
                     parentPostId: nil,
                     parentPost: nil,
                     leaderboardEntry: leaderboardEntry,
-                    resharedPostId: nil,
+                    resharedPostId: resharedPostId,
                     spotifyLink: spotifyLink,
                     poll: poll,
                     backgroundMusic: backgroundMusic,
@@ -666,16 +669,24 @@ final class InMemoryFeedService: FeedService {
         }
     }
     
-    func fetchReplies(for postId: String) async throws -> [Post] {
+    func fetchReplies(for postId: String, cursor: Date? = nil, limit: Int = 100) async throws -> (replies: [Post], nextCursor: String?, hasMore: Bool) {
         // Refresh current user's profile data in all existing posts
         await refreshCurrentUserProfileInPosts()
         
         return try await withCheckedThrowingContinuation { continuation in
             self.queue.async {
-                let replies = self.posts
+                let allReplies = self.posts
                     .filter { $0.parentPostId == postId }
                     .sorted(by: { $0.createdAt < $1.createdAt })
-                continuation.resume(returning: replies)
+                
+                // Apply pagination
+                let startIndex = cursor != nil ? (allReplies.firstIndex(where: { $0.createdAt > cursor! }) ?? allReplies.count) : 0
+                let endIndex = min(startIndex + limit, allReplies.count)
+                let paginatedReplies = Array(allReplies[startIndex..<endIndex])
+                let hasMore = endIndex < allReplies.count
+                let nextCursor: String? = hasMore ? paginatedReplies.last?.createdAt.description : nil
+                
+                continuation.resume(returning: (replies: paginatedReplies, nextCursor: nextCursor, hasMore: hasMore))
             }
         }
     }

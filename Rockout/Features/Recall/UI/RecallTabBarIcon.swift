@@ -41,14 +41,17 @@ struct RecallTabBarIcon: View {
                 
                 // Sparkles
                 ForEach(0..<3) { index in
+                    let angle = animationPhase + CGFloat(index) * 2 * .pi / 3
+                    let radius: CGFloat = 10
+                    let xOffset = cos(angle) * radius
+                    let yOffset = sin(angle) * radius
+                    let sparkleOpacity = 0.5 + sin(angle) * 0.5
+                    
                     Circle()
                         .fill(Color.white.opacity(0.8))
                         .frame(width: 2, height: 2)
-                        .offset(
-                            x: cos(animationPhase + CGFloat(index) * 2 * .pi / 3) * 10,
-                            y: sin(animationPhase + CGFloat(index) * 2 * .pi / 3) * 10
-                        )
-                        .opacity(0.5 + sin(animationPhase + CGFloat(index) * 2 * .pi / 3) * 0.5)
+                        .offset(x: xOffset, y: yOffset)
+                        .opacity(sparkleOpacity)
                 }
             }
             .frame(width: 30, height: 30)

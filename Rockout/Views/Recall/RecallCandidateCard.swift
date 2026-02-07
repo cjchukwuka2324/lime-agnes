@@ -8,6 +8,7 @@ struct RecallCandidateCard: View {
     let onConfirm: () -> Void
     let onNotIt: () -> Void
     let onReprompt: ((String) -> Void)?
+    let onAskGreenRoom: (() -> Void)? // CTA for low confidence
     
     @State private var showSources = false
     @State private var showDetail = false
@@ -153,6 +154,31 @@ struct RecallCandidateCard: View {
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.7))
                 }
+            }
+            
+            // Ask GreenRoom CTA for low confidence
+            if candidate.confidence < 0.65, let onAskGreenRoom = onAskGreenRoom {
+                Button {
+                    onAskGreenRoom()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 14))
+                        Text("Ask the crowd in GreenRoom")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.blue.opacity(0.7))
+                    )
+                }
+                .padding(.top, 8)
+                .accessibilityLabel("Ask the crowd in GreenRoom")
+                .accessibilityHint("Double tap to post this query to GreenRoom for community help")
             }
         }
         .padding(20)

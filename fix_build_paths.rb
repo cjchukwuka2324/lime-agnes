@@ -1,61 +1,41 @@
 #!/usr/bin/env ruby
-# encoding: utf-8
-
 require 'xcodeproj'
 
-PROJECT_PATH = 'Rockout.xcodeproj'
-SOURCE_DIR = 'Rockout'
-
-project = Xcodeproj::Project.open(PROJECT_PATH)
+project = Xcodeproj::Project.open('Rockout.xcodeproj')
 target = project.targets.first
 build_phase = target.source_build_phase
 
-# Files that need fixing
-files_to_fix = [
-  'Views/SoundPrint/Features/ListeningStatsView.swift',
-  'Views/SoundPrint/Features/TimeAnalysisView.swift',
-  'Views/SoundPrint/Features/DiscoveryView.swift',
-  'Views/SoundPrint/Features/SocialSharingView.swift',
-  'Views/SoundPrint/Features/MoodContextView.swift',
-  'Views/SoundPrint/Features/AdvancedAnalyticsView.swift',
-  'ViewModels/SharedAlbumHandler.swift',
-  'Views/StudioSessions/AcceptSharedAlbumView.swift'
-]
+# The issue might be that Xcode is constructing paths from group hierarchy
+# Let's ensure all file references have absolute paths relative to project root
+puts "Fixing file reference paths to be project-relative..."
 
-# Find all file references
-file_refs = {}
-files_to_fix.each do |file_path|
-  file_ref = project.files.find { |f| f.path == file_path }
-  if file_ref
-    file_refs[file_path] = file_ref
-    puts "Found file ref: #{file_path}"
-  else
-    puts "WARNING: File ref not found: #{file_path}"
-  end
-end
-
-# Remove ALL build files for these files
-build_phase.files.dup.each do |build_file|
-  file_ref = build_file.file_ref
+fixed = 0
+build_phase.files.each do |bf|
+  file_ref = bf.file_ref
   next unless file_ref
   
-  # Check if this is one of our files by basename
-  basename = File.basename(file_ref.path || '')
-  if files_to_fix.any? { |f| File.basename(f) == basename }
-    puts "Removing build file: #{file_ref.path}"
-    build_phase.remove_file_reference(file_ref)
-  end
-end
-
-# Re-add all files with correct file references
-file_refs.each do |file_path, file_ref|
-  build_file = build_phase.files.find { |bf| bf.file_ref == file_ref }
-  if build_file.nil?
-    build_phase.add_file_reference(file_ref)
-    puts "Added to build phase: #{file_path}"
+  path = file_ref.path
+  next unless path
+  
+  # Check if this path would cause the duplicate issue
+  # The error shows paths like: Rockout/Services/Notifications/Services/Notifications/...
+  # This suggests the group hierarchy is being prepended incorrectly
+  
+  # Get the actual file location
+  basename = File.basename(path)
+  found = Dir.glob("Rockout/**/#{basename}").first
+  
+  if found
+    correct_path = found.sub('Rockout/', '')
+    
+    # Only update if different and doesn't have duplicates
+    if path != correct_path && !correct_path.include?('/Services/Services/') && !correct_path.include?('/Views/Views/')
+      file_ref.path = correct_path
+      puts "Fixed: #{path} -> #{correct_path}"
+      fixed += 1
+    end
   end
 end
 
 project.save
-puts "Fixed all build phase paths"
-
+puts "\n✅ Fixed #{fixed} file paths"

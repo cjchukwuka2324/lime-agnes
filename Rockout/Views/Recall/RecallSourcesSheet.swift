@@ -18,7 +18,7 @@ struct RecallSourcesSheet: View {
                 } else {
                     List {
                         ForEach(sources) { source in
-                            SourceRow(source: source)
+                            RecallSourceRow(source: source)
                                 .listRowBackground(Color.clear)
                         }
                     }
@@ -41,7 +41,7 @@ struct RecallSourcesSheet: View {
     }
 }
 
-private struct SourceRow: View {
+private struct RecallSourceRow: View {
     let source: RecallSource
     
     var body: some View {

@@ -6,7 +6,10 @@ struct FollowersFollowingListView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var users: [UserSummary] = []
     @State private var isLoading = false
+    @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    @State private var nextCursor: String?
+    @State private var hasMore = true
     
     enum Mode {
         case followers
@@ -72,6 +75,21 @@ struct FollowersFollowingListView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
+                            
+                            if isLoadingMore {
+                                ProgressView()
+                                    .tint(.white)
+                                    .padding()
+                            } else if hasMore {
+                                Button("Load More") {
+                                    Task {
+                                        await loadMore()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .foregroundColor(.white)
+                                .padding()
+                            }
                         }
                         .padding()
                     }
@@ -123,20 +141,57 @@ struct FollowersFollowingListView: View {
     private func loadUsers() async {
         isLoading = true
         errorMessage = nil
+        nextCursor = nil
+        hasMore = true
         defer { isLoading = false }
         
         do {
             switch mode {
             case .followers:
-                users = try await social.getFollowers(of: userId)
+                let result = try await social.getFollowers(of: userId, cursor: nil, limit: 100)
+                users = result.users
+                nextCursor = result.nextCursor
+                hasMore = result.hasMore
             case .following:
-                users = try await social.getFollowing(of: userId)
+                let result = try await social.getFollowing(of: userId, cursor: nil, limit: 100)
+                users = result.users
+                nextCursor = result.nextCursor
+                hasMore = result.hasMore
             case .mutuals:
                 users = try await social.getMutuals(with: userId)
+                hasMore = false
             }
         } catch {
             errorMessage = error.localizedDescription
             print("Error loading users: \(error)")
+        }
+    }
+    
+    private func loadMore() async {
+        guard !isLoadingMore && hasMore, let cursor = nextCursor else { return }
+        
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        
+        do {
+            switch mode {
+            case .followers:
+                let result = try await social.getFollowers(of: userId, cursor: cursor, limit: 100)
+                users.append(contentsOf: result.users)
+                nextCursor = result.nextCursor
+                hasMore = result.hasMore
+            case .following:
+                let result = try await social.getFollowing(of: userId, cursor: cursor, limit: 100)
+                users.append(contentsOf: result.users)
+                nextCursor = result.nextCursor
+                hasMore = result.hasMore
+            case .mutuals:
+                // Mutuals doesn't support pagination yet
+                break
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            print("Error loading more users: \(error)")
         }
     }
 }

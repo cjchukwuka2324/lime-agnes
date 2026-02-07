@@ -80,18 +80,38 @@ final class RecallActionsService: ObservableObject {
         
         // Create GreenRoom post
         // Note: Adjust this based on your actual GreenRoom schema
-        let postBody: [String: Any] = [
-            "user_id": userId.uuidString,
-            "content": postText,
-            "type": "recall_share",
-            "metadata": [
-                "recall_id": recallId.uuidString,
-                "song_title": title,
-                "song_artist": artist,
-                "song_url": url as Any,
-                "confidence": confidence as Any
-            ]
+        var metadata: [String: String] = [
+            "recall_id": recallId.uuidString,
+            "song_title": title,
+            "song_artist": artist
         ]
+        if let confidence = confidence {
+            metadata["confidence"] = String(confidence)
+        }
+        if let url = url {
+            metadata["song_url"] = url
+        }
+        
+        struct PostBody: Encodable {
+            let userId: String
+            let content: String
+            let type: String
+            let metadata: [String: String]
+            
+            enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case content
+                case type
+                case metadata
+            }
+        }
+        
+        let postBody = PostBody(
+            userId: userId.uuidString,
+            content: postText,
+            type: "recall_share",
+            metadata: metadata
+        )
         
         let response = try await supabase
             .from("posts") // Adjust table name as needed
@@ -139,10 +159,20 @@ final class RecallActionsService: ObservableObject {
         }
         
         // Save recall
-        let saveBody: [String: Any] = [
-            "user_id": userId.uuidString,
-            "recall_id": recallId.uuidString
-        ]
+        struct SaveBody: Encodable {
+            let userId: String
+            let recallId: String
+            
+            enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case recallId = "recall_id"
+            }
+        }
+        
+        let saveBody = SaveBody(
+            userId: userId.uuidString,
+            recallId: recallId.uuidString
+        )
         
         let response = try await supabase
             .from("saved_recalls")
@@ -201,6 +231,9 @@ final class RecallActionsService: ObservableObject {
         return response.data.count > 0
     }
 }
+
+
+
 
 
 

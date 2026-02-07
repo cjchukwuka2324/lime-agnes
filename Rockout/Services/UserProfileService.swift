@@ -101,30 +101,50 @@ class UserProfileService: ObservableObject {
             .eq("id", value: userId.uuidString)
             .execute()
         
+        // Invalidate cache after update
+        await ProfileCache.shared.invalidate(userId: userId.uuidString)
+        
         // Clear stored data after successful update
         clearPendingSignupData(for: userId)
         print("✅ Profile updated from pending signup data")
     }
     
     func getUserProfile(userId: UUID) async throws -> UserProfile? {
-        let response: [UserProfile] = try await supabase
-            .from("profiles")
-            .select("""
-                id,
-                display_name,
-                first_name,
-                last_name,
-                username,
-                instagram,
-                twitter,
-                tiktok,
-                profile_picture_url
-            """)
-            .eq("id", value: userId)
-            .execute()
-            .value
+        let userIdString = userId.uuidString
         
-        return response.first
+        // Check cache first
+        if let cached = await ProfileCache.shared.get(userId: userIdString) {
+            return cached
+        }
+        
+        // Fetch from database with retry policy
+        let profile = try await RetryPolicy.executeWithRetry(isRead: true) {
+            let response: [UserProfile] = try await self.supabase
+                .from("profiles")
+                .select("""
+                    id,
+                    display_name,
+                    first_name,
+                    last_name,
+                    username,
+                    instagram,
+                    twitter,
+                    tiktok,
+                    profile_picture_url
+                """)
+                .eq("id", value: userId)
+                .execute()
+                .value
+            
+            return response.first
+        }
+        
+        // Cache the result
+        if let profile = profile {
+            await ProfileCache.shared.set(userId: userIdString, profile: profile)
+        }
+        
+        return profile
     }
     
     func updateInstagramHandle(_ handle: String) async throws {
@@ -140,6 +160,9 @@ class UserProfileService: ObservableObject {
             .update(["instagram": cleanHandle])
             .eq("id", value: userId)
             .execute()
+        
+        // Invalidate cache after update
+        await ProfileCache.shared.invalidate(userId: userId.uuidString)
     }
     
     func checkUsernameAvailability(_ username: String) async throws -> Bool {
@@ -295,6 +318,9 @@ class UserProfileService: ObservableObject {
             .from("profiles")
             .upsert(profileData)
             .execute()
+        
+        // Invalidate cache after update
+        await ProfileCache.shared.invalidate(userId: userId.uuidString)
     }
     
     func updateProfilePicture(_ imageURL: String) async throws {
@@ -307,6 +333,9 @@ class UserProfileService: ObservableObject {
             .update(["profile_picture_url": imageURL])
             .eq("id", value: userId)
             .execute()
+        
+        // Invalidate cache after update
+        await ProfileCache.shared.invalidate(userId: userId.uuidString)
     }
     
     func updateName(firstName: String, lastName: String) async throws {
@@ -326,6 +355,9 @@ class UserProfileService: ObservableObject {
             ])
             .eq("id", value: userId)
             .execute()
+        
+        // Invalidate cache after update
+        await ProfileCache.shared.invalidate(userId: userId.uuidString)
     }
     
     func updateUsername(_ username: String) async throws {
@@ -350,6 +382,9 @@ class UserProfileService: ObservableObject {
                 ])
                 .eq("id", value: userId)
                 .execute()
+            
+            // Invalidate cache after update
+            await ProfileCache.shared.invalidate(userId: userId.uuidString)
         } catch {
             // Format error into user-friendly message
             let userFriendlyError = formatSupabaseError(error, context: "update username")
@@ -415,6 +450,9 @@ class UserProfileService: ObservableObject {
             .update([columnName: cleanHandle])
             .eq("id", value: userId)
             .execute()
+        
+        // Invalidate cache after update
+        await ProfileCache.shared.invalidate(userId: userId.uuidString)
     }
     
     // MARK: - Delete Account

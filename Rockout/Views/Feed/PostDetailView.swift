@@ -69,6 +69,11 @@ struct PostDetailView: View {
                                     await viewModel.deletePost(postId: postId)
                                 }
                             },
+                            onMentionTap: { handle in
+                                Task {
+                                    await handleMentionTap(handle: handle)
+                                }
+                            },
                             service: service
                         )
                         
@@ -97,6 +102,11 @@ struct PostDetailView: View {
                                         onTapProfile: { author in
                                             if let userId = UUID(uuidString: author.id) {
                                                 selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: author)
+                                            }
+                                        },
+                                        onMentionTap: { handle in
+                                            Task {
+                                                await handleMentionTap(handle: handle)
                                             }
                                         },
                                         service: service,
@@ -156,6 +166,32 @@ struct PostDetailView: View {
         }
         .navigationDestination(item: $selectedProfile) { wrapper in
             UserProfileDetailView(userId: wrapper.id, initialUser: wrapper.initialUser)
+        }
+    }
+    
+    private func handleMentionTap(handle: String) async {
+        // Strip @ if present
+        let cleanHandle = handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
+        
+        // Search for user by handle
+        let social = SupabaseSocialGraphService.shared
+        do {
+            // Search users by handle
+            let (users, _) = try await social.searchUsersPaginated(query: cleanHandle, limit: 10, offset: 0)
+            
+            // Find exact match by handle
+            if let matchedUser = users.first(where: { user in
+                let userHandle = user.handle.hasPrefix("@") ? String(user.handle.dropFirst()) : user.handle
+                return userHandle.lowercased() == cleanHandle.lowercased()
+            }) {
+                await MainActor.run {
+                    if let userId = UUID(uuidString: matchedUser.id) {
+                        selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: matchedUser)
+                    }
+                }
+            }
+        } catch {
+            print("Failed to search user by handle: \(error)")
         }
     }
 }

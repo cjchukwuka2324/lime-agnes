@@ -144,11 +144,8 @@ struct SourceRow: View {
     }
 }
 
-struct RelatedSong: Identifiable, Codable {
-    let id = UUID()
-    let title: String
-    let artist: String
-}
+// Using RelatedSong from RecallModels.swift
+// This local definition is removed to avoid ambiguity
 
 // MARK: - Preview
 
@@ -170,6 +167,14 @@ struct RelatedSong: Identifiable, Codable {
         .padding()
     }
 }
+
+
+
+
+
+
+
+
 
 
 

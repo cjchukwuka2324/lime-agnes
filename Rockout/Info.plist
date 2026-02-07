@@ -42,5 +42,9 @@
 		<key>UIImageName</key>
 		<string>LaunchImage</string>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>RockOut needs access to your microphone to record voice queries for Recall, our AI music assistant. Your audio is processed on-device for transcription and sent to our servers only when you submit a query.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>RockOut uses speech recognition to provide live transcription of your voice queries in Recall. This allows you to see and edit what you said before sending your query. All transcription happens on your device for privacy.</string>
 </dict>
 </plist>

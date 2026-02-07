@@ -65,7 +65,7 @@ final class RecallService: ObservableObject {
     func fetchRecall(recallId: UUID) async throws -> RecallEvent {
         let response = try await supabase
             .from("recall_events")
-            .select("*")
+            .select("id, user_id, input_type, raw_text, media_path, transcript, status, confidence, error_message, created_at")
             .eq("id", value: recallId.uuidString)
             .single()
             .execute()
@@ -81,7 +81,7 @@ final class RecallService: ObservableObject {
     func fetchCandidates(recallId: UUID) async throws -> [RecallCandidate] {
         let response = try await supabase
             .from("recall_candidates")
-            .select("*")
+            .select("id, recall_id, title, artist, confidence, reason, source_urls, highlight_snippet, rank, created_at")
             .eq("recall_id", value: recallId.uuidString)
             .order("rank", ascending: true)
             .execute()
@@ -101,7 +101,7 @@ final class RecallService: ObservableObject {
         
         let response = try await supabase
             .from("recall_events")
-            .select("*")
+            .select("id, user_id, input_type, raw_text, media_path, transcript, status, confidence, error_message, created_at")
             .eq("user_id", value: currentUserId.uuidString)
             .order("created_at", ascending: false)
             .limit(limit)
@@ -206,7 +206,7 @@ final class RecallService: ObservableObject {
         // Try to get the most recent thread
         let response = try await supabase
             .from("recall_threads")
-            .select("*")
+            .select("id, user_id, created_at, last_message_at, title")
             .eq("user_id", value: currentUserId.uuidString)
             .order("last_message_at", ascending: false)
             .limit(1)
@@ -231,10 +231,11 @@ final class RecallService: ObservableObject {
         
         let newThread = ThreadDTO(user_id: currentUserId.uuidString)
         
+        // Select only base columns - new columns will be NULL if migration hasn't been applied
         let insertResponse = try await supabase
             .from("recall_threads")
             .insert(newThread)
-            .select()
+            .select("id, user_id, created_at, last_message_at, title")
             .single()
             .execute()
         
@@ -254,10 +255,11 @@ final class RecallService: ObservableObject {
         
         let newThread = ThreadDTO(user_id: currentUserId.uuidString)
         
+        // Select only base columns - new columns will be NULL if migration hasn't been applied
         let insertResponse = try await supabase
             .from("recall_threads")
             .insert(newThread)
-            .select()
+            .select("id, user_id, created_at, last_message_at, title")
             .single()
             .execute()
         
@@ -273,17 +275,42 @@ final class RecallService: ObservableObject {
     }
     
     func fetchThread(threadId: UUID) async throws -> RecallThread {
-        let response = try await supabase
-            .from("recall_threads")
-            .select("*")
-            .eq("id", value: threadId.uuidString)
-            .single()
-            .execute()
+        let startTime = Date()
+        await RecallMetrics.shared.recordRequest("fetch_thread")
         
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Check cache first
+        if let cached = await RecallCache.shared.getThread(threadId) {
+            print("✅ [CACHE] Using cached thread \(threadId.uuidString)")
+            let duration = Date().timeIntervalSince(startTime)
+            await RecallMetrics.shared.recordOperation("fetch_thread", duration: duration)
+            return cached
+        }
         
-        return try decoder.decode(RecallThread.self, from: response.data)
+        // Use RequestCoalescer to prevent duplicate concurrent requests
+        let coalesceKey = "recall:thread:\(threadId.uuidString)"
+        
+        let thread = try await RequestCoalescer.shared.execute(key: coalesceKey) {
+            // Select only base columns that exist in the database
+            // New columns (pinned, archived, deleted_at, summary) will be NULL if migration hasn't been applied
+            let response = try await self.supabase
+                .from("recall_threads")
+                .select("id, user_id, created_at, last_message_at, title")
+                .eq("id", value: threadId.uuidString)
+                .single()
+                .execute()
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(RecallThread.self, from: response.data)
+        }
+        
+        // Cache the result
+        await RecallCache.shared.setThread(thread)
+        
+        let duration = Date().timeIntervalSince(startTime)
+        await RecallMetrics.shared.recordOperation("fetch_thread", duration: duration)
+        
+        return thread
     }
     
     // MARK: - Message Management
@@ -305,6 +332,8 @@ final class RecallService: ObservableObject {
         role: RecallMessageRole,
         messageType: RecallMessageType,
         text: String? = nil,
+        rawTranscript: String? = nil,
+        editedTranscript: String? = nil,
         mediaPath: String? = nil,
         candidateJson: [String: AnyCodable]? = nil,
         sourcesJson: [RecallSource]? = nil,
@@ -340,6 +369,8 @@ final class RecallService: ObservableObject {
             let role: String
             let message_type: String
             let text: String?
+            let raw_transcript: String?
+            let edited_transcript: String?
             let media_path: String?
             let candidate_json: [String: AnyCodable]?
             let sources_json: [SourceDTO]?
@@ -361,6 +392,8 @@ final class RecallService: ObservableObject {
             role: role.rawValue,
             message_type: messageType.rawValue,
             text: text,
+            raw_transcript: rawTranscript,
+            edited_transcript: editedTranscript,
             media_path: mediaPath,
             candidate_json: candidateJson,
             sources_json: sourcesJson?.map { SourceDTO(title: $0.title, url: $0.url, snippet: $0.snippet) },
@@ -384,6 +417,8 @@ final class RecallService: ObservableObject {
                 let p_role: String
                 let p_message_type: String
                 let p_text: String?
+                let p_raw_transcript: String?
+                let p_edited_transcript: String?
                 let p_media_path: String?
                 let p_candidate_json: [String: AnyCodable]?
                 let p_sources_json: [[String: String?]]?
@@ -408,6 +443,8 @@ final class RecallService: ObservableObject {
                 p_role: role.rawValue,
                 p_message_type: messageType.rawValue,
                 p_text: text,
+                p_raw_transcript: rawTranscript,
+                p_edited_transcript: editedTranscript,
                 p_media_path: mediaPath,
                 p_candidate_json: candidateJson,
                 p_sources_json: sourcesArray,
@@ -471,12 +508,16 @@ final class RecallService: ObservableObject {
             if let responseString = String(data: functionResponse.data, encoding: .utf8)?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) {
                 if let messageId = UUID(uuidString: responseString) {
                     print("✅ Parsed message ID from RPC: \(messageId)")
+                    // Invalidate cache for this thread since we have a new message
+                    await RecallCache.shared.invalidateThread(threadId)
                     return messageId
                 }
             }
             // Try parsing as UUID directly
             if let messageId = try? JSONDecoder().decode(UUID.self, from: functionResponse.data) {
                 print("✅ Parsed message ID from RPC (direct): \(messageId)")
+                // Invalidate cache for this thread since we have a new message
+                await RecallCache.shared.invalidateThread(threadId)
                 return messageId
             }
             // If we can't parse the response, throw an error (don't fall back to direct insert)
@@ -584,27 +625,82 @@ final class RecallService: ObservableObject {
         )
     }
     
-    func fetchMessages(threadId: UUID) async throws -> [RecallMessage] {
-        print("📥 [TRANSCRIPT] fetchMessages called for threadId: \(threadId.uuidString)")
-        let response = try await supabase
+    func fetchMessages(threadId: UUID, cursor: Date? = nil, limit: Int = 50) async throws -> (messages: [RecallMessage], nextCursor: String?, hasMore: Bool) {
+        let startTime = Date()
+        await RecallMetrics.shared.recordRequest("fetch_messages")
+        
+        print("📥 [TRANSCRIPT] fetchMessages called for threadId: \(threadId.uuidString), cursor: \(cursor?.description ?? "nil"), limit: \(limit)")
+        
+        // Check cache first (only if no cursor - cursor means loading older messages)
+        if cursor == nil {
+            if let cached = await RecallCache.shared.getMessages(threadId) {
+                print("✅ [CACHE] Using cached messages for thread \(threadId.uuidString)")
+                let duration = Date().timeIntervalSince(startTime)
+                await RecallMetrics.shared.recordOperation("fetch_messages", duration: duration)
+                return (messages: cached, nextCursor: nil, hasMore: false)
+            }
+        }
+        
+        // Use RequestCoalescer to prevent duplicate concurrent requests
+        let coalesceKey = "recall:messages:\(threadId.uuidString):\(cursor?.timeIntervalSince1970 ?? 0)"
+        
+        let result = try await RequestCoalescer.shared.execute(key: coalesceKey) {
+            try await self.fetchMessagesInternal(threadId: threadId, cursor: cursor, limit: limit)
+        }
+        
+        // Cache the result if it's the first page (no cursor)
+        if cursor == nil {
+            await RecallCache.shared.setMessages(threadId, messages: result.messages)
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        await RecallMetrics.shared.recordOperation("fetch_messages", duration: duration)
+        
+        return result
+    }
+    
+    private func fetchMessagesInternal(threadId: UUID, cursor: Date? = nil, limit: Int = 50) async throws -> (messages: [RecallMessage], nextCursor: String?, hasMore: Bool) {
+        // Enforce max limit of 50 for scalability
+        let effectiveLimit = min(limit, 50)
+        
+        // Build query with pagination
+        // Note: We fetch more than needed and filter in-memory because .gt() is not available
+        let fetchLimit = cursor != nil ? effectiveLimit + 50 : effectiveLimit + 1 // Fetch extra if filtering by cursor
+        
+        var query = supabase
             .from("recall_messages")
-            .select("*")
+            .select("id, thread_id, user_id, role, message_type, text, raw_transcript, edited_transcript, media_path, candidate_json, sources_json, confidence, song_url, song_title, song_artist, created_at")
             .eq("thread_id", value: threadId.uuidString)
             .order("created_at", ascending: true)
-            .execute()
+            .limit(fetchLimit)
+        
+        let response = try await query.execute()
         
         print("📥 [TRANSCRIPT] Raw response data length: \(response.data.count) bytes")
         
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
-        let messages = try decoder.decode([RecallMessage].self, from: response.data)
-        print("📥 [TRANSCRIPT] Decoded \(messages.count) messages:")
+        var allMessages: [RecallMessage] = try decoder.decode([RecallMessage].self, from: response.data)
+        
+        // Apply cursor filtering in-memory if provided
+        if let cursor = cursor {
+            allMessages = allMessages.filter { $0.createdAt > cursor }
+        }
+        
+        // Check if there are more pages
+        let hasMore = allMessages.count > effectiveLimit
+        let messages = Array(allMessages.prefix(effectiveLimit))
+        
+        print("📥 [TRANSCRIPT] Decoded \(messages.count) messages (hasMore: \(hasMore)):")
         for (index, msg) in messages.enumerated() {
             print("   [\(index)] id=\(msg.id), role=\(msg.role), type=\(msg.messageType), text=\(msg.text?.prefix(50) ?? "nil"), hasText=\(msg.text != nil && !msg.text!.isEmpty)")
         }
         
-        return messages
+        // Calculate next cursor (last message's created_at)
+        let nextCursor: String? = hasMore ? messages.last?.createdAt.description : nil
+        
+        return (messages: messages, nextCursor: nextCursor, hasMore: hasMore)
     }
     
     func updateThreadLastMessage(threadId: UUID) async throws {
@@ -676,12 +772,23 @@ final class RecallService: ObservableObject {
         audioPath: String? = nil,
         videoPath: String? = nil
     ) async throws -> RecallResolveResponse {
+        let requestId = UUID().uuidString.prefix(8)
         let startTime = Date()
-        print("🔍 [RECALL-SERVICE] resolveRecall called at \(startTime)")
-        print("📋 [RECALL-SERVICE] Input: type=\(inputType.rawValue), text=\"\(text?.prefix(50) ?? "nil")...\", has_media=\(mediaPath != nil)")
+        await RecallMetrics.shared.recordRequest("resolve_recall")
+        
+        print("🔍 [RECALL-SERVICE] [\(requestId)] resolveRecall() called at \(startTime)")
+        print("📋 [RECALL-SERVICE] [\(requestId)] Request parameters:")
+        print("   threadId: \(threadId.uuidString)")
+        print("   messageId: \(messageId.uuidString)")
+        print("   inputType: \(inputType.rawValue)")
+        print("   text: \(text?.prefix(100) ?? "nil")")
+        print("   mediaPath: \(mediaPath ?? "nil")")
+        print("   audioPath: \(audioPath ?? "nil")")
+        print("   videoPath: \(videoPath ?? "nil")")
         
         guard let session = supabase.auth.currentSession else {
-            print("❌ [RECALL-SERVICE] Not authenticated")
+            print("❌ [RECALL-SERVICE] [\(requestId)] Not authenticated")
+            await RecallMetrics.shared.recordError("resolve_recall")
             throw NSError(domain: "RecallService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
         
@@ -706,37 +813,79 @@ final class RecallService: ObservableObject {
             requestBody["video_path"] = videoPath
         }
         
-        // Try to call edge function
+        // Log request body (truncate text if too long)
+        var logBody = requestBody
+        if let textValue = logBody["text"] as? String, textValue.count > 200 {
+            logBody["text"] = String(textValue.prefix(200)) + "..."
+        }
+        print("📤 [RECALL-SERVICE] [\(requestId)] Request body: \(logBody)")
+        
+        // Use RequestCoalescer to prevent duplicate concurrent requests
+        // Note: Only coalesce if same thread+message (rare, but possible with rapid taps)
+        let coalesceKey = "recall:resolve:\(threadId.uuidString):\(messageId.uuidString)"
+        print("🔑 [RECALL-SERVICE] [\(requestId)] Coalesce key: \(coalesceKey)")
+        
         do {
-            let invokeStartTime = Date()
-            print("📡 [RECALL-SERVICE] Calling edge function 'recall-resolve'...")
-            let response = try await invokeEdgeFunction(
-                name: "recall-resolve",
-                body: requestBody,
-                accessToken: session.accessToken
-            )
-            let invokeTime = Date().timeIntervalSince(invokeStartTime)
-            print("⏱️ [RECALL-SERVICE] Edge function call took: \(invokeTime)s")
-            print("📊 [RECALL-SERVICE] Response size: \(response.count) bytes")
-            
-            let decodeStartTime = Date()
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let result = try decoder.decode(RecallResolveResponse.self, from: response)
-            let decodeTime = Date().timeIntervalSince(decodeStartTime)
-            print("⏱️ [RECALL-SERVICE] Decode took: \(decodeTime)s")
+            let result = try await RequestCoalescer.shared.execute(key: coalesceKey) {
+                let invokeStartTime = Date()
+                print("📡 [RECALL-SERVICE] [\(requestId)] Calling edge function 'recall-resolve'...")
+                let response = try await self.invokeEdgeFunction(
+                    name: "recall-resolve",
+                    body: requestBody,
+                    accessToken: session.accessToken,
+                    timeout: 60.0, // Increased for transcription
+                    maxRetries: 3
+                )
+                let invokeTime = Date().timeIntervalSince(invokeStartTime)
+                print("⏱️ [RECALL-SERVICE] [\(requestId)] Edge function call took: \(String(format: "%.3f", invokeTime))s")
+                print("📊 [RECALL-SERVICE] [\(requestId)] Response size: \(response.count) bytes")
+                
+                let decodeStartTime = Date()
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let decoded = try decoder.decode(RecallResolveResponse.self, from: response)
+                let decodeTime = Date().timeIntervalSince(decodeStartTime)
+                print("⏱️ [RECALL-SERVICE] [\(requestId)] JSON decode took: \(String(format: "%.3f", decodeTime))s")
+                
+                print("📊 [RECALL-SERVICE] [\(requestId)] Decoded response:")
+                print("   status: \(decoded.status)")
+                print("   responseType: \(decoded.responseType ?? "nil")")
+                print("   candidates count: \(decoded.candidates?.count ?? 0)")
+                print("   has answer: \(decoded.answer != nil)")
+                if let candidates = decoded.candidates, !candidates.isEmpty {
+                    print("   top candidate: \(candidates[0].title) by \(candidates[0].artist) (confidence: \(candidates[0].confidence))")
+                }
+                if let answer = decoded.answer {
+                    print("   answer text length: \(answer.text.count) chars")
+                    print("   answer sources: \(answer.sources.count)")
+                }
+                
+                return decoded
+            }
             
             let totalTime = Date().timeIntervalSince(startTime)
-            print("✅ [RECALL-SERVICE] resolveRecall completed in \(totalTime)s")
-            print("📊 [RECALL-SERVICE] Result: status=\(result.status), type=\(result.responseType ?? "none"), candidates=\(result.candidates?.count ?? 0), has_answer=\(result.answer != nil)")
+            print("✅ [RECALL-SERVICE] [\(requestId)] resolveRecall() completed in \(String(format: "%.3f", totalTime))s")
+            print("📊 [RECALL-SERVICE] [\(requestId)] Final result: status=\(result.status), type=\(result.responseType ?? "none"), candidates=\(result.candidates?.count ?? 0), has_answer=\(result.answer != nil)")
+            
+            await RecallMetrics.shared.recordOperation("resolve_recall", duration: totalTime)
+            
+            // Invalidate cache for this thread since we have new messages
+            await RecallCache.shared.invalidateThread(threadId)
             
             return result
         } catch {
             let totalTime = Date().timeIntervalSince(startTime)
-            print("❌ [RECALL-SERVICE] resolveRecall failed after \(totalTime)s: \(error.localizedDescription)")
-            // Fallback to mock response for testing
-            print("⚠️ Edge function not available, using mock response: \(error.localizedDescription)")
-            return createMockResponse()
+            print("❌ [RECALL-SERVICE] [\(requestId)] resolveRecall() failed after \(String(format: "%.3f", totalTime))s")
+            print("   Error: \(error.localizedDescription)")
+            if let nsError = error as? NSError {
+                print("   Error code: \(nsError.code)")
+                print("   Error domain: \(nsError.domain)")
+                print("   Error userInfo: \(nsError.userInfo)")
+            }
+            await RecallMetrics.shared.recordError("resolve_recall")
+            await RecallMetrics.shared.recordOperation("resolve_recall", duration: totalTime)
+            // Don't fallback to mock - let the error propagate so user can see what's wrong
+            throw error
         }
     }
     
@@ -749,7 +898,7 @@ final class RecallService: ObservableObject {
         
         let response = try await supabase
             .from("recall_stash")
-            .select("*")
+            .select("id, user_id, thread_id, created_at, top_song_title, top_song_artist, top_confidence, top_song_url")
             .eq("user_id", value: currentUserId.uuidString)
             .order("created_at", ascending: false)
             .execute()
@@ -834,7 +983,8 @@ final class RecallService: ObservableObject {
         let mockSource = RecallSource(
             title: "Wikipedia",
             url: "https://example.com/song",
-            snippet: "Sample song information"
+            snippet: "Sample song information",
+            publisher: nil
         )
         
         let mockMessage = AssistantMessage(
@@ -853,6 +1003,7 @@ final class RecallService: ObservableObject {
             status: "done",
             responseType: "search",
             transcription: nil,
+            titleSuggestion: nil,
             assistantMessage: mockMessage,
             error: nil,
             candidates: nil,

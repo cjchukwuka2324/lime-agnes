@@ -56,7 +56,7 @@ struct SocialSharingView: View {
         }
         .sheet(isPresented: $showShareSheet) {
             if let image = shareImage {
-                ShareSheet(activityItems: [image])
+                ShareSheetExporter(items: [image])
             }
         }
     }
@@ -570,12 +570,5 @@ struct CompatibilityRow: View {
     }
 }
 
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
+// ShareSheet is defined as typealias in ShareExporter.swift
+// This duplicate definition is removed to avoid conflict

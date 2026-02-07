@@ -3,6 +3,8 @@ import SwiftUI
 struct RecallHomeView: View {
     @StateObject private var viewModel = RecallViewModel()
     @State private var showStashed = false
+    @State private var showStashedThreads = false
+    @State private var showSettings = false
     @FocusState private var isTextFieldFocused: Bool
     @State private var dragOffset: CGFloat = 0
     @GestureState private var isLongPressing: Bool = false
@@ -15,24 +17,47 @@ struct RecallHomeView: View {
                 mainContent
             }
             .simultaneousGesture(
-                LongPressGesture(minimumDuration: 3.0)
-                    .sequenced(before: DragGesture(minimumDistance: 0))
+                LongPressGesture(minimumDuration: 1.5)
+                    .sequenced(before: DragGesture(minimumDistance: 10))
                     .updating($isLongPressing) { value, state, _ in
                         switch value {
                         case .first(true):
-                            // Long press started - start recording
+                            // Long press started - notify state machine
+                            // Only proceed if NOT scrolling and gate conditions are met
                             if !state {
-                                state = true
-                                if case .listening = viewModel.orbState {
+                                // Check if user is scrolling or in cooldown - if so, ignore the gesture
+                                if viewModel.stateMachine.isScrolling || viewModel.stateMachine.scrollCooldownActive {
                                     return
                                 }
-                                guard !viewModel.isProcessing else { return }
+                                
+                                state = true
+                                // Check gate conditions via state machine
+                                if viewModel.stateMachine.currentState == .listening || viewModel.stateMachine.currentState == .processing {
+                                    return
+                                }
+                                // Notify state machine first
+                                viewModel.stateMachine.handleEvent(.longPressBegan)
+                                // Only proceed if state machine allows (checks scrolling and cooldown again)
+                                guard viewModel.stateMachine.currentState == .armed || viewModel.stateMachine.currentState == .listening else {
+                                    return
+                                }
                                 Task {
                                     await viewModel.orbLongPressed()
                                 }
                             }
-                        case .second(true, _):
-                            // Still pressing - keep recording
+                        case .second(true, let dragValue):
+                            // Still pressing and dragging - check if drag distance is too large
+                            // If user drags too far, cancel the gesture
+                            if let drag = dragValue, abs(drag.translation.width) > 50 || abs(drag.translation.height) > 50 {
+                                // User dragged too far - cancel
+                                state = false
+                                viewModel.stateMachine.handleEvent(.longPressEnded)
+                                Task {
+                                    await viewModel.orbLongPressEnded()
+                                }
+                                return
+                            }
+                            // Still pressing within acceptable range - keep recording
                             state = true
                             break
                         default:
@@ -40,8 +65,8 @@ struct RecallHomeView: View {
                         }
                     }
                     .onEnded { _ in
-                        // Long press ended - stop recording
-                        // @GestureState automatically resets to false
+                        // Contact lost - stop recording immediately
+                        viewModel.stateMachine.handleEvent(.longPressEnded)
                         Task {
                             await viewModel.orbLongPressEnded()
                         }
@@ -88,6 +113,28 @@ struct RecallHomeView: View {
                             Divider()
                         }
                         
+                        // View Stashed Threads
+                        Button {
+                            showStashedThreads = true
+                        } label: {
+                            Label("Stashed Threads", systemImage: "bubble.left.and.bubble.right.fill")
+                        }
+                        .accessibilityLabel("Stashed Threads")
+                        .accessibilityHint("Double tap to view your conversation threads")
+                        
+                        Divider()
+                        
+                        // Settings
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gearshape.fill")
+                        }
+                        .accessibilityLabel("Settings")
+                        .accessibilityHint("Double tap to open Recall settings")
+                        
+                        Divider()
+                        
                         // View Stashed Songs
                         Button {
                             showStashed = true
@@ -102,11 +149,17 @@ struct RecallHomeView: View {
                             .font(.system(size: 22))
                     }
                     .accessibilityLabel("Menu")
-                    .accessibilityHint("Double tap to open menu with options for new thread and stashed songs")
+                    .accessibilityHint("Double tap to open menu with options for new thread, stashed threads, and stashed songs")
                 }
             }
             .sheet(isPresented: $showStashed) {
                 RecallStashedView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showStashedThreads) {
+                RecallStashedThreadsView(recallViewModel: viewModel)
+            }
+            .sheet(isPresented: $showSettings) {
+                RecallSettingsView()
             }
             .sheet(isPresented: $viewModel.showGreenRoomPrompt) {
                 GreenRoomPromptSheet(
@@ -151,11 +204,17 @@ struct RecallHomeView: View {
                 }
             }
             .onChange(of: scenePhase) { oldPhase, newPhase in
-                // When app comes to foreground after being in background, reset welcome flag
-                // so welcome shows again on next app open
-                if oldPhase == .background && newPhase == .active {
-                    // Reset welcome flag so it shows on next Recall open
-                    // This will be handled by checkAndShowWelcomeOnAppOpen
+                // Stop speaking when app goes to background or becomes inactive
+                if newPhase == .background || newPhase == .inactive {
+                    VoiceResponseService.shared.stopSpeaking()
+                    print("🔇 [LIFECYCLE] Stopped speaking because app went to \(newPhase == .background ? "background" : "inactive")")
+                }
+                
+                // When app comes to foreground after being in background/inactive, reset welcome flag
+                // so welcome shows again on next app open (app restart)
+                if (oldPhase == .background || oldPhase == .inactive) && newPhase == .active {
+                    // Reset welcome flag so it shows on next Recall open after app restart
+                    viewModel.resetWelcomeFlag()
                 }
             }
         }
@@ -211,6 +270,15 @@ struct RecallHomeView: View {
                 }
             }
         )
+        .onTapGesture {
+            // Tap to stop recording if currently recording
+            // Check if recording by checking the state
+            if case .listening = viewModel.orbState {
+                Task {
+                    await viewModel.orbTapped()
+                }
+            }
+        }
         .ignoresSafeArea()
     }
     
@@ -269,11 +337,17 @@ struct RecallHomeView: View {
             VStack(spacing: 0) {
                 messagesScrollView
                     .opacity(1.0) // Ensure messages are always fully visible
+                
+                // Live transcript and transcript composer removed (files were deleted in stash revert)
+                
                 composerBar
             }
         } else {
             VStack {
                 Spacer()
+                
+                // Live transcript and transcript composer removed (files were deleted in stash revert)
+                
                 composerBar
             }
         }
@@ -282,6 +356,9 @@ struct RecallHomeView: View {
     // Filter messages to hide status messages when there's an answer message after them
     private var filteredMessages: [RecallMessage] {
         var filtered: [RecallMessage] = []
+        
+        // Log all messages for debugging
+        print("🔍 [TRANSCRIPT] Filtering messages - total: \(viewModel.messages.count)")
         
         for (index, message) in viewModel.messages.enumerated() {
             if message.messageType == .status {
@@ -306,13 +383,15 @@ struct RecallHomeView: View {
                     print("🚫 [TRANSCRIPT] Hiding status message because answer exists after it at index \(index)")
                 }
             } else {
+                // Include all non-status messages
                 filtered.append(message)
+                print("✅ [TRANSCRIPT] Including message [\(index)]: type=\(message.messageType), role=\(message.role), hasText=\(message.text != nil && !message.text!.isEmpty)")
             }
         }
         
         print("📋 [TRANSCRIPT] Filtered messages: \(filtered.count) of \(viewModel.messages.count)")
         for (idx, msg) in filtered.enumerated() {
-            print("   [\(idx)] type=\(msg.messageType), role=\(msg.role), text=\(msg.text?.prefix(30) ?? "nil")")
+            print("   [\(idx)] id=\(msg.id), type=\(msg.messageType), role=\(msg.role), text=\(msg.text?.prefix(30) ?? "nil")")
         }
         
         return filtered
@@ -322,6 +401,38 @@ struct RecallHomeView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 16) {
+                    // Loading indicator for older messages at top
+                    if viewModel.isLoadingOlderMessages {
+                        ProgressView()
+                            .tint(.white)
+                            .padding()
+                    }
+                    
+                    // Scroll velocity reader for state machine (invisible, tracks scroll)
+                    ScrollVelocityReader(
+                        scrollVelocity: .constant(0),
+                        isScrolling: Binding(
+                            get: { viewModel.stateMachine.isScrolling },
+                            set: { newValue in
+                                if newValue {
+                                    viewModel.stateMachine.handleEvent(.scrollStarted)
+                                } else {
+                                    viewModel.stateMachine.handleEvent(.scrollEnded)
+                                }
+                            }
+                        )
+                    )
+                    .frame(height: 0)
+                    .opacity(0)
+                    .onAppear {
+                        // Load older messages when scrolling to top
+                        if viewModel.hasMoreMessages && !viewModel.isLoadingOlderMessages {
+                            Task {
+                                await viewModel.loadOlderMessages()
+                            }
+                        }
+                    }
+                    
                     // Filter out status messages that have been superseded by answer messages
                     ForEach(filteredMessages) { message in
                         messageBubble(for: message)
@@ -350,7 +461,27 @@ struct RecallHomeView: View {
                 .padding(.vertical, 16)
                 .padding(.bottom, 100)
             }
-            .onChange(of: viewModel.messages.count) { _, _ in
+            .coordinateSpace(name: "scrollView") // Required for ScrollVelocityReader
+            .disabled(viewModel.stateMachine.currentState == .listening) // Disable scrolling when listening
+            .onChange(of: viewModel.stateMachine.isScrolling) { oldValue, newValue in
+                // Update state machine when scroll state changes
+                if newValue && !oldValue {
+                    viewModel.stateMachine.handleEvent(.scrollStarted)
+                } else if !newValue && oldValue {
+                    viewModel.stateMachine.handleEvent(.scrollEnded)
+                }
+            }
+            .onChange(of: viewModel.messages.count) { oldCount, newCount in
+                print("🔄 [TRANSCRIPT] Messages count changed: \(oldCount) -> \(newCount)")
+                if let lastMessage = filteredMessages.last {
+                    withAnimation {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: viewModel.messages) { oldMessages, newMessages in
+                print("🔄 [TRANSCRIPT] Messages array changed: \(oldMessages.count) -> \(newMessages.count)")
+                // Force UI refresh when messages change
                 if let lastMessage = filteredMessages.last {
                     withAnimation {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
@@ -359,6 +490,7 @@ struct RecallHomeView: View {
             }
             .onChange(of: viewModel.conversationMode) { oldMode, newMode in
                 // Scroll to last message when Recall starts speaking
+                print("🔄 [TRANSCRIPT] Conversation mode changed: \(oldMode) -> \(newMode)")
                 if newMode == .speaking, let lastMessage = filteredMessages.last {
                     withAnimation {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
@@ -385,7 +517,8 @@ struct RecallHomeView: View {
                         await viewModel.confirmCandidate(
                             messageId: message.id,
                             title: candidate.title,
-                            artist: candidate.artist
+                            artist: candidate.artist,
+                            url: message.songUrl
                         )
                     }
                 } else if message.role == .assistant && (message.messageType == .text || message.messageType == .answer || message.messageType == .follow_up) {
@@ -409,6 +542,16 @@ struct RecallHomeView: View {
                 viewModel.repromptMessageId = messageId
                 viewModel.repromptOriginalQuery = text
                 viewModel.showRepromptSheet = true
+            },
+            onAskGreenRoom: {
+                Task {
+                    await viewModel.createGreenRoomPost()
+                }
+            },
+            onRegenerate: { messageId in
+                Task {
+                    await viewModel.regenerateAnswer(messageId: messageId)
+                }
             }
         )
     }

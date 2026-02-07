@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import UIKit
 
 @MainActor
 class VoiceResponseService: NSObject, ObservableObject {
@@ -16,6 +17,45 @@ class VoiceResponseService: NSObject, ObservableObject {
     private override init() {
         super.init()
         synthesizer.delegate = self
+        
+        // Listen for app lifecycle events to stop speaking when app goes to background
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func appWillResignActive() {
+        // Stop speaking when app becomes inactive (e.g., user switches apps)
+        Task { @MainActor in
+            if self.isSpeaking {
+                self.stopSpeaking()
+                print("🔇 [LIFECYCLE] Stopped speaking because app will resign active")
+            }
+        }
+    }
+    
+    @objc private func appDidEnterBackground() {
+        // Stop speaking when app enters background
+        Task { @MainActor in
+            if self.isSpeaking {
+                self.stopSpeaking()
+                print("🔇 [LIFECYCLE] Stopped speaking because app entered background")
+            }
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     func speak(_ text: String, completion: (() -> Void)? = nil) {

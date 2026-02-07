@@ -6,6 +6,8 @@ struct RecallMessageBubble: View {
     let onNotIt: ((UUID) -> Void)?
     let onDecline: ((UUID) -> Void)?
     let onReprompt: ((UUID, String) -> Void)?
+    let onAskGreenRoom: (() -> Void)? // CTA for low confidence
+    let onRegenerate: ((UUID) -> Void)? // Regenerate answer
     // Use @ObservedObject instead of @StateObject for singleton to ensure updates are observed
     @ObservedObject private var voiceResponseService = VoiceResponseService.shared
     @State private var isPressed = false
@@ -15,13 +17,17 @@ struct RecallMessageBubble: View {
         onConfirm: (() -> Void)? = nil,
         onNotIt: ((UUID) -> Void)? = nil,
         onDecline: ((UUID) -> Void)? = nil,
-        onReprompt: ((UUID, String) -> Void)? = nil
+        onReprompt: ((UUID, String) -> Void)? = nil,
+        onAskGreenRoom: (() -> Void)? = nil,
+        onRegenerate: ((UUID) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirm = onConfirm
         self.onNotIt = onNotIt
         self.onDecline = onDecline
         self.onReprompt = onReprompt
+        self.onAskGreenRoom = onAskGreenRoom
+        self.onRegenerate = onRegenerate
     }
     
     var body: some View {
@@ -74,7 +80,8 @@ struct RecallMessageBubble: View {
                                 },
                                 onReprompt: { text in
                                     onReprompt?(message.id, text)
-                                }
+                                },
+                                onAskGreenRoom: candidate.confidence < 0.65 ? onAskGreenRoom : nil
                             )
                         } else {
                             Text(message.text ?? "Unknown message")
@@ -106,7 +113,7 @@ struct RecallMessageBubble: View {
                     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             Image(systemName: "waveform")
-                                .font(.system(size: 16))
+                                .font(.subheadline)
                             Text("Voice note")
                                 .font(.subheadline)
                         }
@@ -125,9 +132,34 @@ struct RecallMessageBubble: View {
                         .font(.body)
                 }
                 
-                Text(message.createdAt.timeAgoDisplay())
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.5))
+                HStack(spacing: 4) {
+                    // Status indicator
+                    if let status = message.status {
+                        switch status {
+                        case .sending:
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("Sending...")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.7))
+                        case .failed:
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                            Text("Failed")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        case .sent:
+                            Text(message.createdAt.timeAgoDisplay())
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                    } else {
+                        Text(message.createdAt.timeAgoDisplay())
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -371,6 +403,31 @@ struct RecallMessageBubble: View {
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.6))
                     .padding(.top, 4)
+            }
+            
+            // Regenerate button for assistant messages
+            if message.role == .assistant, let onRegenerate = onRegenerate {
+                Button {
+                    onRegenerate(message.id)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 14))
+                        Text("Regenerate")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(0.1))
+                    )
+                }
+                .accessibilityLabel("Regenerate answer")
+                .accessibilityHint("Double tap to regenerate this response")
+                .padding(.top, 4)
             }
             
             // Confirm and Decline buttons - only for conversational outputs and results, not welcome or clarifying questions

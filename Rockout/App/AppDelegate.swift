@@ -1,23 +1,36 @@
 import UIKit
 import SwiftUI
 import UserNotifications
+#if canImport(FirebaseCore)
+import FirebaseCore
+import FirebaseCrashlytics
+import FirebaseAnalytics
+#endif
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
-        print("🚀 App launched")
+        Logger.general.info("App launched")
+        
+        // Initialize Firebase if enabled
+        #if canImport(FirebaseCore)
+        if AppConfig.firebaseEnabled {
+            FirebaseApp.configure()
+            Logger.general.info("Firebase configured")
+        }
+        #endif
         
         // Request notification permissions
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
-                print("❌ Failed to request notification authorization: \(error.localizedDescription)")
+                Logger.notifications.failure("Failed to request notification authorization", error: error)
             } else if granted {
-                print("✅ Notification authorization granted")
+                Logger.notifications.success("Notification authorization granted")
                 DispatchQueue.main.async {
                     application.registerForRemoteNotifications()
                 }
             } else {
-                print("⚠️ Notification authorization denied")
+                Logger.notifications.warning("Notification authorization denied")
             }
         }
         
@@ -28,7 +41,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        print("📱 Device token received: \(tokenString)")
+        Logger.notifications.info("Device token received: \(tokenString)")
         
         Task {
             await DeviceTokenService.shared.registerDeviceToken(tokenString)
@@ -36,7 +49,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
     
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
+        Logger.notifications.failure("Failed to register for remote notifications", error: error)
     }
     
     // MARK: - Notification Handling
@@ -48,7 +61,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
-        print("📬 Notification tapped: \(userInfo)")
+        Logger.notifications.info("Notification tapped: \(userInfo)")
         
         // Handle notification tap - navigate to relevant screen
         if let postId = userInfo["post_id"] as? String {
@@ -59,11 +72,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
     
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        print("🔗 AppDelegate received URL: \(url.absoluteString)")
-        print("   Scheme: \(url.scheme ?? "nil"), Host: \(url.host ?? "nil"), Path: \(url.path)")
+        Logger.general.info("AppDelegate received URL: \(url.absoluteString)")
+        Logger.general.debug("Scheme: \(url.scheme ?? "nil"), Host: \(url.host ?? "nil"), Path: \(url.path)")
         
         guard url.scheme == "rockout" else {
-            print("⚠️ Unknown URL scheme: \(url.scheme ?? "nil")")
+            Logger.general.warning("Unknown URL scheme: \(url.scheme ?? "nil")")
             return false
         }
         
@@ -84,13 +97,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             
             if !cleanToken.isEmpty {
-                print("📎 AppDelegate handling share link (\(host)), token: \(cleanToken)")
+                Logger.general.info("AppDelegate handling share link (\(host)), token: \(cleanToken)")
                 Task { @MainActor in
                     SharedAlbumHandler.shared.handleShareToken(cleanToken)
                 }
                 return true
             } else {
-                print("⚠️ AppDelegate: Share link missing token. Host: '\(host)', Path: '\(url.path)'")
+                Logger.general.warning("AppDelegate: Share link missing token. Host: '\(host)', Path: '\(url.path)'")
             }
         }
         
@@ -101,16 +114,16 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             if url.path.contains("callback") || url.query != nil {
                 // This is likely an email confirmation or password reset link
                 // Handle by restoring session directly via Supabase client
-                print("🔐 AppDelegate: Handling as email confirmation/password reset link")
+                Logger.auth.info("AppDelegate: Handling as email confirmation/password reset link")
                 Task { @MainActor in
                     do {
                         let supabase = SupabaseService.shared.client
                         let session = try await supabase.auth.session(from: url)
-                        print("✅ AppDelegate: Session restored from URL for:", session.user.email ?? "nil")
+                        Logger.auth.success("AppDelegate: Session restored from URL for: \(session.user.email ?? "nil")")
                         // Post notification so AuthViewModel can pick it up
                         NotificationCenter.default.post(name: NSNotification.Name("SessionRestored"), object: nil)
                     } catch {
-                        print("⚠️ AppDelegate: Could not restore session from URL:", error.localizedDescription)
+                        Logger.auth.warning("AppDelegate: Could not restore session from URL: \(error.localizedDescription)")
                     }
                 }
             } else {
@@ -118,9 +131,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                 Task {
                     do {
                         try await SpotifyAuthService.shared.handleRedirectURL(url)
-                        print("✅ Spotify OAuth successful")
+                        Logger.spotify.success("Spotify OAuth successful")
                     } catch {
-                        print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
+                        Logger.spotify.failure("Failed to handle Spotify redirect", error: error)
                     }
                 }
             }
@@ -129,15 +142,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         
         // Handle password reset: rockout://password-reset
         if url.host == "password-reset" || url.path.contains("password-reset") {
-            print("🔐 AppDelegate: Handling as password reset link")
+            Logger.auth.info("AppDelegate: Handling as password reset link")
             Task { @MainActor in
                 do {
                     let supabase = SupabaseService.shared.client
                     let session = try await supabase.auth.session(from: url)
-                    print("✅ AppDelegate: Session restored from password reset URL")
+                    Logger.auth.success("AppDelegate: Session restored from password reset URL")
                     NotificationCenter.default.post(name: NSNotification.Name("SessionRestored"), object: nil)
                 } catch {
-                    print("⚠️ AppDelegate: Could not restore session from password reset URL:", error.localizedDescription)
+                    Logger.auth.warning("AppDelegate: Could not restore session from password reset URL: \(error.localizedDescription)")
                 }
             }
             return true

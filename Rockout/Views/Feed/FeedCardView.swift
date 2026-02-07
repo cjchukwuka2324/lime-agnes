@@ -9,6 +9,7 @@ struct FeedCardView: View {
     let onLike: ((String) -> Void)?
     let onReply: ((Post) -> Void)?
     let onEcho: ((String) -> Void)?
+    let onEchoWithCommentary: ((String) -> Void)?
     let onNavigateToParent: ((String) -> Void)?
     let onTapProfile: (() -> Void)?
     let onDelete: ((String) -> Void)?
@@ -18,6 +19,7 @@ struct FeedCardView: View {
     let service: FeedService?
     
     @State private var showReplyComposer = false
+    @State private var showEchoActionSheet = false
     @State private var replies: [Post] = []
     @State private var isLoadingReplies = false
     @State private var isExpanded = false
@@ -34,6 +36,7 @@ struct FeedCardView: View {
         onLike: ((String) -> Void)? = nil,
         onReply: ((Post) -> Void)? = nil,
         onEcho: ((String) -> Void)? = nil,
+        onEchoWithCommentary: ((String) -> Void)? = nil,
         onNavigateToParent: ((String) -> Void)? = nil,
         onTapProfile: (() -> Void)? = nil,
         onDelete: ((String) -> Void)? = nil,
@@ -47,6 +50,7 @@ struct FeedCardView: View {
         self.onLike = onLike
         self.onReply = onReply
         self.onEcho = onEcho
+        self.onEchoWithCommentary = onEchoWithCommentary
         self.onNavigateToParent = onNavigateToParent
         self.onTapProfile = onTapProfile
         self.onDelete = onDelete
@@ -110,6 +114,15 @@ struct FeedCardView: View {
         } message: {
             Text(GreenRoomBranding.Actions.deleteBarMessage)
         }
+        .confirmationDialog("Echo Options", isPresented: $showEchoActionSheet, titleVisibility: .visible) {
+            Button("Echo") {
+                onEcho?(post.id)
+            }
+            Button("Echo with Commentary") {
+                onEchoWithCommentary?(post.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
     
     // MARK: - View Components
@@ -170,13 +183,18 @@ struct FeedCardView: View {
                             // Use original post ID for echo action
                             onEcho?(originalPostId)
                         },
+                        onEchoWithCommentary: { _ in
+                            // Use original post ID for echo with commentary
+                            onEchoWithCommentary?(originalPostId)
+                        },
                         onNavigateToParent: { _ in
-                            // Navigate to original post
+                            // Navigate to original post thread
                             onNavigateToParent?(originalPostId)
                         },
                         onTapProfile: onTapProfile,
                         onDelete: onDelete,
                         onHashtagTap: onHashtagTap,
+                        onMentionTap: onMentionTap,
                         showInlineReplies: false, // Don't show inline replies in echo view
                         service: service
                     )
@@ -184,6 +202,11 @@ struct FeedCardView: View {
                     .padding(.trailing, 8)
                     .background(Color.white.opacity(0.05))
                     .cornerRadius(12)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Navigate to original post thread when tapping nested card
+                        onNavigateToParent?(originalPostId)
+                    }
                 } else if let originalPostSummary = post.parentPost {
                     // Use PostSummary to render immediately - this prevents blocking
                     let summaryPost = Post(
@@ -214,10 +237,12 @@ struct FeedCardView: View {
                         onLike: { _ in onLike?(originalPostId) },
                         onReply: { parentPost in onReply?(parentPost) },
                         onEcho: { _ in onEcho?(originalPostId) },
+                        onEchoWithCommentary: { _ in onEchoWithCommentary?(originalPostId) },
                         onNavigateToParent: { _ in onNavigateToParent?(originalPostId) },
                         onTapProfile: onTapProfile,
                         onDelete: onDelete,
                         onHashtagTap: onHashtagTap,
+                        onMentionTap: onMentionTap,
                         showInlineReplies: false,
                         service: service
                     )
@@ -225,6 +250,11 @@ struct FeedCardView: View {
                     .padding(.trailing, 8)
                     .background(Color.white.opacity(0.05))
                     .cornerRadius(12)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        // Navigate to original post thread when tapping nested card
+                        onNavigateToParent?(originalPostId)
+                    }
                     .task(id: originalPostId) {
                         // Fetch full original post in background only once per post ID
                         if originalPost == nil && !isLoadingOriginalPost {
@@ -382,6 +412,7 @@ struct FeedCardView: View {
             .overlay(avatarOverlay)
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
     
     private var avatarOverlay: some View {
@@ -455,6 +486,7 @@ struct FeedCardView: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
     
     @ViewBuilder
@@ -595,8 +627,14 @@ struct FeedCardView: View {
     
     private var echoButton: some View {
         Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                onEcho?(post.id)
+            // If echo with commentary callback is available, show action sheet
+            if onEchoWithCommentary != nil {
+                showEchoActionSheet = true
+            } else {
+                // Otherwise, just echo directly
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    onEcho?(post.id)
+                }
             }
         } label: {
             HStack(spacing: 8) {
@@ -620,6 +658,15 @@ struct FeedCardView: View {
             .accessibilityLabel(post.isEchoed ? "\(post.echoCount) \(GreenRoomBranding.echoes)" : GreenRoomBranding.echoAction)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    // Long press always shows action sheet if available
+                    if onEchoWithCommentary != nil {
+                        showEchoActionSheet = true
+                    }
+                }
+        )
     }
     
     private var replyButton: some View {
@@ -729,7 +776,24 @@ struct FeedCardView: View {
     private var repliesList: some View {
         VStack(spacing: 12) {
             ForEach(replies) { reply in
-                FeedCardView(post: reply, isReply: true)
+                FeedCardView(
+                    post: reply,
+                    isReply: true,
+                    onLike: onLike,
+                    onReply: { parentPost in
+                        onReply?(parentPost)
+                    },
+                    onEcho: onEcho,
+                    onEchoWithCommentary: onEchoWithCommentary,
+                    onNavigateToParent: { parentPostId in
+                        onNavigateToParent?(parentPostId)
+                    },
+                    onTapProfile: onTapProfile,
+                    onHashtagTap: onHashtagTap,
+                    onMentionTap: onMentionTap,
+                    showInlineReplies: false,
+                    service: service
+                )
             }
         }
     }
@@ -769,7 +833,8 @@ struct FeedCardView: View {
         defer { isLoadingReplies = false }
         
         do {
-            replies = try await service.fetchReplies(for: post.id)
+            let result = try await service.fetchReplies(for: post.id, cursor: nil, limit: 100)
+            replies = result.replies
         } catch {
             print("Failed to load replies: \(error)")
         }

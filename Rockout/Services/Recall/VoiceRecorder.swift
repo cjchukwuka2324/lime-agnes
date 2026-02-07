@@ -15,10 +15,15 @@ final class VoiceRecorder: NSObject, ObservableObject {
     @Published var meterLevel: CGFloat = 0.0
     @Published var recordingURL: URL?
     @Published var errorMessage: String?
+    @Published var silenceDetected: Bool = false
     
     private var audioRecorder: AVAudioRecorder?
     private var meterTimer: Timer?
+    private var silenceTimer: Timer?
     private let updateInterval: TimeInterval = 0.05 // ~20 updates per second
+    private let silenceThreshold: Float = -40.0 // dB threshold for silence
+    private let silenceDuration: TimeInterval = 2.5 // seconds of silence before auto-stop
+    private var lastSoundTime: Date = Date()
     
     override init() {
         super.init()
@@ -53,11 +58,14 @@ final class VoiceRecorder: NSObject, ObservableObject {
     // MARK: - Start Recording
     
     func startRecording() async throws {
-        print("🎤 Starting recording...")
+        let requestId = UUID().uuidString.prefix(8)
+        let startTime = Date()
+        
+        print("🎤 [VOICE-RECORDER] [\(requestId)] startRecording() called")
         
         // Check if running on simulator (recording doesn't work on simulator)
         #if targetEnvironment(simulator)
-        print("⚠️ Running on iOS Simulator - microphone recording is not supported")
+        print("⚠️ [VOICE-RECORDER] [\(requestId)] Running on iOS Simulator - microphone recording is not supported")
         throw NSError(
             domain: "VoiceRecorder",
             code: -1,
@@ -66,20 +74,22 @@ final class VoiceRecorder: NSObject, ObservableObject {
         #endif
         
         // Request permission if needed
+        let permissionStartTime = Date()
         let hasPermission = await requestPermission()
+        let permissionDuration = Date().timeIntervalSince(permissionStartTime)
         guard hasPermission else {
-            print("❌ Microphone permission denied")
+            print("❌ [VOICE-RECORDER] [\(requestId)] Microphone permission denied after \(String(format: "%.3f", permissionDuration))s")
             throw NSError(
                 domain: "VoiceRecorder",
                 code: 403,
                 userInfo: [NSLocalizedDescriptionKey: "Microphone permission denied. Please enable microphone access in Settings."]
             )
         }
-        print("✅ Microphone permission granted")
+        print("✅ [VOICE-RECORDER] [\(requestId)] Microphone permission granted in \(String(format: "%.3f", permissionDuration))s")
         
         // Stop any existing recording first
         if isRecording {
-            print("⚠️ Stopping existing recording...")
+            print("⚠️ [VOICE-RECORDER] [\(requestId)] Stopping existing recording...")
             stopRecording()
             // Give it a moment to fully stop
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
@@ -88,12 +98,12 @@ final class VoiceRecorder: NSObject, ObservableObject {
         // CRITICAL: Pause AudioPlayerViewModel if it's playing
         // This prevents audio session conflicts
         if let audioPlayer = try? await getAudioPlayerIfPlaying() {
-            print("⚠️ AudioPlayerViewModel is currently playing")
+            print("⚠️ [VOICE-RECORDER] [\(requestId)] AudioPlayerViewModel is currently playing")
             print("   Pausing it to avoid audio session conflict...")
             audioPlayer.pause()
             // Wait for audio player to release the session
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            print("✅ AudioPlayerViewModel paused")
+            print("✅ [VOICE-RECORDER] [\(requestId)] AudioPlayerViewModel paused")
         }
         
         // Post notification to pause any other audio playback
@@ -106,40 +116,42 @@ final class VoiceRecorder: NSObject, ObservableObject {
         let audioSession = AVAudioSession.sharedInstance()
         
         do {
-            print("🔧 Setting up audio session...")
-            print("📊 Current state - category: \(audioSession.category.rawValue), isOtherAudioPlaying: \(audioSession.isOtherAudioPlaying)")
+            let sessionSetupStartTime = Date()
+            print("🔧 [VOICE-RECORDER] [\(requestId)] Setting up audio session...")
+            print("📊 [VOICE-RECORDER] [\(requestId)] Current state - category: \(audioSession.category.rawValue), isOtherAudioPlaying: \(audioSession.isOtherAudioPlaying)")
             
             // First, deactivate any existing session
             do {
-                print("🔄 Deactivating existing session...")
+                print("🔄 [VOICE-RECORDER] [\(requestId)] Deactivating existing session...")
                 try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-                print("✅ Deactivated existing session")
+                print("✅ [VOICE-RECORDER] [\(requestId)] Deactivated existing session")
             } catch {
-                print("⚠️ Could not deactivate (may not be active): \(error.localizedDescription)")
+                print("⚠️ [VOICE-RECORDER] [\(requestId)] Could not deactivate (may not be active): \(error.localizedDescription)")
             }
             
             // Wait a moment for deactivation to complete
             try await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
             
             // Set category BEFORE activating
-            print("🎵 Setting audio category to .record...")
+            print("🎵 [VOICE-RECORDER] [\(requestId)] Setting audio category to .record...")
             try audioSession.setCategory(.record, mode: .default, options: [])
-            print("✅ Audio session category set")
+            print("✅ [VOICE-RECORDER] [\(requestId)] Audio session category set")
             
             // Activate the session
-            print("🔌 Activating audio session...")
+            print("🔌 [VOICE-RECORDER] [\(requestId)] Activating audio session...")
             try audioSession.setActive(true)
-            print("✅ Audio session activated successfully")
+            let sessionSetupDuration = Date().timeIntervalSince(sessionSetupStartTime)
+            print("✅ [VOICE-RECORDER] [\(requestId)] Audio session activated successfully in \(String(format: "%.3f", sessionSetupDuration))s")
             
         } catch {
-            print("❌ Audio session setup error: \(error.localizedDescription)")
-            print("❌ Error code: \((error as NSError).code)")
-            print("❌ Error domain: \((error as NSError).domain)")
-            print("❌ Full error: \(error)")
+            print("❌ [VOICE-RECORDER] [\(requestId)] Audio session setup error: \(error.localizedDescription)")
+            print("   Error code: \((error as NSError).code)")
+            print("   Error domain: \((error as NSError).domain)")
+            print("   Full error: \(error)")
             
             // Try a more aggressive fallback: use .playAndRecord which is more compatible
             do {
-                print("🔄 Trying fallback with .playAndRecord category...")
+                print("🔄 [VOICE-RECORDER] [\(requestId)] Trying fallback with .playAndRecord category...")
                 // Force deactivate
                 try? audioSession.setActive(false, options: [])
                 try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
@@ -147,9 +159,9 @@ final class VoiceRecorder: NSObject, ObservableObject {
                 // Try .playAndRecord which is more compatible with other audio
                 try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
                 try audioSession.setActive(true)
-                print("✅ Fallback with .playAndRecord succeeded")
+                print("✅ [VOICE-RECORDER] [\(requestId)] Fallback with .playAndRecord succeeded")
             } catch let fallbackError {
-                print("❌ Fallback also failed: \(fallbackError.localizedDescription)")
+                print("❌ [VOICE-RECORDER] [\(requestId)] Fallback also failed: \(fallbackError.localizedDescription)")
                 throw NSError(
                     domain: "VoiceRecorder",
                     code: -1,
@@ -161,11 +173,11 @@ final class VoiceRecorder: NSObject, ObservableObject {
         // Create recording URL
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let audioFilename = documentsPath.appendingPathComponent("recall_recording_\(UUID().uuidString).m4a")
-        print("📁 Recording file path: \(audioFilename.path)")
+        print("📁 [VOICE-RECORDER] [\(requestId)] Recording file path: \(audioFilename.path)")
         
         // Remove file if it exists
         if FileManager.default.fileExists(atPath: audioFilename.path) {
-            print("⚠️ Removing existing file...")
+            print("⚠️ [VOICE-RECORDER] [\(requestId)] Removing existing file...")
             try? FileManager.default.removeItem(at: audioFilename)
         }
         
@@ -176,26 +188,27 @@ final class VoiceRecorder: NSObject, ObservableObject {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
         ]
-        print("🎵 Audio settings: \(settings)")
+        print("🎵 [VOICE-RECORDER] [\(requestId)] Audio settings: \(settings)")
         
         // Create recorder
         do {
-            print("🎙️ Creating AVAudioRecorder...")
+            let recorderStartTime = Date()
+            print("🎙️ [VOICE-RECORDER] [\(requestId)] Creating AVAudioRecorder...")
             let recorder = try AVAudioRecorder(url: audioFilename, settings: settings)
             recorder.delegate = self
             recorder.isMeteringEnabled = true
-            print("✅ AVAudioRecorder created")
+            print("✅ [VOICE-RECORDER] [\(requestId)] AVAudioRecorder created")
             
             // Prepare to record (this validates settings and creates the file)
-            print("🔧 Preparing to record...")
+            print("🔧 [VOICE-RECORDER] [\(requestId)] Preparing to record...")
             let prepared = recorder.prepareToRecord()
-            print("📊 prepareToRecord() returned: \(prepared)")
+            print("📊 [VOICE-RECORDER] [\(requestId)] prepareToRecord() returned: \(prepared)")
             
             guard prepared else {
-                print("❌ prepareToRecord() returned false")
+                print("❌ [VOICE-RECORDER] [\(requestId)] prepareToRecord() returned false")
                 // Check if file was created
                 let fileExists = FileManager.default.fileExists(atPath: audioFilename.path)
-                print("📁 File exists after prepare: \(fileExists)")
+                print("📁 [VOICE-RECORDER] [\(requestId)] File exists after prepare: \(fileExists)")
                 
                 throw NSError(
                     domain: "VoiceRecorder",
@@ -205,20 +218,20 @@ final class VoiceRecorder: NSObject, ObservableObject {
             }
             
             audioRecorder = recorder
-            print("✅ Recorder prepared and stored")
+            print("✅ [VOICE-RECORDER] [\(requestId)] Recorder prepared and stored")
             
             // Start recording
-            print("▶️ Starting recording...")
+            print("▶️ [VOICE-RECORDER] [\(requestId)] Starting recording...")
             let started = recorder.record()
-            print("📊 record() returned: \(started)")
+            print("📊 [VOICE-RECORDER] [\(requestId)] record() returned: \(started)")
             
             guard started else {
-                print("❌ record() returned false")
+                print("❌ [VOICE-RECORDER] [\(requestId)] record() returned false")
                 // Check for common issues
                 let sessionActive = audioSession.isOtherAudioPlaying
                 let category = audioSession.category.rawValue
                 let isActive = audioSession.isOtherAudioPlaying
-                print("🔍 Audio session state - category: \(category), other audio playing: \(sessionActive), isActive: \(isActive)")
+                print("🔍 [VOICE-RECORDER] [\(requestId)] Audio session state - category: \(category), other audio playing: \(sessionActive), isActive: \(isActive)")
                 
                 let errorMsg = sessionActive
                     ? "Another app is using the microphone. Please close it and try again."
@@ -231,7 +244,8 @@ final class VoiceRecorder: NSObject, ObservableObject {
                 )
             }
             
-            print("✅ Recording started successfully!")
+            let totalDuration = Date().timeIntervalSince(startTime)
+            print("✅ [VOICE-RECORDER] [\(requestId)] Recording started successfully in \(String(format: "%.3f", totalDuration))s!")
             isRecording = true
             meterLevel = 0.0
             errorMessage = nil
@@ -239,10 +253,11 @@ final class VoiceRecorder: NSObject, ObservableObject {
             
             // Start meter updates
             startMeterUpdates()
-            print("✅ Meter updates started")
+            print("✅ [VOICE-RECORDER] [\(requestId)] Meter updates started")
         } catch {
-            print("❌ Recorder creation/start error: \(error.localizedDescription)")
-            print("❌ Full error: \(error)")
+            let totalDuration = Date().timeIntervalSince(startTime)
+            print("❌ [VOICE-RECORDER] [\(requestId)] Recorder creation/start error after \(String(format: "%.3f", totalDuration))s: \(error.localizedDescription)")
+            print("   Full error: \(error)")
             try? audioSession.setActive(false)
             throw error
         }
@@ -251,32 +266,48 @@ final class VoiceRecorder: NSObject, ObservableObject {
     // MARK: - Stop Recording
     
     func stopRecording() {
-        print("🛑 Stopping recording...")
+        let requestId = UUID().uuidString.prefix(8)
+        let startTime = Date()
+        
+        print("🛑 [VOICE-RECORDER] [\(requestId)] stopRecording() called")
+        print("📊 [VOICE-RECORDER] [\(requestId)] Current state: isRecording=\(isRecording), hasRecorder=\(audioRecorder != nil)")
+        
+        // Set isRecording to false FIRST, before any async operations
+        // This ensures state is immediately updated
+        isRecording = false
+        meterLevel = 0.0
+        
+        // Stop recorder and meter updates
         audioRecorder?.stop()
         stopMeterUpdates()
+        
+        // Save recording URL before clearing recorder
+        if let recorder = audioRecorder {
+            recordingURL = recorder.url
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: recorder.url.path)[.size] as? Int64) ?? 0
+            print("📁 [VOICE-RECORDER] [\(requestId)] Recording saved to: \(recorder.url.lastPathComponent), size: \(fileSize) bytes")
+        }
+        
+        // Clear recorder reference
+        audioRecorder = nil
         
         // Deactivate audio session with notification option
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setActive(false, options: [.notifyOthersOnDeactivation])
-            print("✅ Audio session deactivated after recording")
+            let duration = Date().timeIntervalSince(startTime)
+            print("✅ [VOICE-RECORDER] [\(requestId)] Audio session deactivated after recording in \(String(format: "%.3f", duration))s")
         } catch {
-            print("❌ Failed to deactivate audio session: \(error)")
+            print("❌ [VOICE-RECORDER] [\(requestId)] Failed to deactivate audio session: \(error.localizedDescription)")
         }
-        
-        if let recorder = audioRecorder {
-            recordingURL = recorder.url
-            print("📁 Recording saved to: \(recorder.url.lastPathComponent)")
-        }
-        
-        isRecording = false
-        meterLevel = 0.0
-        audioRecorder = nil
     }
     
     // MARK: - Meter Updates
     
     private func startMeterUpdates() {
+        lastSoundTime = Date()
+        silenceDetected = false
+        
         meterTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
             guard let self = self, let recorder = self.audioRecorder, self.isRecording else { return }
             
@@ -287,13 +318,41 @@ final class VoiceRecorder: NSObject, ObservableObject {
             // dB range is typically -160 to 0, normalize to 0-1
             let normalizedLevel = max(0.0, min(1.0, (level + 60) / 60))
             self.meterLevel = CGFloat(normalizedLevel)
+            
+            // Check for silence
+            if level > self.silenceThreshold {
+                // Sound detected, update last sound time
+                self.lastSoundTime = Date()
+                self.silenceDetected = false
+            } else {
+                // Check if we've been silent for the threshold duration
+                let silenceElapsed = Date().timeIntervalSince(self.lastSoundTime)
+                if silenceElapsed >= self.silenceDuration {
+                    self.silenceDetected = true
+                }
+            }
+        }
+        
+        // Start silence detection timer
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self, self.isRecording else { return }
+            
+            let silenceElapsed = Date().timeIntervalSince(self.lastSoundTime)
+            if silenceElapsed >= self.silenceDuration {
+                self.silenceDetected = true
+                // Auto-stop after silence
+                self.stopRecording()
+            }
         }
     }
     
     private func stopMeterUpdates() {
         meterTimer?.invalidate()
         meterTimer = nil
+        silenceTimer?.invalidate()
+        silenceTimer = nil
         meterLevel = 0.0
+        silenceDetected = false
     }
 }
 

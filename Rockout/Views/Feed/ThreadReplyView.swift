@@ -6,6 +6,7 @@ struct ThreadReplyView: View {
     let onLike: ((String) -> Void)?
     let onDelete: ((String) -> Void)?
     let onTapProfile: ((UserSummary) -> Void)?
+    let onMentionTap: ((String) -> Void)?
     let service: FeedService
     let level: Int
     
@@ -49,6 +50,7 @@ struct ThreadReplyView: View {
                             onTapProfile?(post.author)
                         },
                         onDelete: onDelete,
+                        onMentionTap: onMentionTap,
                         showInlineReplies: false,
                         service: service
                     )
@@ -90,6 +92,7 @@ struct ThreadReplyView: View {
                             onLike: onLike,
                             onDelete: onDelete,
                             onTapProfile: onTapProfile,
+                            onMentionTap: onMentionTap,
                             service: service,
                             level: level + 1
                         )

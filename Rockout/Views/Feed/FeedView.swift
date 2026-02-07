@@ -27,6 +27,8 @@ struct FeedView: View {
     @State private var selectedProfile: ProfileNavigationWrapper?
     @State private var fabOffset: CGSize = .zero
     @State private var selectedHashtag: String?
+    @State private var showEchoComposer = false
+    @State private var echoComposerPostId: String?
     
     var body: some View {
         NavigationStack {
@@ -43,6 +45,24 @@ struct FeedView: View {
                                 selectedPostId = PostIdWrapper(id: postId)
                             }
                         }
+                    }
+                }
+                .sheet(isPresented: $showEchoComposer) {
+                    if let postId = echoComposerPostId {
+                        PostComposerView(
+                            resharedPostId: postId,
+                            onPostCreated: { createdPostId in
+                                Task {
+                                    await viewModel.refresh(feedType: selectedFeedType)
+                                }
+                                // Optionally navigate to created post
+                                if let createdId = createdPostId {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                        selectedPostId = PostIdWrapper(id: createdId)
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
                 .sheet(isPresented: $showUserSearch) {
@@ -319,6 +339,10 @@ struct FeedView: View {
                 Task {
                     await viewModel.toggleEcho(postId: postId)
                 }
+            },
+            onEchoWithCommentary: { postId in
+                echoComposerPostId = postId
+                showEchoComposer = true
             },
             onNavigateToParent: { parentPostId in
                 selectedPostId = PostIdWrapper(id: parentPostId)

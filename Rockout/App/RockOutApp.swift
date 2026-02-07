@@ -43,12 +43,12 @@ struct RockoutApp: App {
             RootAppView()
                 .environmentObject(authVM)
                 .onOpenURL { url in
-                    print("🔥 Deep link received in App: \(url.absoluteString)")
-                    print("   Scheme: \(url.scheme ?? "nil"), Host: \(url.host ?? "nil"), Path: \(url.path)")
-                    print("   Full URL components: \(url)")
+                    Logger.general.info("Deep link received in App: \(url.absoluteString)")
+                    Logger.general.debug("Scheme: \(url.scheme ?? "nil"), Host: \(url.host ?? "nil"), Path: \(url.path)")
+                    Logger.general.debug("Full URL components: \(url)")
                     
                     guard url.scheme == "rockout" else {
-                        print("⚠️ Unknown URL scheme: \(url.scheme ?? "nil")")
+                        Logger.general.warning("Unknown URL scheme: \(url.scheme ?? "nil")")
                         return
                     }
                     
@@ -72,13 +72,13 @@ struct RockoutApp: App {
                         let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
                         
                         if !cleanToken.isEmpty {
-                            print("📎 Share link detected in App (\(host)), token: \(cleanToken)")
+                            Logger.general.info("Share link detected in App (\(host)), token: \(cleanToken)")
                             // Use MainActor to ensure UI updates happen on main thread
                             Task { @MainActor in
                                 SharedAlbumHandler.shared.handleShareToken(cleanToken)
                             }
                         } else {
-                            print("⚠️ Share link missing token. Original path: '\(url.path)'")
+                            Logger.general.warning("Share link missing token. Original path: '\(url.path)'")
                         }
                         return
                     }
@@ -89,16 +89,16 @@ struct RockoutApp: App {
                         if url.path.contains("callback") || url.query != nil {
                             // This is likely an email confirmation or password reset link
                             // Handle via AuthViewModel which will restore session
-                            print("🔐 Handling as email confirmation/password reset link")
+                            Logger.auth.info("Handling as email confirmation/password reset link")
                             authVM.handleDeepLink(url)
                         } else {
                             // Spotify OAuth callback
                             Task {
                                 do {
                                     try await SpotifyAuthService.shared.handleRedirectURL(url)
-                                    print("✅ Spotify OAuth successful")
+                                    Logger.spotify.success("Spotify OAuth successful")
                                 } catch {
-                                    print("❌ Failed to handle Spotify redirect: \(error.localizedDescription)")
+                                    Logger.spotify.failure("Failed to handle Spotify redirect", error: error)
                                 }
                             }
                         }
@@ -107,13 +107,13 @@ struct RockoutApp: App {
                     
                     // Handle password reset: rockout://password-reset
                     if url.host == "password-reset" || url.path.contains("password-reset") {
-                        print("🔐 Handling as password reset link")
+                        Logger.auth.info("Handling as password reset link")
                         authVM.handleDeepLink(url)
                         return
                     }
                     
                     // Handle Supabase OAuth callback (fallback)
-                    print("🔐 Handling as Supabase OAuth callback")
+                    Logger.auth.info("Handling as Supabase OAuth callback")
                     authVM.handleDeepLink(url)
                 }
         }

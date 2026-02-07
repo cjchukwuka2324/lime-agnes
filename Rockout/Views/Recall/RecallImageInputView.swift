@@ -114,17 +114,28 @@ struct RecallImageInputView: View {
     }
     
     private func performOCR(on image: UIImage) {
+        let requestId = UUID().uuidString.prefix(8)
+        let startTime = Date()
+        
+        print("🔍 [RECALL-IMAGE] [\(requestId)] performOCR() started")
         isProcessingOCR = true
         errorMessage = nil
         
         guard let cgImage = image.cgImage else {
+            print("❌ [RECALL-IMAGE] [\(requestId)] Failed to get CGImage from UIImage")
             errorMessage = "Failed to process image"
             isProcessingOCR = false
             return
         }
         
+        let imageSize = image.size
+        let imageScale = image.scale
+        print("📊 [RECALL-IMAGE] [\(requestId)] Image info: size=\(imageSize.width)x\(imageSize.height), scale=\(imageScale)")
+        
         let request = VNRecognizeTextRequest { request, error in
             if let error = error {
+                let duration = Date().timeIntervalSince(startTime)
+                print("❌ [RECALL-IMAGE] [\(requestId)] OCR failed after \(String(format: "%.3f", duration))s: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.errorMessage = "OCR failed: \(error.localizedDescription)"
                     self.isProcessingOCR = false
@@ -137,8 +148,14 @@ struct RecallImageInputView: View {
                 observation.topCandidates(1).first?.string
             }
             
+            let ocrResult = recognizedStrings.joined(separator: " ")
+            let duration = Date().timeIntervalSince(startTime)
+            print("✅ [RECALL-IMAGE] [\(requestId)] OCR completed in \(String(format: "%.3f", duration))s")
+            print("📝 [RECALL-IMAGE] [\(requestId)] OCR result: \(observations.count) observations, \(ocrResult.count) chars")
+            print("   Text: \"\(ocrResult.prefix(200))\(ocrResult.count > 200 ? "..." : "")\"")
+            
             DispatchQueue.main.async {
-                self.ocrText = recognizedStrings.joined(separator: " ")
+                self.ocrText = ocrResult
                 self.isProcessingOCR = false
             }
         }
@@ -150,8 +167,11 @@ struct RecallImageInputView: View {
         
         DispatchQueue.global(qos: .userInitiated).async {
             do {
+                print("🔧 [RECALL-IMAGE] [\(requestId)] Starting OCR processing...")
                 try handler.perform([request])
             } catch {
+                let duration = Date().timeIntervalSince(startTime)
+                print("❌ [RECALL-IMAGE] [\(requestId)] OCR handler.perform() failed after \(String(format: "%.3f", duration))s: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.errorMessage = "OCR failed: \(error.localizedDescription)"
                     self.isProcessingOCR = false
@@ -161,7 +181,17 @@ struct RecallImageInputView: View {
     }
     
     private func uploadAndCreateRecall() async {
-        guard let image = selectedImage, canCreate else { return }
+        let requestId = UUID().uuidString.prefix(8)
+        let startTime = Date()
+        
+        guard let image = selectedImage, canCreate else {
+            print("⚠️ [RECALL-IMAGE] [\(requestId)] Cannot create recall: image=\(selectedImage != nil), canCreate=\(canCreate)")
+            return
+        }
+        
+        print("🔍 [RECALL-IMAGE] [\(requestId)] uploadAndCreateRecall() started")
+        print("📊 [RECALL-IMAGE] [\(requestId)] OCR text length: \(ocrText.count) chars")
+        print("   OCR text: \"\(ocrText.prefix(200))\(ocrText.count > 200 ? "..." : "")\"")
         
         isUploading = true
         errorMessage = nil
@@ -169,36 +199,61 @@ struct RecallImageInputView: View {
         
         do {
             // Create recall first to get ID
+            let createStartTime = Date()
+            print("📤 [RECALL-IMAGE] [\(requestId)] Creating recall with OCR text...")
             let recallId = try await service.createRecall(
                 inputType: .image,
                 rawText: ocrText.trimmingCharacters(in: .whitespacesAndNewlines)
             )
+            let createDuration = Date().timeIntervalSince(createStartTime)
+            print("✅ [RECALL-IMAGE] [\(requestId)] Recall created in \(String(format: "%.3f", createDuration))s: \(recallId.uuidString)")
             
             // Upload image (optional, for "Ask the Crowd")
             if let imageData = image.jpegData(compressionQuality: 0.8) {
+                let uploadStartTime = Date()
+                let imageSize = imageData.count
+                print("📤 [RECALL-IMAGE] [\(requestId)] Uploading image: \(imageSize) bytes")
                 let mediaPath = try await service.uploadMedia(
                     data: imageData,
                     recallId: recallId,
                     fileName: "image.jpg",
                     contentType: "image/jpeg"
                 )
+                let uploadDuration = Date().timeIntervalSince(uploadStartTime)
+                print("✅ [RECALL-IMAGE] [\(requestId)] Image uploaded in \(String(format: "%.3f", uploadDuration))s: \(mediaPath)")
                 
                 // Update recall event with media_path
+                let updateStartTime = Date()
                 let supabase = SupabaseService.shared.client
                 try await supabase
                     .from("recall_events")
                     .update(["media_path": mediaPath])
                     .eq("id", value: recallId.uuidString)
                     .execute()
+                let updateDuration = Date().timeIntervalSince(updateStartTime)
+                print("✅ [RECALL-IMAGE] [\(requestId)] Recall event updated in \(String(format: "%.3f", updateDuration))s")
+            } else {
+                print("⚠️ [RECALL-IMAGE] [\(requestId)] Could not convert image to JPEG data")
             }
             
             // Start processing
+            let processStartTime = Date()
+            print("🔍 [RECALL-IMAGE] [\(requestId)] Starting recall processing...")
             try await service.processRecall(recallId: recallId)
+            let processDuration = Date().timeIntervalSince(processStartTime)
+            print("✅ [RECALL-IMAGE] [\(requestId)] Recall processing started in \(String(format: "%.3f", processDuration))s")
+            
+            let totalDuration = Date().timeIntervalSince(startTime)
+            print("✅ [RECALL-IMAGE] [\(requestId)] uploadAndCreateRecall() completed successfully in \(String(format: "%.3f", totalDuration))s")
             
             onRecallCreated(recallId)
         } catch {
+            let totalDuration = Date().timeIntervalSince(startTime)
             errorMessage = "Failed to create recall: \(error.localizedDescription)"
-            print("❌ RecallImageInputView.uploadAndCreateRecall error: \(error)")
+            print("❌ [RECALL-IMAGE] [\(requestId)] uploadAndCreateRecall() failed after \(String(format: "%.3f", totalDuration))s: \(error.localizedDescription)")
+            if let nsError = error as? NSError {
+                print("   Error code: \(nsError.code), domain: \(nsError.domain)")
+            }
         }
     }
 }

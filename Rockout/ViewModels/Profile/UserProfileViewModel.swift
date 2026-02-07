@@ -31,6 +31,9 @@ final class UserProfileViewModel: ObservableObject {
     private let userId: String
     private let social: SocialGraphService
     private let feed: FeedService
+    private var loadTask: Task<Void, Never>?
+    private var lastLoadTime: Date?
+    private let dataFreshnessInterval: TimeInterval = 30 // Consider data fresh for 30 seconds
     
     init(
         userId: String,
@@ -47,12 +50,25 @@ final class UserProfileViewModel: ObservableObject {
         }
     }
     
-    func load() async {
+    func load(forceRefresh: Bool = false) async {
+        // Check if data is fresh and we don't need to refetch
+        if !forceRefresh, let lastLoad = lastLoadTime {
+            let timeSinceLastLoad = Date().timeIntervalSince(lastLoad)
+            if timeSinceLastLoad < dataFreshnessInterval && user != nil {
+                Logger.profile.debug("Skipping refetch for user \(userId) - data is fresh (loaded \(String(format: "%.1f", timeSinceLastLoad))s ago)")
+                return
+            }
+        }
+        
+        // Cancel any existing load task
+        loadTask?.cancel()
+        
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         
-        do {
+        loadTask = Task {
+            do {
             // Load profile (this will have complete data including social handles and counts)
             let profile = try await social.getProfile(userId: userId)
             await MainActor.run {
@@ -60,16 +76,16 @@ final class UserProfileViewModel: ObservableObject {
                 self.user = profile
             }
             
-            // Load followers, following, and mutuals
-            async let followersTask = social.getFollowers(of: userId)
-            async let followingTask = social.getFollowing(of: userId)
+            // Load followers, following, and mutuals (first page only for initial load)
+            async let followersTask = social.getFollowers(of: userId, cursor: nil, limit: 100)
+            async let followingTask = social.getFollowing(of: userId, cursor: nil, limit: 100)
             async let mutualsTask = social.getMutuals(with: userId)
             
             let (followersResult, followingResult, mutualsResult) = try await (followersTask, followingTask, mutualsTask)
             
             await MainActor.run {
-                self.followers = followersResult
-                self.following = followingResult
+                self.followers = followersResult.users
+                self.following = followingResult.users
                 self.mutuals = mutualsResult
             }
             
@@ -81,11 +97,11 @@ final class UserProfileViewModel: ObservableObject {
             
             let (postsResult, repliesResult, likedPostsResult, echoedPostsResult) = try await (postsTask, repliesTask, likedPostsTask, echoedPostsTask)
             
-            print("📊 Profile data loaded for user \(userId):")
-            print("  - Posts (Bars): \(postsResult.count)")
-            print("  - Replies (Adlibs): \(repliesResult.count)")
-            print("  - Liked Posts (Amps): \(likedPostsResult.count)")
-            print("  - Echoed Posts (Echoes): \(echoedPostsResult.count)")
+            Logger.profile.info("Profile data loaded for user \(userId):")
+            Logger.profile.debug("  - Posts (Bars): \(postsResult.count)")
+            Logger.profile.debug("  - Replies (Adlibs): \(repliesResult.count)")
+            Logger.profile.debug("  - Liked Posts (Amps): \(likedPostsResult.count)")
+            Logger.profile.debug("  - Echoed Posts (Echoes): \(echoedPostsResult.count)")
             
             await MainActor.run {
                 // Bars: Only original posts (no replies, no echoes)
@@ -97,28 +113,37 @@ final class UserProfileViewModel: ObservableObject {
                 // Echoes: Posts echoed by this user
                 self.echoedPosts = echoedPostsResult
                 
-                print("📊 Profile data set in view model:")
-                print("  - Posts (Bars): \(self.posts.count)")
-                print("  - Replies (Adlibs): \(self.replies.count)")
-                print("  - Liked Posts (Amps): \(self.likedPosts.count)")
-                print("  - Echoed Posts (Echoes): \(self.echoedPosts.count)")
+                Logger.profile.debug("Profile data set in view model:")
+                Logger.profile.debug("  - Posts (Bars): \(self.posts.count)")
+                Logger.profile.debug("  - Replies (Adlibs): \(self.replies.count)")
+                Logger.profile.debug("  - Liked Posts (Amps): \(self.likedPosts.count)")
+                Logger.profile.debug("  - Echoed Posts (Echoes): \(self.echoedPosts.count)")
             }
             
             // Load post notifications setting if following
             if profile.isFollowing {
                 await loadPostNotificationsSetting()
             }
-        } catch {
-            print("❌ Error loading profile data for user \(userId): \(error)")
-            print("❌ Error details: \(error.localizedDescription)")
-            if let nsError = error as NSError? {
-                print("❌ Error domain: \(nsError.domain), code: \(nsError.code)")
-                print("❌ Error userInfo: \(nsError.userInfo)")
-            }
-            await MainActor.run {
-                self.errorMessage = error.localizedDescription
+            
+            // Update last load time
+            lastLoadTime = Date()
+            } catch {
+                // Don't set error if task was cancelled
+                if !Task.isCancelled {
+                    Logger.profile.failure("Error loading profile data for user \(userId)", error: error)
+                    Logger.profile.error("Error details: \(error.localizedDescription)")
+                    if let nsError = error as NSError? {
+                        Logger.profile.error("Error domain: \(nsError.domain), code: \(nsError.code)")
+                        Logger.profile.debug("Error userInfo: \(nsError.userInfo)")
+                    }
+                    await MainActor.run {
+                        self.errorMessage = error.localizedDescription
+                    }
+                }
             }
         }
+        
+        await loadTask?.value
     }
     
     private func loadPostNotificationsSetting() async {

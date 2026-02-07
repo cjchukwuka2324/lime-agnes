@@ -21,6 +21,10 @@ final class FeedViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var currentFeedType: FeedType = .forYou
     private var cursors: [FeedType: Date] = [:] // Track cursor per feed type
+    private var loadTask: Task<Void, Never>?
+    private var loadMoreTask: Task<Void, Never>?
+    private var lastLoadTime: [FeedType: Date] = [:] // Track when each feed type was last loaded
+    private let dataFreshnessInterval: TimeInterval = 30 // Consider data fresh for 30 seconds
     
     // MARK: - Initialization
     
@@ -55,7 +59,8 @@ final class FeedViewModel: ObservableObject {
         // Get current user from service
         if let currentUserId = SupabaseService.shared.client.auth.currentUser?.id.uuidString {
             let social = SupabaseSocialGraphService.shared
-            let allUsers = await social.allUsers()
+            let allUsersResult = await social.allUsers(cursor: nil, limit: 100)
+            let allUsers = allUsersResult.users
             return allUsers.first(where: { $0.id == currentUserId }) ?? UserSummary(
                 id: currentUserId,
                 displayName: "User",
@@ -77,7 +82,19 @@ final class FeedViewModel: ObservableObject {
     
     // MARK: - Load Feed
     
-    func load(feedType: FeedType = .forYou, region: String? = nil) async {
+    func load(feedType: FeedType = .forYou, region: String? = nil, forceRefresh: Bool = false) async {
+        // Check if data is fresh and we don't need to refetch
+        if !forceRefresh, let lastLoad = lastLoadTime[feedType] {
+            let timeSinceLastLoad = Date().timeIntervalSince(lastLoad)
+            if timeSinceLastLoad < dataFreshnessInterval && !posts.isEmpty {
+                Logger.feed.debug("Skipping refetch for \(feedType.rawValue) - data is fresh (loaded \(String(format: "%.1f", timeSinceLastLoad))s ago)")
+                return
+            }
+        }
+        
+        // Cancel any existing load task
+        loadTask?.cancel()
+        
         isLoading = true
         errorMessage = nil
         currentFeedType = feedType
@@ -85,13 +102,14 @@ final class FeedViewModel: ObservableObject {
         hasMorePages = true
         defer { isLoading = false }
         
-        do {
+        loadTask = Task {
+            do {
             // Check if we have cached posts for this feed type
             let cachedPosts = feedStore.getPostsForFeed(feedType)
             if !cachedPosts.isEmpty {
                 // Use cached posts for instant display
                 posts = cachedPosts
-                print("✅ Using \(cachedPosts.count) cached posts for \(feedType.rawValue)")
+                Logger.feed.info("Using \(cachedPosts.count) cached posts for \(feedType.rawValue)")
             }
             
             // Fetch fresh data
@@ -112,27 +130,40 @@ final class FeedViewModel: ObservableObject {
                 cursors[feedType] = lastPost.createdAt
             }
             
-            print("✅ Loaded \(result.posts.count) fresh posts for \(feedType.rawValue), hasMore: \(result.hasMore)")
-        } catch {
-            errorMessage = error.localizedDescription
-            print("❌ Error loading feed: \(error.localizedDescription)")
+            // Update last load time
+            lastLoadTime[feedType] = Date()
+            
+                Logger.feed.success("Loaded \(result.posts.count) fresh posts for \(feedType.rawValue), hasMore: \(result.hasMore)")
+            } catch {
+                // Don't set error if task was cancelled
+                if !Task.isCancelled {
+                    errorMessage = error.localizedDescription
+                    Logger.feed.failure("Error loading feed", error: error)
+                }
+            }
         }
+        
+        await loadTask?.value
     }
     
     // MARK: - Load More (Pagination)
     
     func loadMore(feedType: FeedType = .forYou, region: String? = nil) async {
         guard !isLoadingMore && hasMorePages else {
-            print("⚠️ Skipping loadMore: isLoadingMore=\(isLoadingMore), hasMorePages=\(hasMorePages)")
+            Logger.feed.debug("Skipping loadMore: isLoadingMore=\(isLoadingMore), hasMorePages=\(hasMorePages)")
             return
         }
+        
+        // Cancel any existing loadMore task
+        loadMoreTask?.cancel()
         
         isLoadingMore = true
         defer { isLoadingMore = false }
         
-        do {
+        loadMoreTask = Task {
+            do {
             let cursor = cursors[feedType]
-            print("🔍 Loading more posts with cursor: \(cursor?.description ?? "nil")")
+            Logger.feed.debug("Loading more posts with cursor: \(cursor?.description ?? "nil")")
             
             let result = try await (service as! SupabaseFeedService).fetchHomeFeed(
                 feedType: feedType,
@@ -151,10 +182,16 @@ final class FeedViewModel: ObservableObject {
                 cursors[feedType] = lastPost.createdAt
             }
             
-            print("✅ Loaded \(result.posts.count) more posts, total: \(posts.count), hasMore: \(result.hasMore)")
-        } catch {
-            print("❌ Error loading more posts: \(error.localizedDescription)")
+                print("✅ Loaded \(result.posts.count) more posts, total: \(posts.count), hasMore: \(result.hasMore)")
+            } catch {
+                // Don't log error if task was cancelled
+                if !Task.isCancelled {
+                    print("❌ Error loading more posts: \(error.localizedDescription)")
+                }
+            }
         }
+        
+        await loadMoreTask?.value
     }
     
     // MARK: - Refresh
@@ -175,7 +212,7 @@ final class FeedViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            _ = try await service.createPost(text: text, imageURLs: imageURLs, videoURL: videoURL, audioURL: audioURL, leaderboardEntry: leaderboardEntry, spotifyLink: nil, poll: nil, backgroundMusic: nil, mentionedUserIds: mentionedUserIds)
+            _ = try await service.createPost(text: text, imageURLs: imageURLs, videoURL: videoURL, audioURL: audioURL, leaderboardEntry: leaderboardEntry, spotifyLink: nil, poll: nil, backgroundMusic: nil, mentionedUserIds: mentionedUserIds, resharedPostId: nil)
             // FeedStore will update automatically, no need to reload
         } catch {
             errorMessage = "Failed to create post: \(error.localizedDescription)"
@@ -189,10 +226,10 @@ final class FeedViewModel: ObservableObject {
         
         do {
             try await service.deletePost(postId: postId)
-            print("✅ Post deleted successfully: \(postId)")
+            Logger.feed.success("Post deleted successfully: \(postId)")
         } catch {
             errorMessage = "Failed to delete post: \(error.localizedDescription)"
-            print("❌ Failed to delete post: \(error)")
+            Logger.feed.failure("Failed to delete post", error: error)
             // Revert optimistic delete on error
             if let post = deletedPost {
                 posts.insert(post, at: 0)
@@ -274,7 +311,7 @@ final class FeedViewModel: ObservableObject {
         
         do {
             let newEchoState = try await service.toggleEcho(postId: postId)
-            print("✅ Echo toggled for post \(postId), now echoed: \(newEchoState)")
+            Logger.feed.info("Echo toggled for post \(postId), now echoed: \(newEchoState)")
             
             // Refresh the feed to get updated echo count
             await load(feedType: currentFeedType)
@@ -322,7 +359,7 @@ final class FeedViewModel: ObservableObject {
         
         do {
             let newLikeState = try await service.toggleLike(postId: postId)
-            print("✅ Like toggled for post \(postId), now liked: \(newLikeState)")
+            Logger.feed.info("Like toggled for post \(postId), now liked: \(newLikeState)")
             
             // Verify the state matches what we expected
             if newLikeState != !wasLiked {
@@ -351,7 +388,7 @@ final class FeedViewModel: ObservableObject {
                 posts[index] = correctedPost
             }
         } catch {
-            print("Failed to toggle like: \(error)")
+            Logger.feed.warning("Failed to toggle like: \(error.localizedDescription)")
             // Revert optimistic update on error
             posts[index] = originalPost
         }
@@ -385,7 +422,7 @@ final class FeedViewModel: ObservableObject {
             posts = try await service.fetchRepliesByUser(userId)
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Error loading user replies: \(error.localizedDescription)")
+            Logger.feed.failure("Error loading user replies", error: error)
         }
     }
     
@@ -398,7 +435,7 @@ final class FeedViewModel: ObservableObject {
             posts = try await service.fetchLikedPostsByUser(userId)
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Error loading user liked posts: \(error.localizedDescription)")
+            Logger.feed.failure("Error loading user liked posts", error: error)
         }
     }
     
@@ -411,7 +448,7 @@ final class FeedViewModel: ObservableObject {
             posts = try await service.fetchEchoedPostsByUser(userId)
         } catch {
             errorMessage = error.localizedDescription
-            print("❌ Error loading user echoed posts: \(error.localizedDescription)")
+            Logger.feed.failure("Error loading user echoed posts", error: error)
         }
     }
 }

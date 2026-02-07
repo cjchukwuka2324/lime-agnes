@@ -9,6 +9,8 @@ struct UserProfileDetailView: View {
     @State private var showFollowersList = false
     @State private var showFollowingList = false
     @State private var showMutualsList = false
+    @State private var selectedProfile: ProfileNavigationWrapper?
+    @State private var selectedPostId: PostIdWrapper?
     
     init(userId: UUID, initialUser: UserSummary? = nil) {
         self.userId = userId
@@ -76,6 +78,38 @@ struct UserProfileDetailView: View {
             .task {
                 await viewModel.load()
             }
+            .navigationDestination(item: $selectedProfile) { wrapper in
+                UserProfileDetailView(userId: wrapper.id, initialUser: wrapper.initialUser)
+            }
+            .navigationDestination(item: $selectedPostId) { wrapper in
+                PostDetailView(postId: wrapper.id, service: SupabaseFeedService.shared)
+            }
+        }
+    }
+    
+    private func handleMentionTap(handle: String) async {
+        // Strip @ if present
+        let cleanHandle = handle.hasPrefix("@") ? String(handle.dropFirst()) : handle
+        
+        // Search for user by handle
+        let social = SupabaseSocialGraphService.shared
+        do {
+            // Search users by handle
+            let (users, _) = try await social.searchUsersPaginated(query: cleanHandle, limit: 10, offset: 0)
+            
+            // Find exact match by handle
+            if let matchedUser = users.first(where: { user in
+                let userHandle = user.handle.hasPrefix("@") ? String(user.handle.dropFirst()) : user.handle
+                return userHandle.lowercased() == cleanHandle.lowercased()
+            }) {
+                await MainActor.run {
+                    if let userId = UUID(uuidString: matchedUser.id) {
+                        selectedProfile = ProfileNavigationWrapper(userId: userId, initialUser: matchedUser)
+                    }
+                }
+            }
+        } catch {
+            print("Failed to search user by handle: \(error)")
         }
     }
     
@@ -475,16 +509,42 @@ struct UserProfileDetailView: View {
                                 }
                             },
                             onReply: { parentPost in
-                                // Navigate to post detail for replies
+                                selectedPostId = PostIdWrapper(id: parentPost.id)
+                            },
+                            onNavigateToParent: { parentPostId in
+                                // Navigate to thread: resharedPostId -> original thread, parentPostId -> parent thread, else -> post thread
+                                if let resharedPostId = post.resharedPostId {
+                                    selectedPostId = PostIdWrapper(id: resharedPostId)
+                                } else if let parentPostId = post.parentPostId {
+                                    selectedPostId = PostIdWrapper(id: parentPostId)
+                                } else {
+                                    selectedPostId = PostIdWrapper(id: post.id)
+                                }
                             },
                             onDelete: { postId in
                                 Task {
                                     await viewModel.deletePost(postId: postId)
                                 }
                             },
+                            onMentionTap: { handle in
+                                Task {
+                                    await handleMentionTap(handle: handle)
+                                }
+                            },
                             showInlineReplies: true,
                             service: SupabaseFeedService.shared
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // Navigate to thread: resharedPostId -> original thread, parentPostId -> parent thread, else -> post thread
+                            if let resharedPostId = post.resharedPostId {
+                                selectedPostId = PostIdWrapper(id: resharedPostId)
+                            } else if let parentPostId = post.parentPostId {
+                                selectedPostId = PostIdWrapper(id: parentPostId)
+                            } else {
+                                selectedPostId = PostIdWrapper(id: post.id)
+                            }
+                        }
                     }
                 }
                 .padding()
@@ -508,11 +568,37 @@ struct UserProfileDetailView: View {
                                 }
                             },
                             onReply: { parentPost in
-                                // Navigate to post detail for replies
+                                selectedPostId = PostIdWrapper(id: parentPost.id)
+                            },
+                            onNavigateToParent: { parentPostId in
+                                // Navigate to thread: resharedPostId -> original thread, parentPostId -> parent thread, else -> post thread
+                                if let resharedPostId = post.resharedPostId {
+                                    selectedPostId = PostIdWrapper(id: resharedPostId)
+                                } else if let parentPostId = post.parentPostId {
+                                    selectedPostId = PostIdWrapper(id: parentPostId)
+                                } else {
+                                    selectedPostId = PostIdWrapper(id: post.id)
+                                }
+                            },
+                            onMentionTap: { handle in
+                                Task {
+                                    await handleMentionTap(handle: handle)
+                                }
                             },
                             showInlineReplies: true,
                             service: SupabaseFeedService.shared
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // Navigate to thread: resharedPostId -> original thread, parentPostId -> parent thread, else -> post thread
+                            if let resharedPostId = post.resharedPostId {
+                                selectedPostId = PostIdWrapper(id: resharedPostId)
+                            } else if let parentPostId = post.parentPostId {
+                                selectedPostId = PostIdWrapper(id: parentPostId)
+                            } else {
+                                selectedPostId = PostIdWrapper(id: post.id)
+                            }
+                        }
                     }
                 }
                 .padding()
@@ -536,11 +622,33 @@ struct UserProfileDetailView: View {
                                 }
                             },
                             onReply: { parentPost in
-                                // Navigate to post detail for replies
+                                selectedPostId = PostIdWrapper(id: parentPost.id)
+                            },
+                            onNavigateToParent: { parentPostId in
+                                // For replies, navigate to parent thread
+                                if let parentPostId = post.parentPostId {
+                                    selectedPostId = PostIdWrapper(id: parentPostId)
+                                } else {
+                                    selectedPostId = PostIdWrapper(id: post.id)
+                                }
+                            },
+                            onMentionTap: { handle in
+                                Task {
+                                    await handleMentionTap(handle: handle)
+                                }
                             },
                             showInlineReplies: true,
                             service: SupabaseFeedService.shared
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // For replies, navigate to parent thread
+                            if let parentPostId = post.parentPostId {
+                                selectedPostId = PostIdWrapper(id: parentPostId)
+                            } else {
+                                selectedPostId = PostIdWrapper(id: post.id)
+                            }
+                        }
                     }
                 }
                 .padding()
@@ -564,16 +672,38 @@ struct UserProfileDetailView: View {
                                 }
                             },
                             onReply: { parentPost in
-                                // Navigate to post detail for replies
+                                selectedPostId = PostIdWrapper(id: parentPost.id)
                             },
                             onEcho: { postId in
                                 Task {
                                     await viewModel.toggleEcho(postId: postId)
                                 }
                             },
+                            onNavigateToParent: { parentPostId in
+                                // For echoes, navigate to resharedPostId thread
+                                if let resharedPostId = post.resharedPostId {
+                                    selectedPostId = PostIdWrapper(id: resharedPostId)
+                                } else {
+                                    selectedPostId = PostIdWrapper(id: post.id)
+                                }
+                            },
+                            onMentionTap: { handle in
+                                Task {
+                                    await handleMentionTap(handle: handle)
+                                }
+                            },
                             showInlineReplies: true,
                             service: SupabaseFeedService.shared
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // For echoes, navigate to resharedPostId thread
+                            if let resharedPostId = post.resharedPostId {
+                                selectedPostId = PostIdWrapper(id: resharedPostId)
+                            } else {
+                                selectedPostId = PostIdWrapper(id: post.id)
+                            }
+                        }
                     }
                 }
                 .padding()
@@ -687,5 +817,20 @@ struct UserProfileDetailView: View {
             }
         }
     }
+}
+
+// MARK: - Navigation Wrappers
+
+private struct ProfileNavigationWrapper: Identifiable, Hashable {
+    let id: UUID
+    let initialUser: UserSummary?
     
+    init(userId: UUID, initialUser: UserSummary? = nil) {
+        self.id = userId
+        self.initialUser = initialUser
+    }
+}
+
+private struct PostIdWrapper: Identifiable, Hashable {
+    let id: String
 }

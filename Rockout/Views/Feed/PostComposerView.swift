@@ -15,6 +15,7 @@ struct PostComposerView: View {
     let service: FeedService
     let leaderboardEntry: LeaderboardEntrySummary?
     let parentPost: Post?
+    let resharedPostId: String?
     let prefilledText: String?
     let onPostCreated: ((String?) -> Void)? // Pass created post ID
     
@@ -76,12 +77,14 @@ struct PostComposerView: View {
         service: FeedService = SupabaseFeedService.shared as FeedService,
         leaderboardEntry: LeaderboardEntrySummary? = nil,
         parentPost: Post? = nil,
+        resharedPostId: String? = nil,
         prefilledText: String? = nil,
         onPostCreated: ((String?) -> Void)? = nil
     ) {
         self.service = service
         self.leaderboardEntry = leaderboardEntry
         self.parentPost = parentPost
+        self.resharedPostId = resharedPostId
         self.prefilledText = prefilledText
         self.onPostCreated = onPostCreated
         self._text = State(initialValue: prefilledText ?? "")
@@ -1653,7 +1656,8 @@ struct PostComposerView: View {
                     spotifyLink: spotifyLink,
                     poll: poll,
                     backgroundMusic: nil,
-                    mentionedUserIds: mentionedUserIds
+                    mentionedUserIds: mentionedUserIds,
+                    resharedPostId: resharedPostId
                 )
                 createdPostId = post.id
                 print("✅ Post created successfully with ID: \(post.id)")

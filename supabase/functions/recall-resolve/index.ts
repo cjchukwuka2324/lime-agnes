@@ -11,6 +11,130 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Rate limiting configuration
+interface RateLimitConfig {
+  maxRequestsPerMinute: number;
+  maxRequestsPerHour: number;
+  maxConcurrentRequests: number;
+}
+
+const RATE_LIMITS: RateLimitConfig = {
+  maxRequestsPerMinute: 10,
+  maxRequestsPerHour: 100,
+  maxConcurrentRequests: 5
+};
+
+// In-memory rate limiter (use Redis in production for distributed systems)
+const rateLimitStore = new Map<string, {
+  requests: number[];
+  concurrent: number;
+}>();
+
+// Circuit breaker for external APIs
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private state: 'closed' | 'open' | 'half-open' = 'closed';
+  private readonly threshold = 5;
+  private readonly timeout = 60000; // 1 minute
+  
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === 'open') {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = 'half-open';
+      } else {
+        throw new Error('Circuit breaker is open');
+      }
+    }
+    
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+  
+  private onSuccess() {
+    this.failures = 0;
+    this.state = 'closed';
+  }
+  
+  private onFailure() {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    
+    if (this.failures >= this.threshold) {
+      this.state = 'open';
+    }
+  }
+}
+
+const whisperCircuitBreaker = new CircuitBreaker();
+const openAICircuitBreaker = new CircuitBreaker();
+const acrCloudCircuitBreaker = new CircuitBreaker();
+const shazamCircuitBreaker = new CircuitBreaker();
+
+// Rate limiting functions
+async function checkRateLimit(
+  userId: string,
+  supabase: any
+): Promise<{ allowed: boolean; retryAfter?: number }> {
+  const now = Date.now();
+  const key = `rate_limit:${userId}`;
+  
+  let userLimits = rateLimitStore.get(key) || {
+    requests: [],
+    concurrent: 0
+  };
+  
+  // Clean old requests (older than 1 hour)
+  userLimits.requests = userLimits.requests.filter(
+    timestamp => now - timestamp < 3600000
+  );
+  
+  // Check per-minute limit
+  const recentRequests = userLimits.requests.filter(
+    timestamp => now - timestamp < 60000
+  );
+  
+  if (recentRequests.length >= RATE_LIMITS.maxRequestsPerMinute) {
+    const oldestRequest = Math.min(...recentRequests);
+    const retryAfter = Math.ceil((60000 - (now - oldestRequest)) / 1000);
+    return { allowed: false, retryAfter };
+  }
+  
+  // Check per-hour limit
+  if (userLimits.requests.length >= RATE_LIMITS.maxRequestsPerHour) {
+    const oldestRequest = Math.min(...userLimits.requests);
+    const retryAfter = Math.ceil((3600000 - (now - oldestRequest)) / 1000);
+    return { allowed: false, retryAfter };
+  }
+  
+  // Check concurrent limit
+  if (userLimits.concurrent >= RATE_LIMITS.maxConcurrentRequests) {
+    return { allowed: false, retryAfter: 10 };
+  }
+  
+  // Update limits
+  userLimits.requests.push(now);
+  userLimits.concurrent++;
+  rateLimitStore.set(key, userLimits);
+  
+  return { allowed: true };
+}
+
+async function releaseRateLimit(userId: string) {
+  const key = `rate_limit:${userId}`;
+  const userLimits = rateLimitStore.get(key);
+  if (userLimits) {
+    userLimits.concurrent = Math.max(0, userLimits.concurrent - 1);
+    rateLimitStore.set(key, userLimits);
+  }
+}
+
 interface RecallResolveRequest {
   thread_id: string;
   message_id: string;
@@ -95,18 +219,19 @@ async function analyzeVoiceIntent(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini", // Fast and cheap for intent detection
-        messages: [
-          {
-            role: "system",
-            content: `Analyze voice transcription to determine user intent. Return JSON with:
+    const response = await openAICircuitBreaker.execute(() =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini", // Fast and cheap for intent detection
+          messages: [
+            {
+              role: "system",
+              content: `Analyze voice transcription to determine user intent. Return JSON with:
 {
   "type": "conversation" | "information" | "find_song" | "generate_song" | "humming" | "background_audio" | "unclear",
   "confidence": 0.0-1.0,
@@ -197,7 +322,8 @@ Examples:
         max_tokens: 150
       }),
       signal: controller.signal
-    });
+      })
+    );
 
     clearTimeout(timeoutId);
 
@@ -470,14 +596,15 @@ async function detectLanguage(text: string, openaiApiKey: string): Promise<strin
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
+    const response = await openAICircuitBreaker.execute(() =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
@@ -491,8 +618,9 @@ async function detectLanguage(text: string, openaiApiKey: string): Promise<strin
         temperature: 0.1,
         max_tokens: 10,
       }),
-      signal: controller.signal,
-    });
+      signal: controller.signal
+      })
+    );
 
     clearTimeout(timeoutId);
 
@@ -549,14 +677,15 @@ async function summarizeSongMessage(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
+    const response = await openAICircuitBreaker.execute(() =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -564,8 +693,9 @@ async function summarizeSongMessage(
         temperature: 0.3,
         max_tokens: 300,
       }),
-      signal: controller.signal,
-    });
+      signal: controller.signal
+      })
+    );
 
     clearTimeout(timeoutId);
 
@@ -596,10 +726,11 @@ async function summarizeSongMessage(
       const translateController = new AbortController();
       const translateTimeoutId = setTimeout(() => translateController.abort(), 20000);
 
-      const translateResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${openaiApiKey}`,
+      const translateResponse = await openAICircuitBreaker.execute(() =>
+        fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openaiApiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -617,8 +748,9 @@ async function summarizeSongMessage(
           temperature: 0.2,
           max_tokens: 200,
         }),
-        signal: translateController.signal,
-      });
+        signal: translateController.signal
+        })
+      );
 
       clearTimeout(translateTimeoutId);
 
@@ -754,20 +886,23 @@ function detectSongMeaningQuery(
 }
 
 serve(async (req) => {
+  const requestId = crypto.randomUUID().substring(0, 8);
   const requestStartTime = Date.now();
-  console.log(`\n🚀 [RECALL-RESOLVE] Request started at ${new Date().toISOString()}`);
+  console.log(`\n🚀 [RECALL-RESOLVE] [${requestId}] Request started at ${new Date().toISOString()}`);
   
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  let userId: string | null = null;
+
   try {
     const step1Time = Date.now();
     // Get authorization header
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      console.log("❌ [RECALL-RESOLVE] Missing authorization header");
+      console.log(`❌ [RECALL-RESOLVE] [${requestId}] Missing authorization header`);
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -778,16 +913,60 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    console.log(`⏱️ [RECALL-RESOLVE] Step 1 - Initialization: ${Date.now() - step1Time}ms`);
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Step 1 - Initialization: ${Date.now() - step1Time}ms`);
 
     const step2Time = Date.now();
+    // Get user from auth for rate limiting
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    
+    if (authError || !user) {
+      console.log(`❌ [RECALL-RESOLVE] [${requestId}] Authentication failed: ${authError?.message || "No user"}`);
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    userId = user.id;
+    console.log(`✅ [RECALL-RESOLVE] [${requestId}] Authenticated user: ${user.id}`);
+    
+    // Check rate limit
+    const rateLimitCheck = await checkRateLimit(user.id, supabase);
+    if (!rateLimitCheck.allowed) {
+      console.log(`⛔ [RECALL-RESOLVE] [${requestId}] Rate limit exceeded for user ${user.id}, retry after: ${rateLimitCheck.retryAfter}s`);
+      return new Response(
+        JSON.stringify({
+          error: "Rate limit exceeded",
+          retryAfter: rateLimitCheck.retryAfter
+        }),
+        {
+          status: 429,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+            "Retry-After": String(rateLimitCheck.retryAfter || 60)
+          }
+        }
+      );
+    }
+    
     // Parse request body
     const body: RecallResolveRequest = await req.json();
     const { thread_id, message_id, input_type, text, media_path, audio_path, video_path } = body;
-    console.log(`⏱️ [RECALL-RESOLVE] Step 2 - Parse body: ${Date.now() - step2Time}ms`);
-    console.log(`📋 [RECALL-RESOLVE] Input: type=${input_type}, text="${text?.substring(0, 50)}...", has_media=${!!media_path}`);
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Step 2 - Parse body: ${Date.now() - step2Time}ms`);
+    console.log(`📋 [RECALL-RESOLVE] [${requestId}] Request body:`);
+    console.log(`   thread_id: ${thread_id}`);
+    console.log(`   message_id: ${message_id}`);
+    console.log(`   input_type: ${input_type}`);
+    console.log(`   text: ${text ? `"${text.substring(0, 100)}${text.length > 100 ? "..." : ""}"` : "nil"}`);
+    console.log(`   media_path: ${media_path || "nil"}`);
+    console.log(`   audio_path: ${audio_path || "nil"}`);
+    console.log(`   video_path: ${video_path || "nil"}`);
 
     if (!thread_id || !message_id || !input_type) {
+      console.log(`❌ [RECALL-RESOLVE] [${requestId}] Missing required parameters: thread_id=${!!thread_id}, message_id=${!!message_id}, input_type=${!!input_type}`);
       return new Response(
         JSON.stringify({ error: "thread_id, message_id, and input_type are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -795,6 +974,7 @@ serve(async (req) => {
     }
 
     // Load user message
+    const messageLoadStartTime = Date.now();
     const { data: userMessage, error: messageError } = await supabase
       .from("recall_messages")
       .select("*")
@@ -803,13 +983,17 @@ serve(async (req) => {
       .single();
 
     if (messageError || !userMessage) {
+      console.log(`❌ [RECALL-RESOLVE] [${requestId}] Message not found: ${messageError?.message || "No data"}`);
       return new Response(
         JSON.stringify({ error: "Message not found", details: messageError?.message }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Message loaded in ${Date.now() - messageLoadStartTime}ms`);
+    console.log(`📊 [RECALL-RESOLVE] [${requestId}] User message: type=${userMessage.message_type}, text="${userMessage.text?.substring(0, 100) || "nil"}..."`);
 
     // Insert "Searching..." status message
+    const statusInsertStartTime = Date.now();
     const { data: statusMessage, error: statusError } = await supabase
       .from("recall_messages")
       .insert({
@@ -823,11 +1007,13 @@ serve(async (req) => {
       .single();
 
     if (statusError || !statusMessage) {
+      console.log(`❌ [RECALL-RESOLVE] [${requestId}] Failed to create status message: ${statusError?.message || "No data"}`);
       return new Response(
         JSON.stringify({ error: "Failed to create status message", details: statusError?.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Status message created in ${Date.now() - statusInsertStartTime}ms: ${statusMessage.id}`);
 
     let queryText = text || userMessage.text || "";
     let audioTranscription = "";
@@ -843,63 +1029,93 @@ serve(async (req) => {
     
     if (input_type === "voice" && mediaPathToUse) {
       try {
-        console.log("🎤 [VOICE-PROCESSING] Starting intelligent voice processing...");
+        const voiceProcessingStartTime = Date.now();
+        console.log(`🎤 [RECALL-RESOLVE] [${requestId}] Starting intelligent voice processing...`);
+        console.log(`📊 [RECALL-RESOLVE] [${requestId}] Audio path: ${mediaPathToUse}, video_path=${!!video_path}`);
         
         // Get audio file
         const bucket = video_path ? "recall-images" : "recall-audio";
+        const urlStartTime = Date.now();
         const { data: signedUrlData, error: urlError } = await supabase.storage
           .from(bucket)
           .createSignedUrl(mediaPathToUse, 3600);
 
         if (urlError || !signedUrlData) {
+          console.log(`❌ [RECALL-RESOLVE] [${requestId}] Failed to create signed URL: ${urlError?.message || "No data"}`);
           throw new Error("Failed to create signed URL for audio");
         }
+        console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Signed URL created in ${Date.now() - urlStartTime}ms`);
 
+        const downloadStartTime = Date.now();
         const audioResponse = await fetch(signedUrlData.signedUrl);
         const audioBlob = await audioResponse.blob();
         const audioArrayBuffer = await audioBlob.arrayBuffer();
+        const downloadDuration = Date.now() - downloadStartTime;
+        console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Audio downloaded in ${downloadDuration}ms: ${audioArrayBuffer.byteLength} bytes`);
 
         // STEP 1: ALWAYS transcribe first to understand user intent
-        console.log("📝 [STEP 1] Transcribing with Whisper...");
+        const transcriptionStartTime = Date.now();
+        console.log(`📝 [RECALL-RESOLVE] [${requestId}] [STEP 1] Transcribing with Whisper...`);
         
         if (openaiApiKey) {
-          const audioFile = new File([audioBlob], "audio.m4a", { type: "audio/m4a" });
-          const formData = new FormData();
-          formData.append("file", audioFile);
-          formData.append("model", "whisper-1");
+          try {
+            const audioFile = new File([audioBlob], "audio.m4a", { type: "audio/m4a" });
+            const formData = new FormData();
+            formData.append("file", audioFile);
+            formData.append("model", "whisper-1");
 
-          const transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${openaiApiKey}`,
-            },
-            body: formData,
-          });
+            const transcriptionResponse = await whisperCircuitBreaker.execute(() =>
+              fetch("https://api.openai.com/v1/audio/transcriptions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${openaiApiKey}`,
+                },
+                body: formData,
+              })
+            );
 
-          if (transcriptionResponse.ok) {
-            const transcriptionData = await transcriptionResponse.json();
-            audioTranscription = transcriptionData.text || "";
-            console.log(`✅ Transcription: "${audioTranscription}"`);
-            
-            // Update status
-            await supabase
-              .from("recall_messages")
-              .update({ text: "Understanding..." })
-              .eq("id", statusMessage.id);
+            if (transcriptionResponse.ok) {
+              const transcriptionData = await transcriptionResponse.json();
+              audioTranscription = transcriptionData.text || "";
+              const transcriptionDuration = Date.now() - transcriptionStartTime;
+              console.log(`✅ [RECALL-RESOLVE] [${requestId}] Transcription completed in ${transcriptionDuration}ms`);
+              console.log(`📝 [RECALL-RESOLVE] [${requestId}] Transcription: "${audioTranscription}"`);
+              
+              // Update status
+              await supabase
+                .from("recall_messages")
+                .update({ text: "Understanding..." })
+                .eq("id", statusMessage.id);
+            } else {
+              const errorText = await transcriptionResponse.text();
+              const transcriptionDuration = Date.now() - transcriptionStartTime;
+              console.error(`❌ [RECALL-RESOLVE] [${requestId}] Transcription failed after ${transcriptionDuration}ms: ${transcriptionResponse.status} - ${errorText}`);
+              // Continue without transcription - will use audio recognition
+            }
+          } catch (transcriptionError) {
+            const transcriptionDuration = Date.now() - transcriptionStartTime;
+            console.error(`❌ [RECALL-RESOLVE] [${requestId}] Transcription error after ${transcriptionDuration}ms:`, transcriptionError);
+            // Continue without transcription - will use audio recognition
           }
+        } else {
+          console.warn(`⚠️ [RECALL-RESOLVE] [${requestId}] OPENAI_API_KEY not configured, skipping transcription`);
         }
 
         // STEP 2: Analyze intent - conversation or song identification?
         if (audioTranscription && audioTranscription.trim().length > 0) {
-          console.log("🧠 [STEP 2] Analyzing intent...");
+          const intentStartTime = Date.now();
+          console.log(`🧠 [RECALL-RESOLVE] [${requestId}] [STEP 2] Analyzing intent...`);
           
           const intent = await analyzeVoiceIntent(audioTranscription, openaiApiKey!);
           detectedIntent = intent; // Store for later use in audio recognition
-          console.log(`🎯 Detected intent: ${intent.type} (confidence: ${intent.confidence})`);
+          const intentDuration = Date.now() - intentStartTime;
+          console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Intent analysis completed in ${intentDuration}ms`);
+          console.log(`🎯 [RECALL-RESOLVE] [${requestId}] Detected intent: ${intent.type} (confidence: ${intent.confidence})`);
+          console.log(`   Reasoning: ${intent.reasoning}`);
           
           if (intent.type === "humming" || intent.type === "background_audio") {
             shouldUseAudioRecognition = true;
-            console.log(`🎵 Intent: ${intent.type} → Using audio recognition`);
+            console.log(`🎵 [RECALL-RESOLVE] [${requestId}] Intent: ${intent.type} → Using audio recognition`);
             
             await supabase
               .from("recall_messages")
@@ -909,7 +1125,8 @@ serve(async (req) => {
           } else if (intent.type === "conversation" || intent.type === "information" || intent.type === "generate_song") {
             shouldUseAudioRecognition = false;
             queryText = audioTranscription;
-            console.log(`💬 Intent: ${intent.type} → Using conversational/informational response`);
+            console.log(`💬 [RECALL-RESOLVE] [${requestId}] Intent: ${intent.type} → Using conversational/informational response`);
+            console.log(`📝 [RECALL-RESOLVE] [${requestId}] Query text set to transcription: "${queryText}"`);
             
             await supabase
               .from("recall_messages")
@@ -920,7 +1137,8 @@ serve(async (req) => {
             // For find_song, try audio recognition first, but also use transcription for search
             shouldUseAudioRecognition = true;
             queryText = audioTranscription; // Also use transcription for search
-            console.log(`🔍 Intent: find_song → Using audio recognition + search`);
+            console.log(`🔍 [RECALL-RESOLVE] [${requestId}] Intent: find_song → Using audio recognition + search`);
+            console.log(`📝 [RECALL-RESOLVE] [${requestId}] Query text set to transcription: "${queryText}"`);
             
             await supabase
               .from("recall_messages")
@@ -935,7 +1153,7 @@ serve(async (req) => {
             
             if (wordCount < 5 || (hasRepetitiveSounds && repetitiveCount > 3)) {
               shouldUseAudioRecognition = true;
-              console.log(`🤔 Unclear intent, but heuristics suggest audio recognition (words:${wordCount}, repetitive:${repetitiveCount})`);
+              console.log(`🤔 [RECALL-RESOLVE] [${requestId}] Unclear intent, but heuristics suggest audio recognition (words:${wordCount}, repetitive:${repetitiveCount})`);
               
               await supabase
                 .from("recall_messages")
@@ -943,7 +1161,8 @@ serve(async (req) => {
                 .eq("id", statusMessage.id);
             } else {
               queryText = audioTranscription;
-              console.log(`🤔 Unclear intent, treating as conversation (words:${wordCount})`);
+              console.log(`🤔 [RECALL-RESOLVE] [${requestId}] Unclear intent, treating as conversation (words:${wordCount})`);
+              console.log(`📝 [RECALL-RESOLVE] [${requestId}] Query text set to transcription: "${queryText}"`);
               
               await supabase
                 .from("recall_messages")
@@ -954,31 +1173,43 @@ serve(async (req) => {
         } else {
           // No transcription - likely background music or humming
           shouldUseAudioRecognition = true;
-          console.log("⚠️ No transcription, defaulting to audio recognition");
+          console.log(`⚠️ [RECALL-RESOLVE] [${requestId}] No transcription, defaulting to audio recognition`);
           
           await supabase
             .from("recall_messages")
             .update({ text: "Identifying song..." })
             .eq("id", statusMessage.id);
         }
+        
+        const voiceProcessingDuration = Date.now() - voiceProcessingStartTime;
+        console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Voice processing completed in ${voiceProcessingDuration}ms`);
+        console.log(`📊 [RECALL-RESOLVE] [${requestId}] Voice processing summary:`);
+        console.log(`   transcription: "${audioTranscription || "none"}"`);
+        console.log(`   intent: ${detectedIntent?.type || "none"} (${detectedIntent?.confidence || 0})`);
+        console.log(`   shouldUseAudioRecognition: ${shouldUseAudioRecognition}`);
+        console.log(`   queryText: "${queryText || "none"}"`);
 
         // STEP 3: Use audio recognition if needed
         if (shouldUseAudioRecognition) {
+          const audioRecognitionStartTime = Date.now();
           // Determine if this is a full song identification (find_song intent or longer audio)
           const isFullSong = detectedIntent?.type === "find_song" || audioArrayBuffer.byteLength > 50000; // >50KB suggests longer audio
           const audioDurationHint = audioArrayBuffer.byteLength > 100000 ? "full song" : "audio clip";
           
-          console.log(`🎵 [STEP 3] Running audio recognition for ${audioDurationHint} (${audioArrayBuffer.byteLength} bytes)...`);
+          console.log(`🎵 [RECALL-RESOLVE] [${requestId}] [STEP 3] Running audio recognition for ${audioDurationHint} (${audioArrayBuffer.byteLength} bytes)...`);
           console.log(`   - Intent: ${detectedIntent?.type || "unknown"}, Full song: ${isFullSong}`);
           console.log(`   - ACRCloud: Best for humming/partial audio`);
           console.log(`   - Shazam: Best for full songs - ${isFullSong ? "PRIORITIZING" : "running in parallel"}`);
           
           // For full songs, prioritize Shazam; for humming/partial, prioritize ACRCloud
           // Always send FULL audio buffer to both services
+          const recognitionStartTime = Date.now();
           const [acrCloudResult, shazamResult] = await Promise.allSettled([
-            identifyAudioWithACRCloud(audioArrayBuffer),
-            identifyAudioWithShazam(audioArrayBuffer), // Always call Shazam with full audio buffer
+            acrCloudCircuitBreaker.execute(() => identifyAudioWithACRCloud(audioArrayBuffer)),
+            shazamCircuitBreaker.execute(() => identifyAudioWithShazam(audioArrayBuffer)), // Always call Shazam with full audio buffer
           ]);
+          const recognitionDuration = Date.now() - recognitionStartTime;
+          console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Audio recognition completed in ${recognitionDuration}ms`);
 
           // Choose best result - prioritize Shazam for full songs
           let bestResult: AudioRecognitionResult | null = null;
@@ -987,44 +1218,56 @@ serve(async (req) => {
           if (isFullSong) {
             if (shazamResult.status === "fulfilled" && shazamResult.value.success) {
               bestResult = shazamResult.value;
-              console.log(`✅ Shazam (PRIORITIZED for full song): ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
+              console.log(`✅ [RECALL-RESOLVE] [${requestId}] Shazam (PRIORITIZED for full song): ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
+            } else if (shazamResult.status === "rejected") {
+              console.log(`❌ [RECALL-RESOLVE] [${requestId}] Shazam failed: ${shazamResult.reason}`);
             }
             
             // Still check ACRCloud as fallback
             if (acrCloudResult.status === "fulfilled" && acrCloudResult.value.success) {
               const acrBest = acrCloudResult.value;
-              console.log(`✅ ACRCloud: ${acrBest.title} by ${acrBest.artist} (${acrBest.confidence})`);
+              console.log(`✅ [RECALL-RESOLVE] [${requestId}] ACRCloud: ${acrBest.title} by ${acrBest.artist} (${acrBest.confidence})`);
               // Use ACRCloud only if Shazam failed or has lower confidence
               if (!bestResult || (acrBest.confidence > bestResult.confidence && acrBest.confidence >= 0.8)) {
                 bestResult = acrBest;
-                console.log(`   → Using ACRCloud result (higher confidence)`);
+                console.log(`   → [RECALL-RESOLVE] [${requestId}] Using ACRCloud result (higher confidence)`);
               }
+            } else if (acrCloudResult.status === "rejected") {
+              console.log(`❌ [RECALL-RESOLVE] [${requestId}] ACRCloud failed: ${acrCloudResult.reason}`);
             }
           } else {
             // For humming/partial audio, check ACRCloud first (it's better for short clips)
             if (acrCloudResult.status === "fulfilled" && acrCloudResult.value.success) {
               bestResult = acrCloudResult.value;
-              console.log(`✅ ACRCloud (PRIORITIZED for humming/partial): ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
+              console.log(`✅ [RECALL-RESOLVE] [${requestId}] ACRCloud (PRIORITIZED for humming/partial): ${bestResult.title} by ${bestResult.artist} (${bestResult.confidence})`);
+            } else if (acrCloudResult.status === "rejected") {
+              console.log(`❌ [RECALL-RESOLVE] [${requestId}] ACRCloud failed: ${acrCloudResult.reason}`);
             }
             
             // Still check Shazam as fallback
             if (shazamResult.status === "fulfilled" && shazamResult.value.success) {
               const shazamBest = shazamResult.value;
-              console.log(`✅ Shazam: ${shazamBest.title} by ${shazamBest.artist} (${shazamBest.confidence})`);
+              console.log(`✅ [RECALL-RESOLVE] [${requestId}] Shazam: ${shazamBest.title} by ${shazamBest.artist} (${shazamBest.confidence})`);
               // Use Shazam only if ACRCloud failed or Shazam has significantly higher confidence
               if (!bestResult || (shazamBest.confidence > bestResult.confidence + 0.1)) {
                 bestResult = shazamBest;
-                console.log(`   → Using Shazam result (higher confidence)`);
+                console.log(`   → [RECALL-RESOLVE] [${requestId}] Using Shazam result (higher confidence)`);
               }
+            } else if (shazamResult.status === "rejected") {
+              console.log(`❌ [RECALL-RESOLVE] [${requestId}] Shazam failed: ${shazamResult.reason}`);
             }
           }
           
           // Log final selection
           if (bestResult) {
-            console.log(`🎯 Final selection: ${bestResult.service} - "${bestResult.title}" by ${bestResult.artist} (confidence: ${bestResult.confidence})`);
+            console.log(`🎯 [RECALL-RESOLVE] [${requestId}] Final selection: ${bestResult.service} - "${bestResult.title}" by ${bestResult.artist} (confidence: ${bestResult.confidence})`);
+            audioRecognitionResult = bestResult;
           } else {
-            console.log(`❌ Both audio recognition services failed or returned no results`);
+            console.log(`❌ [RECALL-RESOLVE] [${requestId}] Both audio recognition services failed or returned no results`);
           }
+          
+          const audioRecognitionDuration = Date.now() - audioRecognitionStartTime;
+          console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Audio recognition step completed in ${audioRecognitionDuration}ms`);
 
           if (bestResult && bestResult.success && bestResult.confidence >= 0.7) {
             // High confidence - return immediately with conversational response
@@ -1104,17 +1347,27 @@ serve(async (req) => {
           }
         }
 
-        // Update user message with transcription
-        if (audioTranscription) {
+        // Update user message with transcription (always update, even if empty, to show status)
+        try {
           await supabase
             .from("recall_messages")
-            .update({ text: audioTranscription })
+            .update({ text: audioTranscription || "Processing audio..." })
             .eq("id", message_id);
+          console.log(`✅ Updated user message with transcription: "${audioTranscription || 'Processing...'}"`);
+        } catch (updateError) {
+          console.error("❌ Failed to update user message with transcription:", updateError);
+          // Continue processing even if update fails
         }
 
       } catch (error) {
         console.error("❌ Voice processing error:", error);
-        queryText = "I had trouble processing the audio. Could you try again or describe what you're looking for?";
+        // Preserve transcription if we have it, even on error
+        if (!audioTranscription) {
+          queryText = "I had trouble processing the audio. Could you try again or describe what you're looking for?";
+        } else {
+          // Use transcription even if processing failed
+          queryText = audioTranscription;
+        }
       }
     }
 
@@ -1151,6 +1404,11 @@ serve(async (req) => {
           if (whisperResponse.ok) {
             const whisperData = await whisperResponse.json();
             audioTranscription = whisperData.text || "";
+            console.log(`✅ Video audio transcription: "${audioTranscription}"`);
+          } else {
+            const errorText = await whisperResponse.text();
+            console.error(`❌ Video audio transcription failed: ${whisperResponse.status} - ${errorText}`);
+          }
           }
         }
       } catch (error) {
@@ -1159,9 +1417,16 @@ serve(async (req) => {
       }
     }
 
-    // If image input, extract text (OCR would go here - simplified for now)
-    if (input_type === "image" && !queryText && !audioTranscription) {
-      queryText = "Image uploaded - searching for matching songs";
+    // If image input, use OCR text if provided, otherwise use placeholder
+    if (input_type === "image") {
+      if (queryText && queryText.trim().length > 0) {
+        // OCR text was provided from client-side OCR processing
+        console.log(`📷 [RECALL-RESOLVE] Using OCR text from image: "${queryText.substring(0, 100)}..."`);
+      } else if (!audioTranscription) {
+        // No OCR text and no audio transcription - use placeholder
+        console.log(`📷 [RECALL-RESOLVE] No OCR text provided, using placeholder`);
+        queryText = "Image uploaded - searching for matching songs";
+      }
     }
 
     if ((!queryText || queryText.trim().length === 0) && !audioTranscription) {
@@ -1387,12 +1652,16 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
 21. For general music questions, provide detailed, informative answers with proper citations`;
 
     // Get conversation context for better accuracy
+    const contextStartTime = Date.now();
+    console.log(`🔍 [RECALL-RESOLVE] [${requestId}] Building conversation context...`);
     const { data: previousMessages } = await supabase
       .from("recall_messages")
       .select("text, role, message_type, song_title, song_artist, confidence, created_at")
       .eq("thread_id", thread_id)
       .order("created_at", { ascending: false })
       .limit(20);
+    const contextLoadDuration = Date.now() - contextStartTime;
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Context loaded in ${contextLoadDuration}ms: ${previousMessages?.length || 0} messages`);
     
     let contextText = "";
     const rejectedCandidates: Array<{title: string, artist: string}> = [];
@@ -1723,6 +1992,9 @@ Generate a follow-up question that is:
 - Context-aware and references previous answers naturally
 - Non-repetitive and progressive
 - Optimized for the current confidence level and information gaps`;
+        const contextBuildDuration = Date.now() - contextBuildStartTime;
+        console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Context built in ${contextBuildDuration}ms: ${contextText.length} chars`);
+        console.log(`📊 [RECALL-RESOLVE] [${requestId}] Context summary: ${contextParts.length} parts, extractedInfo keys: ${Object.keys(extractedInfo).length}`);
       }
     }
 
@@ -1755,7 +2027,9 @@ Generate a follow-up question that is:
     
     let userPrompt = "";
     if (queryIntent === 'search') {
-      userPrompt = `Find songs matching this description: "${queryText}"${audioTranscription ? `\n\nBackground audio from video transcribed as: "${audioTranscription}"` : ""}${contextText}
+      userPrompt = `Find songs matching this description: "${queryText}"${audioTranscription ? `\n\nBackground audio from video transcribed as: "${audioTranscription}"` : ""}
+
+${contextText ? `\n\nCONVERSATION CONTEXT:\n${contextText}\n` : ""}
 
 INSTRUCTIONS:
 - Search the web thoroughly using multiple sources
@@ -1769,7 +2043,9 @@ INSTRUCTIONS:
 
 Return the best matches as JSON.`;
     } else if (queryIntent === 'question') {
-      userPrompt = `Answer this music-related question: "${queryText}"${contextText}
+      userPrompt = `Answer this music-related question: "${queryText}"
+
+${contextText ? `\n\nCONVERSATION CONTEXT:\n${contextText}\n` : ""}
 
 INSTRUCTIONS:
 - Search the web thoroughly to find accurate, current information
@@ -1783,7 +2059,9 @@ INSTRUCTIONS:
 Return your answer as JSON.`;
     } else if (queryIntent === 'both') {
       // both
-      userPrompt = `The user wants both to search for songs and get information. Query: "${queryText}"${audioTranscription ? `\n\nBackground audio from video transcribed as: "${audioTranscription}"` : ""}${contextText}
+      userPrompt = `The user wants both to search for songs and get information. Query: "${queryText}"${audioTranscription ? `\n\nBackground audio from video transcribed as: "${audioTranscription}"` : ""}
+
+${contextText ? `\n\nCONVERSATION CONTEXT:\n${contextText}\n` : ""}
 
 INSTRUCTIONS:
 - First, search for songs matching the description
@@ -1803,22 +2081,24 @@ Return both search results and answers as JSON.`;
     
     console.log(`🤖 [GPT-4o] Calling OpenAI GPT-4o API for ${queryIntent} response...`);
     console.log(`📝 [GPT-4o] User prompt length: ${userPrompt.length} chars`);
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-      }),
-    });
+    const openaiResponse = await openAICircuitBreaker.execute(() =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.3,
+        })
+      })
+    );
 
     const openaiResponseTime = Date.now() - openaiStepTime;
     console.log(`⏱️ [RECALL-RESOLVE] OpenAI API call took: ${openaiResponseTime}ms`);
@@ -1842,9 +2122,13 @@ Return both search results and answers as JSON.`;
     const parseStepTime = Date.now();
     const openaiData = await openaiResponse.json();
     const content = openaiData.choices[0]?.message?.content;
-    console.log(`⏱️ [RECALL-RESOLVE] Parse OpenAI response: ${Date.now() - parseStepTime}ms`);
-    console.log(`📄 [RECALL-RESOLVE] Response content length: ${content?.length || 0} chars`);
-    console.log(`📄 [RECALL-RESOLVE] Response preview: ${content?.substring(0, 200)}...`);
+    const parseDuration = Date.now() - parseStepTime;
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Parse OpenAI response: ${parseDuration}ms`);
+    console.log(`📄 [RECALL-RESOLVE] [${requestId}] Response content length: ${content?.length || 0} chars`);
+    console.log(`📄 [RECALL-RESOLVE] [${requestId}] Response preview: ${content?.substring(0, 200)}...`);
+    if (openaiData.usage) {
+      console.log(`📊 [RECALL-RESOLVE] [${requestId}] Token usage: prompt=${openaiData.usage.prompt_tokens}, completion=${openaiData.usage.completion_tokens}, total=${openaiData.usage.total_tokens}`);
+    }
 
     if (!content) {
       await supabase
@@ -1874,18 +2158,39 @@ Return both search results and answers as JSON.`;
       
       aiResult = JSON.parse(jsonContent);
       console.log(`⏱️ [RECALL-RESOLVE] Parse JSON: ${Date.now() - parseJsonTime}ms`);
-      console.log(`📊 [RECALL-RESOLVE] Parsed result: type=${aiResult.response_type}, confidence=${aiResult.overall_confidence}, candidates=${aiResult.candidates?.length || 0}, has_answer=${!!aiResult.answer}`);
+      console.log(`📊 [RECALL-RESOLVE] [${requestId}] Parsed result: type=${aiResult.response_type}, confidence=${aiResult.overall_confidence}, candidates=${aiResult.candidates?.length || 0}, has_answer=${!!aiResult.answer}`);
       
       // Validate response structure
       if (!aiResult.response_type) {
-        console.warn(`⚠️ [RECALL-RESOLVE] Missing response_type, defaulting to 'search'`);
-        aiResult.response_type = 'search';
+        // If intent was information, default to answer; otherwise search
+        if (detectedIntent?.type === "information") {
+          console.warn(`⚠️ [RECALL-RESOLVE] Missing response_type, defaulting to 'answer' for information intent`);
+          aiResult.response_type = 'answer';
+        } else {
+          console.warn(`⚠️ [RECALL-RESOLVE] Missing response_type, defaulting to 'search'`);
+          aiResult.response_type = 'search';
+        }
+      }
+      
+      // Ensure information intents always have answer object
+      if (detectedIntent?.type === "information" && aiResult.response_type === "answer") {
+        if (!aiResult.answer || !aiResult.answer.text || aiResult.answer.text.trim().length === 0) {
+          console.warn(`⚠️ [RECALL-RESOLVE] Information intent but no answer provided, creating fallback answer`);
+          aiResult.answer = {
+            text: "I'm processing your question. Please wait a moment while I search for the information.",
+            sources: [],
+            related_songs: []
+          };
+        }
       }
       
       if (aiResult.overall_confidence === undefined || aiResult.overall_confidence === null) {
         console.warn(`⚠️ [RECALL-RESOLVE] Missing overall_confidence, calculating from candidates`);
         if (aiResult.candidates && aiResult.candidates.length > 0) {
           aiResult.overall_confidence = aiResult.candidates[0].confidence;
+        } else if (aiResult.answer && aiResult.answer.text) {
+          // For answer responses, use high confidence if answer exists
+          aiResult.overall_confidence = 0.8;
         } else {
           aiResult.overall_confidence = 0.5;
         }
@@ -1971,20 +2276,33 @@ Return both search results and answers as JSON.`;
       }
     }
 
-    // Only fail if we have NO candidates AND NO answer (conversational responses have answers, not candidates)
+    // Only fail if we have NO candidates AND NO answer
+    // Exception: For information intents, we should always have an answer
     if (finalCandidates.length === 0 && (!aiResult.answer || !aiResult.answer.text)) {
-      console.log(`⚠️ [RECALL-RESOLVE] No valid candidates or answer found`);
-      await supabase
-        .from("recall_messages")
-        .update({
-          message_type: "status",
-          text: "No matches found",
-        })
-        .eq("id", statusMessage.id);
-      return new Response(
-        JSON.stringify({ status: "failed", error: "No candidates or answer found" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      // If this was an information intent, try to generate a basic answer
+      if (detectedIntent?.type === "information") {
+        console.log(`⚠️ [RECALL-RESOLVE] Information intent but no answer found, creating fallback`);
+        aiResult.answer = {
+          text: "I couldn't find specific information about that. Could you provide more details or rephrase your question?",
+          sources: [],
+          related_songs: []
+        };
+        aiResult.response_type = "answer";
+        aiResult.overall_confidence = 0.3;
+      } else {
+        console.log(`⚠️ [RECALL-RESOLVE] No valid candidates or answer found`);
+        await supabase
+          .from("recall_messages")
+          .update({
+            message_type: "status",
+            text: "No matches found",
+          })
+          .eq("id", statusMessage.id);
+        return new Response(
+          JSON.stringify({ status: "failed", error: "No candidates or answer found" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // Build assistant message only if we have candidates (for song identification)
@@ -2164,18 +2482,18 @@ Return both search results and answers as JSON.`;
 
       if (!answerError && answerMessage) {
         answerMessageId = answerMessage.id;
-        console.log(`✅ [RECALL-RESOLVE] Inserted answer message (${aiResult.answer.text.length} chars)`);
+        console.log(`✅ [RECALL-RESOLVE] [${requestId}] Inserted answer message (${aiResult.answer.text.length} chars)`);
       } else {
-        console.error(`❌ [RECALL-RESOLVE] Failed to insert answer:`, answerError);
+        console.error(`❌ [RECALL-RESOLVE] [${requestId}] Failed to insert answer:`, answerError);
       }
     }
-    console.log(`⏱️ [RECALL-RESOLVE] Insert answer: ${Date.now() - insertAnswerTime}ms`);
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Insert answer: ${Date.now() - insertAnswerTime}ms`);
 
     // Handle follow-up question if confidence is low or conversation needs continuation
     const insertFollowUpTime = Date.now();
     let followUpQuestionId: string | null = null;
     if (aiResult.follow_up_question && (aiResult.overall_confidence < 0.7 || aiResult.response_type === "answer")) {
-      console.log(`💬 [RECALL-RESOLVE] Inserting follow-up question: "${aiResult.follow_up_question}"`);
+      console.log(`💬 [RECALL-RESOLVE] [${requestId}] Inserting follow-up question: "${aiResult.follow_up_question}"`);
       // Insert follow-up question as assistant message
       const { data: followUpMessage, error: followUpError } = await supabase
         .from("recall_messages")
@@ -2191,12 +2509,12 @@ Return both search results and answers as JSON.`;
 
       if (!followUpError && followUpMessage) {
         followUpQuestionId = followUpMessage.id;
-        console.log(`✅ [RECALL-RESOLVE] Inserted follow-up question`);
+        console.log(`✅ [RECALL-RESOLVE] [${requestId}] Inserted follow-up question`);
       } else {
-        console.error(`❌ [RECALL-RESOLVE] Failed to insert follow-up:`, followUpError);
+        console.error(`❌ [RECALL-RESOLVE] [${requestId}] Failed to insert follow-up:`, followUpError);
       }
     }
-    console.log(`⏱️ [RECALL-RESOLVE] Insert follow-up: ${Date.now() - insertFollowUpTime}ms`);
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Insert follow-up: ${Date.now() - insertFollowUpTime}ms`);
 
     // Delete status message (replaced by candidate messages, answer, or follow-up question)
     await supabase
@@ -2228,23 +2546,58 @@ Return both search results and answers as JSON.`;
     }
 
     // Log service calls for verification
-    console.log(`📊 [RECALL-RESOLVE] Service calls summary:`);
+    const totalDuration = Date.now() - requestStartTime;
+    console.log(`📊 [RECALL-RESOLVE] [${requestId}] Service calls summary:`);
     const acrCloudStatus = audioRecognitionResult?.service === "acrcloud" ? "✅ Called and matched" : "⏭️ Skipped or no match";
     console.log(`   - ACRCloud: ${acrCloudStatus}`);
     console.log(`   - Shazam: ${audioRecognitionResult?.service === "shazam" ? "✅ Called and matched" : "⏭️ Called but no match or skipped"}`);
-    console.log(`   - Whisper Transcription: ${audioTranscription ? `✅ Transcribed: "${audioTranscription.substring(0, 50)}..."` : "⏭️ Not used"}`);
+    console.log(`   - Whisper Transcription: ${audioTranscription ? "✅ Transcribed: \"" + audioTranscription.substring(0, 50) + "...\"" : "⏭️ Not used"}`);
     console.log(`   - GPT-4o: ✅ Called for ${aiResult.response_type || "search"} response`);
     console.log(`   - Final candidates: ${finalCandidates.length}`);
     if (aiResult.answer) {
       console.log(`   - Answer provided: ${aiResult.answer.text.length} chars`);
     }
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Total processing time: ${totalDuration}ms`);
+    
+    const responseBody = {
+      status: aiResult.follow_up_question ? "refining" : "done",
+      response_type: aiResult.response_type || "search",
+      transcription: audioTranscription || null, // Include transcription in response
+      overall_confidence: aiResult.overall_confidence,
+      candidates: finalCandidates.map(c => ({
+        title: c.title,
+        artist: c.artist,
+        confidence: c.confidence,
+        reason: c.reason,
+        background: c.background || "",
+        lyric_snippet: c.highlight_snippet,
+        source_urls: c.source_urls,
+      })),
+      answer: aiResult.answer ? {
+        text: aiResult.answer.text,
+        sources: aiResult.answer.sources,
+        related_songs: aiResult.answer.related_songs || [],
+      } : null,
+      follow_up_question: aiResult.follow_up_question || null,
+      conversation_state: aiResult.conversation_state || (aiResult.follow_up_question ? "refining_search" : (aiResult.response_type === "answer" ? "answering" : "searching")),
+      error: null,
+    };
+    
+    const responseSize = JSON.stringify(responseBody).length;
+    console.log(`📤 [RECALL-RESOLVE] [${requestId}] Returning response: ${responseSize} bytes`);
+    console.log(`   status: ${responseBody.status}`);
+    console.log(`   response_type: ${responseBody.response_type}`);
+    console.log(`   candidates: ${responseBody.candidates.length}`);
+    console.log(`   has_answer: ${responseBody.answer != null}`);
+    console.log(`   has_follow_up: ${responseBody.follow_up_question != null}`);
     
     return new Response(
+      JSON.stringify(responseBody),
       JSON.stringify({
         status: aiResult.follow_up_question ? "refining" : "done",
         response_type: aiResult.response_type || "search",
         transcription: audioTranscription || null, // Include transcription in response
-        assistant_message: assistantMessage,
+        assistant_message: assistantMessage || undefined,
         candidates: finalCandidates.map(c => ({
           title: c.title,
           artist: c.artist,
@@ -2270,10 +2623,32 @@ Return both search results and answers as JSON.`;
     );
   } catch (error) {
     console.error("Error in recall-resolve:", error);
+    
+    // Try to return transcription even on error if we have it
+    let errorTranscription = "";
+    try {
+      // If we have audioTranscription from earlier processing, include it
+      if (typeof audioTranscription !== "undefined" && audioTranscription) {
+        errorTranscription = audioTranscription;
+      }
+    } catch (e) {
+      // Ignore errors accessing audioTranscription
+    }
+    
     return new Response(
-      JSON.stringify({ error: "Internal server error", details: error.message }),
+      JSON.stringify({ 
+        error: "Internal server error", 
+        details: error.message,
+        transcription: errorTranscription || null,
+        status: "failed"
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+  } finally {
+    // Release rate limit in finally block to ensure it's always released
+    if (userId) {
+      await releaseRateLimit(userId);
+    }
   }
 });
 

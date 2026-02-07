@@ -1,22 +1,34 @@
 #!/usr/bin/env ruby
+# Script to fix file paths in Xcode project
+
 require 'xcodeproj'
 
-project = Xcodeproj::Project.open('Rockout.xcodeproj')
+project_path = 'Rockout.xcodeproj'
+project = Xcodeproj::Project.open(project_path)
 
-# Files that need path fixes - these are in groups with paths, so should just be filename
+# Files to fix
 files_to_fix = {
-  'CCA649B64E36993E03A01A18' => 'CameraPickerView.swift',  # In Shared group with path
-  'A6C9D80A7860D1EA28902FF6' => 'HashtagTextView.swift',    # In Shared group with path
+  'Logger.swift' => 'Rockout/Utils/Logger.swift',
+  'Analytics.swift' => 'Rockout/Utils/Analytics.swift',
+  'PerformanceMetrics.swift' => 'Rockout/Utils/PerformanceMetrics.swift',
+  'RequestCoalescer.swift' => 'Rockout/Services/Networking/RequestCoalescer.swift',
+  'RetryPolicy.swift' => 'Rockout/Services/Networking/RetryPolicy.swift'
 }
 
-files_to_fix.each do |uuid, correct_path|
-  file_ref = project.files.find { |f| f.uuid == uuid }
-  if file_ref
-    old_path = file_ref.path
+# Find and fix file references
+project.files.each do |file_ref|
+  filename = File.basename(file_ref.path || '')
+  if files_to_fix.key?(filename)
+    correct_path = files_to_fix[filename]
+    if file_ref.path != correct_path
+      puts "Fixing #{filename}: #{file_ref.path} -> #{correct_path}"
     file_ref.path = correct_path
-    puts "Fixed: #{old_path} → #{correct_path}"
+    else
+      puts "✓ #{filename} already has correct path"
+    end
   end
 end
 
+# Save the project
 project.save
-puts "✅ Path fixes applied"
+puts "\n✅ Project saved successfully!"

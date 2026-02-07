@@ -99,7 +99,7 @@ final class SupabaseFeedService: FeedService {
                 // Fallback: generate handle from display name or user ID
                 let fallbackHandle = "@\(author_display_name.lowercased().replacingOccurrences(of: " ", with: ""))"
                 author_handle = fallbackHandle.isEmpty ? "@user" : fallbackHandle
-                print("⚠️ author_handle missing, using fallback: \(author_handle)")
+                Logger.feed.debug("author_handle missing, using fallback: \(author_handle)")
             }
             
             if let initials = try? container.decode(String.self, forKey: .author_avatar_initials) {
@@ -114,7 +114,7 @@ final class SupabaseFeedService: FeedService {
                 } else {
                     author_avatar_initials = "U"
                 }
-                print("⚠️ author_avatar_initials missing, using fallback: \(author_avatar_initials)")
+                Logger.feed.debug("author_avatar_initials missing, using fallback: \(author_avatar_initials)")
             }
             
             // Optional fields
@@ -156,7 +156,7 @@ final class SupabaseFeedService: FeedService {
                         poll_options = try container.decode(AnyCodable.self, forKey: .poll_options)
                     }
                 } catch {
-                    print("⚠️ Failed to decode poll_options: \(error)")
+                    Logger.feed.warning("Failed to decode poll_options: \(error.localizedDescription)")
                     poll_options = nil
                 }
             } else {
@@ -212,9 +212,9 @@ final class SupabaseFeedService: FeedService {
             _ = try await supabase
                 .rpc("link_post_to_hashtags", params: params)
                 .execute()
-            print("✅ Linked post \(postId) to \(hashtags.count) hashtags: \(hashtags.joined(separator: ", "))")
+            Logger.feed.success("Linked post \(postId) to \(hashtags.count) hashtags: \(hashtags.joined(separator: ", "))")
         } catch {
-            print("⚠️ Failed to link hashtags: \(error.localizedDescription)")
+            Logger.feed.warning("Failed to link hashtags: \(error.localizedDescription)")
             // Don't throw - hashtag linking is non-critical
         }
     }
@@ -381,7 +381,7 @@ final class SupabaseFeedService: FeedService {
                     regularDict[key] = dictValue
                 } else {
                     // Skip values that can't be serialized (e.g., __SwiftValue)
-                    print("⚠️ Warning: Skipping non-serializable value for key '\(key)' in poll_options")
+                    Logger.feed.debug("Skipping non-serializable value for key '\(key)' in poll_options")
                 }
             }
             
@@ -399,7 +399,7 @@ final class SupabaseFeedService: FeedService {
         }
         
         guard !optionsArray.isEmpty else {
-            print("⚠️ Poll options array is empty for post \(postId)")
+            Logger.feed.debug("Poll options array is empty for post \(postId)")
             return nil
         }
         
@@ -410,7 +410,7 @@ final class SupabaseFeedService: FeedService {
         }
         
         guard !options.isEmpty else {
-            print("⚠️ No valid poll options decoded for post \(postId)")
+            Logger.feed.warning("No valid poll options decoded for post \(postId)")
             return nil
         }
         
@@ -420,7 +420,7 @@ final class SupabaseFeedService: FeedService {
             options: options,
             type: typeString
         )
-        print("📊 Decoded poll: \(question) with \(options.count) options")
+        Logger.feed.debug("Decoded poll: \(question) with \(options.count) options")
         return decodedPoll
     }
     
@@ -501,7 +501,7 @@ final class SupabaseFeedService: FeedService {
                     } catch {
                         // If serialization fails (e.g., __SwiftValue), encode as null
                         // This prevents the app from crashing when encountering non-serializable types
-                        print("⚠️ Warning: Could not encode AnyCodable value of type \(type(of: value)): \(error). Encoding as null.")
+                        Logger.feed.debug("Could not encode AnyCodable value of type \(type(of: value)): \(error.localizedDescription). Encoding as null.")
                         try container.encodeNil()
                     }
                 }
@@ -557,6 +557,16 @@ final class SupabaseFeedService: FeedService {
             cursorString = nil
         }
         
+        // Create coalescing key for request deduplication
+        let coalesceKey = "feed:\(feedTypeString):\(userRegion ?? "nil"):\(cursorString ?? "nil"):\(limit)"
+        
+        // Use RequestCoalescer to prevent duplicate concurrent requests
+        return try await RequestCoalescer.shared.execute(key: coalesceKey) {
+            // Measure performance and log analytics
+            return try await measureAsync("feed_fetch") {
+                // Log analytics event
+                Analytics.logFeedLoaded(feedType: feedTypeString, postCount: 0, loadTime: 0) // Will be updated after fetch
+                
         // Use paginated RPC function
         let params = GetFeedPostsPaginatedParams(
             p_feed_type: feedTypeString,
@@ -565,135 +575,136 @@ final class SupabaseFeedService: FeedService {
             p_cursor: cursorString
         )
         
-        print("🔍 Calling get_feed_posts_paginated with params: feed_type=\(feedTypeString), region=\(userRegion ?? "nil"), limit=\(limit), cursor=\(cursorString ?? "nil")")
+        Logger.feed.debug("Calling get_feed_posts_paginated with params: feed_type=\(feedTypeString), region=\(userRegion ?? "nil"), limit=\(limit), cursor=\(cursorString ?? "nil")")
         
-        let responseData: Data
-        do {
-            let response = try await supabase
+                // Wrap RPC call with retry policy
+                let responseData: Data
+                do {
+                    responseData = try await RetryPolicy.executeWithRetry(isRead: true) {
+                let response = try await self.supabase
                 .rpc("get_feed_posts_paginated", params: params)
                 .select("*")
                 .execute()
-            responseData = response.data
-            print("✅ RPC call succeeded, response data size: \(responseData.count) bytes")
+                Logger.feed.success("RPC call succeeded, response data size: \(response.data.count) bytes")
+                return response.data
+            }
             
             // Log first 500 chars of response for debugging
             if let responseString = String(data: responseData, encoding: .utf8) {
-                print("🔍 Response preview: \(responseString.prefix(500))")
+                Logger.feed.debug("Response preview: \(responseString.prefix(500))")
             }
-        } catch let error as DecodingError {
-            // If Supabase is trying to auto-decode and failing, we need to work around it
-            print("❌ Decoding error at RPC call level: \(error)")
-            switch error {
+                } catch {
+                    Logger.feed.failure("RPC call failed", error: error)
+                    if let supabaseError = error as? PostgrestError {
+                        Logger.feed.error("Postgrest error: \(supabaseError.message ?? "unknown")")
+                        Logger.feed.error("Error code: \(supabaseError.code ?? "unknown")")
+                    }
+                    if let decodingError = error as? DecodingError {
+                        switch decodingError {
             case .typeMismatch(let type, let context):
-                print("❌ Type mismatch: expected \(type) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
-                print("❌ Debug: \(context.debugDescription)")
-                print("⚠️ This suggests Supabase is trying to auto-decode the response. The RPC function returns a TABLE (array), but Supabase might be expecting a different type.")
+                Logger.feed.error("Type mismatch: expected \(type) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
+                Logger.feed.debug("Debug: \(context.debugDescription)")
+                Logger.feed.warning("This suggests Supabase is trying to auto-decode the response. The RPC function returns a TABLE (array), but Supabase might be expecting a different type.")
             default:
-                print("❌ Other decoding error: \(error)")
+                            Logger.feed.error("Other decoding error: \(decodingError.localizedDescription)")
+                        }
             }
             // Try to get raw response data by making a direct HTTP call or using a workaround
             // For now, rethrow the error - we'll need to investigate the Supabase client behavior
             throw NSError(domain: "SupabaseFeedService", code: -1, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to call get_feed_posts RPC: \(error.localizedDescription). This may be a Supabase client issue with TABLE-returning RPC functions."
             ])
-        } catch {
-            print("❌ RPC call failed: \(error)")
-            if let supabaseError = error as? PostgrestError {
-                print("❌ Postgrest error: \(supabaseError.message ?? "unknown")")
-                print("❌ Error code: \(supabaseError.code ?? "unknown")")
-            }
-            throw error
         }
         
-        // Debug: Print full response to see what we're getting
+        // Debug: Log full response to see what we're getting
         if let responseString = String(data: responseData, encoding: .utf8) {
-            print("🔍 Full feed response length: \(responseString.count) characters")
+            Logger.feed.debug("Full feed response length: \(responseString.count) characters")
             
             // Check if response looks truncated (doesn't end with ])
             if !responseString.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("]") {
-                print("⚠️ WARNING: Response doesn't end with ']' - might be truncated!")
+                Logger.feed.warning("Response doesn't end with ']' - might be truncated!")
                 // Try to find where it breaks
                 if let lastBrace = responseString.lastIndex(of: "}") {
                     let afterLastBrace = String(responseString[responseString.index(after: lastBrace)...])
-                    print("⚠️ After last complete object: '\(afterLastBrace.prefix(200))'")
+                    Logger.feed.warning("After last complete object: '\(afterLastBrace.prefix(200))'")
                 }
             }
             
             // Check if JSON is valid
             do {
                 let jsonObject = try JSONSerialization.jsonObject(with: responseData)
-                print("✅ JSON is valid")
+                Logger.feed.success("JSON is valid")
                 if let array = jsonObject as? [Any] {
-                    print("✅ Response is an array with \(array.count) items")
+                    Logger.feed.success("Response is an array with \(array.count) items")
                     if let firstItem = array.first as? [String: Any] {
-                        print("🔍 First post has \(firstItem.keys.count) keys: \(firstItem.keys.sorted().joined(separator: ", "))")
+                        Logger.feed.debug("First post has \(firstItem.keys.count) keys: \(firstItem.keys.sorted().joined(separator: ", "))")
                         // Check for missing required fields
                         let requiredFields = ["id", "user_id", "text", "created_at", "like_count", "is_liked_by_current_user", "reply_count", "author_display_name", "author_handle", "author_avatar_initials"]
                         let missingFields = requiredFields.filter { firstItem[$0] == nil }
                         if !missingFields.isEmpty {
-                            print("⚠️ Missing required fields: \(missingFields.joined(separator: ", "))")
+                            Logger.feed.warning("Missing required fields: \(missingFields.joined(separator: ", "))")
                         }
                         // Check for new optional fields
                         let newFields = ["spotify_link_url", "spotify_link_type", "spotify_link_data", "poll_question", "poll_type", "poll_options", "background_music_spotify_id", "background_music_data"]
                         let presentNewFields = newFields.filter { firstItem[$0] != nil }
-                        print("🔍 New fields present: \(presentNewFields.joined(separator: ", "))")
+                        Logger.feed.debug("New fields present: \(presentNewFields.joined(separator: ", "))")
                         
                         // Check author_display_name value
                         if let displayName = firstItem["author_display_name"] as? String {
-                            print("🔍 author_display_name value: '\(displayName)' (length: \(displayName.count))")
+                            Logger.feed.debug("author_display_name value: '\(displayName)' (length: \(displayName.count))")
                         }
                     }
                 } else {
-                    print("⚠️ Response is not an array")
+                    Logger.feed.warning("Response is not an array")
                 }
             } catch {
-                print("⚠️ JSON is NOT valid - response might be truncated or malformed")
-                print("⚠️ JSON parsing error: \(error)")
+                Logger.feed.warning("JSON is NOT valid - response might be truncated or malformed")
+                Logger.feed.error("JSON parsing error", error: error)
                 if responseString.count > 2000 {
-                    print("🔍 First 1000 chars: \(responseString.prefix(1000))")
-                    print("🔍 Last 1000 chars: \(responseString.suffix(1000))")
+                    Logger.feed.debug("First 1000 chars: \(responseString.prefix(1000))")
+                    Logger.feed.debug("Last 1000 chars: \(responseString.suffix(1000))")
                 } else {
-                    print("🔍 Full response: \(responseString)")
+                    Logger.feed.debug("Full response: \(responseString)")
                 }
             }
         } else {
-            print("⚠️ Could not convert response data to string")
+            Logger.feed.warning("Could not convert response data to string")
         }
         
         let rows: [FeedPostRow]
         do {
             rows = try JSONDecoder().decode([FeedPostRow].self, from: responseData)
-            print("✅ Successfully decoded \(rows.count) feed posts")
+            Logger.feed.success("Successfully decoded \(rows.count) feed posts")
         } catch {
-            // Debug: print the actual response and error details
+            // Debug: log the actual response and error details
             if let responseString = String(data: responseData, encoding: .utf8) {
-                print("⚠️ Failed to decode FeedPostRow. Response length: \(responseString.count)")
+                Logger.feed.warning("Failed to decode FeedPostRow. Response length: \(responseString.count)")
                 // Try to find where JSON breaks
                 if let brokenIndex = responseString.range(of: "\"author_display_name\":\"", options: [])?.upperBound {
                     let afterDisplayName = String(responseString[brokenIndex...])
                     if let nextQuote = afterDisplayName.firstIndex(of: "\"") {
                         let displayNameValue = String(afterDisplayName[..<nextQuote])
-                        print("🔍 author_display_name value: '\(displayNameValue)'")
+                        Logger.feed.debug("author_display_name value: '\(displayNameValue)'")
                         let afterValue = String(afterDisplayName[afterDisplayName.index(after: nextQuote)...])
-                        print("🔍 After author_display_name: '\(afterValue.prefix(200))'")
+                        Logger.feed.debug("After author_display_name: '\(afterValue.prefix(200))'")
                     } else {
-                        print("⚠️ author_display_name value is not properly closed - JSON is truncated!")
+                        Logger.feed.warning("author_display_name value is not properly closed - JSON is truncated!")
                     }
                 }
             }
-            print("⚠️ Decoding error: \(error)")
+            Logger.feed.error("Decoding error", error: error)
             if let decodingError = error as? DecodingError {
                 switch decodingError {
                 case .keyNotFound(let key, let context):
-                    print("⚠️ Missing key: \(key.stringValue) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
+                    Logger.feed.warning("Missing key: \(key.stringValue) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
                 case .typeMismatch(let type, let context):
-                    print("⚠️ Type mismatch: expected \(type) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
+                    Logger.feed.warning("Type mismatch: expected \(type) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
                 case .valueNotFound(let type, let context):
-                    print("⚠️ Value not found: \(type) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
+                    Logger.feed.warning("Value not found: \(type) at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))")
                 case .dataCorrupted(let context):
-                    print("⚠️ Data corrupted at path: \(context.codingPath.map { $0.stringValue }.joined(separator: ".")), description: \(context.debugDescription)")
+                    Logger.feed.warning("Data corrupted at path: \(context.codingPath.map { $0.stringValue }.joined(separator: ".")), description: \(context.debugDescription)")
                 @unknown default:
-                    print("⚠️ Unknown decoding error")
+                    Logger.feed.warning("Unknown decoding error")
                 }
             }
             throw NSError(domain: "FeedService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to decode feed data: \(error.localizedDescription)"])
@@ -711,7 +722,7 @@ final class SupabaseFeedService: FeedService {
         if !parentPostIds.isEmpty {
             do {
                 let parentIdsArray = Array(parentPostIds)
-                let parentResponse = try await supabase
+                        let parentResponse = try await self.supabase
                     .from("posts")
                     .select("""
                         id,
@@ -742,7 +753,7 @@ final class SupabaseFeedService: FeedService {
                 var parentAuthorsMap: [String: UserSummary] = [:]
                 
                 if !parentUserIds.isEmpty {
-                    let parentUsersResponse = try await supabase
+                            let parentUsersResponse = try await self.supabase
                         .from("profiles")
                         .select("""
                             id,
@@ -824,7 +835,7 @@ final class SupabaseFeedService: FeedService {
                     )
                 }
             } catch {
-                print("⚠️ Error fetching parent posts: \(error)")
+                        Logger.feed.warning("Error fetching parent posts: \(error.localizedDescription)")
                 // Continue without parent post summaries
             }
         }
@@ -937,8 +948,8 @@ final class SupabaseFeedService: FeedService {
                 }
                 
                 // Extract artist ID from composite entry ID
-                let artistId = extractArtistId(from: entryId)
-                print("🎵 Extracted artist ID '\(artistId)' from composite ID '\(entryId)'")
+                        let artistId = self.extractArtistId(from: entryId)
+                Logger.feed.debug("Extracted artist ID '\(artistId)' from composite ID '\(entryId)'")
                 
                 return LeaderboardEntrySummary(
                     id: entryId,
@@ -972,13 +983,13 @@ final class SupabaseFeedService: FeedService {
             // Decode Spotify link
             let spotifyLink: SpotifyLink? = {
                 if row.spotify_link_url == nil {
-                    print("⚠️ spotify_link_url is nil for post \(row.id.uuidString)")
+                    Logger.feed.debug("spotify_link_url is nil for post \(row.id.uuidString)")
                 }
                 if row.spotify_link_type == nil {
-                    print("⚠️ spotify_link_type is nil for post \(row.id.uuidString)")
+                    Logger.feed.debug("spotify_link_type is nil for post \(row.id.uuidString)")
                 }
                 if row.spotify_link_data == nil {
-                    print("⚠️ spotify_link_data is nil for post \(row.id.uuidString)")
+                    Logger.feed.debug("spotify_link_data is nil for post \(row.id.uuidString)")
                 }
                 
                 guard let url = row.spotify_link_url,
@@ -1002,12 +1013,12 @@ final class SupabaseFeedService: FeedService {
                     owner: owner,
                     imageURL: imageURL
                 )
-                print("🎵 Decoded Spotify link: \(link.name) (\(link.type)) for post \(row.id.uuidString)")
+                Logger.feed.debug("Decoded Spotify link: \(link.name) (\(link.type)) for post \(row.id.uuidString)")
                 return link
             }()
             
             // Decode poll
-            let poll: Poll? = decodePoll(
+                    let poll: Poll? = self.decodePoll(
                 question: row.poll_question,
                 typeString: row.poll_type,
                 optionsData: row.poll_options,
@@ -1018,7 +1029,7 @@ final class SupabaseFeedService: FeedService {
             let backgroundMusic: BackgroundMusic? = {
                 // Debug: Log when we have background music fields
                 if row.background_music_spotify_id != nil || row.background_music_data != nil {
-                    print("🔍 Found background music fields for post \(row.id.uuidString): spotifyId=\(row.background_music_spotify_id ?? "nil"), data=\(row.background_music_data != nil ? "exists" : "nil")")
+                    Logger.feed.debug("Found background music fields for post \(row.id.uuidString): spotifyId=\(row.background_music_spotify_id ?? "nil"), data=\(row.background_music_data != nil ? "exists" : "nil")")
                 }
                 
                 guard let spotifyId = row.background_music_spotify_id,
@@ -1041,7 +1052,7 @@ final class SupabaseFeedService: FeedService {
                     imageURL: imageURL
                 )
                 
-                print("🎵 Decoded background music: \(name) by \(artist) (previewURL: \(previewURL != nil ? "exists" : "nil")) for post \(row.id.uuidString)")
+                Logger.feed.debug("Decoded background music: \(name) by \(artist) (previewURL: \(previewURL != nil ? "exists" : "nil")) for post \(row.id.uuidString)")
                 
                 return bgMusic
             }()
@@ -1094,6 +1105,8 @@ final class SupabaseFeedService: FeedService {
         let nextCursor: String? = hasMore ? posts.last?.createdAt.description : nil
         
         return (posts: posts, nextCursor: nextCursor, hasMore: hasMore)
+            }
+            }
     }
     
     // MARK: - Create Post
@@ -1107,7 +1120,8 @@ final class SupabaseFeedService: FeedService {
         spotifyLink: SpotifyLink?,
         poll: Poll?,
         backgroundMusic: BackgroundMusic?,
-        mentionedUserIds: [String] = []
+        mentionedUserIds: [String] = [],
+        resharedPostId: String? = nil
     ) async throws -> Post {
         let imageURLStrings = imageURLs.map { $0.absoluteString }
         
@@ -1147,6 +1161,14 @@ final class SupabaseFeedService: FeedService {
             ]
         }
         
+        // Convert resharedPostId string to UUID if provided, then back to String for the param
+        let resharedPostIdString: String? = {
+            if let resharedPostId = resharedPostId, UUID(uuidString: resharedPostId) != nil {
+                return resharedPostId
+            }
+            return nil
+        }()
+        
         let params = CreatePostParams(
             p_text: text,
             p_image_urls: imageURLStrings,
@@ -1158,7 +1180,7 @@ final class SupabaseFeedService: FeedService {
             p_leaderboard_rank: leaderboardEntry?.rank,
             p_leaderboard_percentile_label: leaderboardEntry?.percentileLabel,
             p_leaderboard_minutes_listened: leaderboardEntry?.minutesListened,
-            p_reshared_post_id: nil,
+            p_reshared_post_id: resharedPostIdString,
             p_spotify_link_url: spotifyLink?.url,
             p_spotify_link_type: spotifyLink?.type,
             p_spotify_link_data: spotifyLinkData,
@@ -1170,20 +1192,20 @@ final class SupabaseFeedService: FeedService {
             p_background_music_data: backgroundMusicData
         )
         
-        print("📤 Calling create_post RPC with params:")
-        print("📤 p_text: \(params.p_text.isEmpty ? "empty" : params.p_text.prefix(50))")
-        print("📤 p_image_urls: \(params.p_image_urls.count) images")
-        print("📤 p_video_url: \(params.p_video_url ?? "nil")")
-        print("📤 p_audio_url: \(params.p_audio_url ?? "nil")")
-        print("📤 p_spotify_link_url: \(params.p_spotify_link_url ?? "nil")")
-        print("📤 p_spotify_link_type: \(params.p_spotify_link_type ?? "nil")")
-        print("📤 p_spotify_link_data: \(params.p_spotify_link_data != nil ? "exists" : "nil")")
-        print("🎵 p_background_music_spotify_id: \(params.p_background_music_spotify_id ?? "nil")")
-        print("🎵 p_background_music_data: \(params.p_background_music_data != nil ? "exists" : "nil")")
+        Logger.feed.debug("Calling create_post RPC with params:")
+        Logger.feed.debug("p_text: \(params.p_text.isEmpty ? "empty" : params.p_text.prefix(50))")
+        Logger.feed.debug("p_image_urls: \(params.p_image_urls.count) images")
+        Logger.feed.debug("p_video_url: \(params.p_video_url ?? "nil")")
+        Logger.feed.debug("p_audio_url: \(params.p_audio_url ?? "nil")")
+        Logger.feed.debug("p_spotify_link_url: \(params.p_spotify_link_url ?? "nil")")
+        Logger.feed.debug("p_spotify_link_type: \(params.p_spotify_link_type ?? "nil")")
+        Logger.feed.debug("p_spotify_link_data: \(params.p_spotify_link_data != nil ? "exists" : "nil")")
+        Logger.feed.debug("p_background_music_spotify_id: \(params.p_background_music_spotify_id ?? "nil")")
+        Logger.feed.debug("p_background_music_data: \(params.p_background_music_data != nil ? "exists" : "nil")")
         if let bgMusic = backgroundMusic {
-            print("🎵 Background music object: name=\(bgMusic.name), artist=\(bgMusic.artist), spotifyId=\(bgMusic.spotifyId), previewURL=\(bgMusic.previewURL?.absoluteString ?? "nil")")
+            Logger.feed.debug("Background music object: name=\(bgMusic.name), artist=\(bgMusic.artist), spotifyId=\(bgMusic.spotifyId), previewURL=\(bgMusic.previewURL?.absoluteString ?? "nil")")
         } else {
-            print("🎵 Background music object is nil")
+            Logger.feed.debug("Background music object is nil")
         }
         
         // Call RPC to create post
@@ -1191,7 +1213,7 @@ final class SupabaseFeedService: FeedService {
             .rpc("create_post", params: params)
             .execute()
         
-        print("📥 RPC create_post response received")
+        Logger.feed.debug("RPC create_post response received")
         
         // Parse UUID from response - Supabase RPC returns UUID in various formats
         let postId: String
@@ -1216,16 +1238,16 @@ final class SupabaseFeedService: FeedService {
                 }
                 // Validate it's a UUID
                 guard let uuid = UUID(uuidString: cleaned) else {
-                    print("⚠️ Failed to parse UUID. Raw response: \(rawString)")
+                    Logger.feed.warning("Failed to parse UUID. Raw response: \(rawString)")
                     throw NSError(domain: "FeedService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Invalid UUID format in response"])
                 }
                 postId = uuid.uuidString
             } else {
-                print("⚠️ Failed to convert response data to string")
+                Logger.feed.warning("Failed to convert response data to string")
                 throw NSError(domain: "FeedService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
             }
         } catch let error as NSError {
-            print("⚠️ Error parsing post ID: \(error.localizedDescription)")
+            Logger.feed.warning("Error parsing post ID: \(error.localizedDescription)")
             throw error
         }
         
@@ -1235,12 +1257,12 @@ final class SupabaseFeedService: FeedService {
         // Parse and link hashtags (non-blocking)
         let hashtags = parseHashtags(from: text)
         if !hashtags.isEmpty {
-            print("🏷️ Found \(hashtags.count) hashtags: \(hashtags.joined(separator: ", "))")
+            Logger.feed.debug("Found \(hashtags.count) hashtags: \(hashtags.joined(separator: ", "))")
             try await linkPostToHashtags(postId: postId, hashtags: hashtags)
         }
         
         // Fetch the created post directly from database
-        print("🔍 Fetching created post with ID: \(postId)")
+        Logger.feed.debug("Fetching created post with ID: \(postId)")
         let postsResponse = try await supabase
             .from("posts")
             .select("id, user_id, text, image_urls, video_url, audio_url, parent_post_id, leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank, leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id, created_at, updated_at, deleted_at, spotify_link_url, spotify_link_type, spotify_link_data, poll_question, poll_type, poll_options, background_music_spotify_id, background_music_data")
@@ -1249,7 +1271,7 @@ final class SupabaseFeedService: FeedService {
             .execute()
         
         if let responseString = String(data: postsResponse.data, encoding: .utf8) {
-            print("🔍 Post data from database: \(responseString.prefix(500))")
+            Logger.feed.debug("Post data from database: \(responseString.prefix(500))")
         }
         
         // Decode the post row - handle all possible fields
@@ -1350,7 +1372,8 @@ final class SupabaseFeedService: FeedService {
         
         // Get author info
         let currentUser = await social.currentUser()
-        let allUsers = await social.allUsers()
+        let allUsersResult = await social.allUsers(cursor: nil, limit: 100)
+        let allUsers = allUsersResult.users
         let author = allUsers.first(where: { $0.id == postRow.user_id.uuidString }) ?? UserSummary(
             id: postRow.user_id.uuidString,
             displayName: currentUser.displayName,
@@ -1372,10 +1395,10 @@ final class SupabaseFeedService: FeedService {
         
         // Decode Spotify link
         let spotifyLink: SpotifyLink? = {
-            print("🔍 Decoding Spotify link for post \(postRow.id.uuidString) in createPost")
-            print("🔍 spotify_link_url: \(postRow.spotify_link_url ?? "nil")")
-            print("🔍 spotify_link_type: \(postRow.spotify_link_type ?? "nil")")
-            print("🔍 spotify_link_data: \(postRow.spotify_link_data != nil ? "exists" : "nil")")
+            Logger.feed.debug("Decoding Spotify link for post \(postRow.id.uuidString) in createPost")
+            Logger.feed.debug("spotify_link_url: \(postRow.spotify_link_url ?? "nil")")
+            Logger.feed.debug("spotify_link_type: \(postRow.spotify_link_type ?? "nil")")
+            Logger.feed.debug("spotify_link_data: \(postRow.spotify_link_data != nil ? "exists" : "nil")")
             
             guard let url = postRow.spotify_link_url,
                   let type = postRow.spotify_link_type,
@@ -1586,7 +1609,7 @@ final class SupabaseFeedService: FeedService {
         // Fetch the created reply directly from database
         let postsResponse = try await supabase
             .from("posts")
-            .select("*")
+            .select("id, user_id, text, created_at, image_urls, video_url, audio_url, parent_post_id, leaderboard_entry_id, leaderboard_artist_name, leaderboard_rank, leaderboard_percentile_label, leaderboard_minutes_listened, reshared_post_id, spotify_link_url, spotify_link_type, spotify_link_data, poll_question, poll_type, poll_options, background_music_spotify_id, background_music_data")
             .eq("id", value: postId)
             .single()
             .execute()
@@ -1688,7 +1711,8 @@ final class SupabaseFeedService: FeedService {
         
         // Get author info
         let currentUser = await social.currentUser()
-        let allUsers = await social.allUsers()
+        let allUsersResult = await social.allUsers(cursor: nil, limit: 100)
+        let allUsers = allUsersResult.users
         let author = allUsers.first(where: { $0.id == postRow.user_id.uuidString }) ?? UserSummary(
             id: postRow.user_id.uuidString,
             displayName: currentUser.displayName,
@@ -2093,42 +2117,134 @@ final class SupabaseFeedService: FeedService {
         
         // Step 3: Fetch ALL replies for the root post
         // Use fetchRepliesByUser or a dedicated thread fetch
-        let allReplies = try await fetchReplies(for: rootPost.id)
+        let repliesResult = try await fetchReplies(for: rootPost.id)
         
-        print("✅ Fetched thread: root=\(rootPost.id), total replies=\(allReplies.count)")
+        print("✅ Fetched thread: root=\(rootPost.id), total replies=\(repliesResult.replies.count)")
         
-        return (rootPost, allReplies)
+        return (rootPost, repliesResult.replies)
     }
     
     // MARK: - Fetch Replies
     
-    func fetchReplies(for postId: String) async throws -> [Post] {
-        // Fetch all posts to find the entire reply tree
-        let feedResult = try await fetchHomeFeed(feedType: .forYou, region: nil, cursor: nil, limit: 200)
-        let allPosts = feedResult.posts
+    func fetchReplies(for postId: String, cursor: Date? = nil, limit: Int = 100) async throws -> (replies: [Post], nextCursor: String?, hasMore: Bool) {
+        guard let postIdUUID = UUID(uuidString: postId) else {
+            throw NSError(domain: "FeedService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid post ID"])
+        }
         
-        // Build a set of all post IDs that are part of this thread (including nested replies)
-        var threadPostIds = Set<String>()
-        var postsToCheck = [postId]
+        // Enforce max limit of 100
+        let effectiveLimit = min(limit, 100)
         
-        // Recursively find all nested replies
-        while !postsToCheck.isEmpty {
-            let currentId = postsToCheck.removeFirst()
-            
-            // Find all posts that are direct replies to currentId
-            let directReplies = allPosts.filter { $0.parentPostId == currentId }
-            for reply in directReplies {
-                if !threadPostIds.contains(reply.id) {
-                    threadPostIds.insert(reply.id)
-                    postsToCheck.append(reply.id) // Check for nested replies
-                }
+        // Convert cursor to ISO8601 string
+        let cursorString: String?
+        if let cursor = cursor {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            cursorString = formatter.string(from: cursor)
+        } else {
+            cursorString = nil
+        }
+        
+        // Query replies directly from database with pagination
+        let response = try await supabase
+            .from("posts")
+            .select("""
+                id,
+                user_id,
+                text,
+                created_at,
+                image_urls,
+                video_url,
+                audio_url,
+                parent_post_id
+            """)
+            .eq("parent_post_id", value: postIdUUID.uuidString)
+            .is("deleted_at", value: nil)
+            .order("created_at", ascending: true)
+            .limit(effectiveLimit)
+            .execute()
+        
+        // Parse dates
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        struct ReplyRow: Decodable {
+            let id: UUID
+            let user_id: UUID
+            let text: String
+            let created_at: String
+            let image_urls: [String]?
+            let video_url: String?
+            let audio_url: String?
+            let parent_post_id: UUID?
+        }
+        
+        let rows: [ReplyRow] = try JSONDecoder().decode([ReplyRow].self, from: response.data)
+        
+        // Fetch author profiles in batch
+        let userIds = Set(rows.map { $0.user_id.uuidString })
+        var authorsMap: [String: UserSummary] = [:]
+        
+        for userId in userIds {
+            if let profile = try? await UserProfileService.shared.getUserProfile(userId: UUID(uuidString: userId)!) {
+                let displayName = profile.displayName ?? "User"
+                let handle = profile.username.map { "@\($0)" } ?? "@user"
+                let initials = profile.firstName.map { String($0.prefix(1)) } ?? "U"
+                authorsMap[userId] = UserSummary(
+                    id: userId,
+                    displayName: displayName,
+                    handle: handle,
+                    avatarInitials: initials,
+                    profilePictureURL: profile.profilePictureURL.flatMap { URL(string: $0) },
+                    isFollowing: false
+                )
             }
         }
         
-        // Return all posts that are part of the thread
-        let replies = allPosts.filter { threadPostIds.contains($0.id) }
-        print("✅ Found \(replies.count) total replies (including nested) for post \(postId)")
-        return replies
+        // Convert rows to Posts
+        let replies = rows.map { row -> Post in
+            let createdAt = formatter.date(from: row.created_at) ?? Date()
+            let imageURLs = (row.image_urls ?? []).compactMap { URL(string: $0) }
+            let videoURL = row.video_url.flatMap { URL(string: $0) }
+            let audioURL = row.audio_url.flatMap { URL(string: $0) }
+            
+            let author = authorsMap[row.user_id.uuidString] ?? UserSummary(
+                id: row.user_id.uuidString,
+                displayName: "User",
+                handle: "@user",
+                avatarInitials: "U",
+                profilePictureURL: nil,
+                isFollowing: false
+            )
+            
+            return Post(
+                id: row.id.uuidString,
+                text: row.text,
+                createdAt: createdAt,
+                author: author,
+                imageURLs: imageURLs,
+                videoURL: videoURL,
+                audioURL: audioURL,
+                likeCount: 0,
+                replyCount: 0,
+                isLiked: false,
+                echoCount: 0,
+                isEchoed: false,
+                parentPostId: postId,
+                parentPost: nil,
+                leaderboardEntry: nil,
+                resharedPostId: nil,
+                spotifyLink: nil,
+                poll: nil,
+                backgroundMusic: nil
+            )
+        }
+        
+        // Determine if there are more pages
+        let hasMore = replies.count == effectiveLimit
+        let nextCursor: String? = hasMore ? replies.last?.createdAt.description : nil
+        
+        print("✅ Found \(replies.count) replies for post \(postId) (hasMore: \(hasMore))")
+        return (replies: replies, nextCursor: nextCursor, hasMore: hasMore)
     }
     
     // MARK: - Create Leaderboard Comment

@@ -22,8 +22,10 @@ enum RecallStatus: String, Codable {
 
 enum RecallOrbState: Equatable {
     case idle
+    case armed      // Long-press detected, checking gate conditions
     case listening(level: CGFloat)
     case thinking
+    case responding // Assistant is speaking
     case done(confidence: CGFloat)
     case error
 }
@@ -142,12 +144,16 @@ struct RecallCrowdPost: Identifiable, Codable {
 
 // MARK: - Recall Thread
 
-struct RecallThread: Identifiable, Codable {
+struct RecallThread: Identifiable, Codable, Equatable {
     let id: UUID
     let userId: UUID
     let createdAt: Date
     let lastMessageAt: Date
     let title: String?
+    let pinned: Bool?
+    let archived: Bool?
+    let deletedAt: Date?
+    let summary: String?
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -155,12 +161,35 @@ struct RecallThread: Identifiable, Codable {
         case createdAt = "created_at"
         case lastMessageAt = "last_message_at"
         case title
+        case pinned
+        case archived
+        case deletedAt = "deleted_at"
+        case summary
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        userId = try container.decode(UUID.self, forKey: .userId)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        lastMessageAt = try container.decode(Date.self, forKey: .lastMessageAt)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned)
+        archived = try container.decodeIfPresent(Bool.self, forKey: .archived)
+        deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
     }
 }
 
 // MARK: - Recall Message
 
-struct RecallMessage: Identifiable, Codable {
+enum RecallMessageStatus: String, Codable {
+    case sending
+    case sent
+    case failed
+}
+
+struct RecallMessage: Identifiable, Codable, Equatable {
     let id: UUID
     let threadId: UUID
     let userId: UUID
@@ -168,6 +197,8 @@ struct RecallMessage: Identifiable, Codable {
     let role: RecallMessageRole
     let messageType: RecallMessageType
     let text: String?
+    let rawTranscript: String? // Original transcription from SFSpeechRecognizer before user edits
+    let editedTranscript: String? // User-edited transcript
     let mediaPath: String?
     let candidateJson: [String: AnyCodable]
     let sourcesJson: [RecallSource]
@@ -175,6 +206,8 @@ struct RecallMessage: Identifiable, Codable {
     let songUrl: String?
     let songTitle: String?
     let songArtist: String?
+    let status: RecallMessageStatus?
+    let responseText: String? // For assistant responses (separate from text field)
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -184,6 +217,8 @@ struct RecallMessage: Identifiable, Codable {
         case role
         case messageType = "message_type"
         case text
+        case rawTranscript = "raw_transcript"
+        case editedTranscript = "edited_transcript"
         case mediaPath = "media_path"
         case candidateJson = "candidate_json"
         case sourcesJson = "sources_json"
@@ -191,6 +226,8 @@ struct RecallMessage: Identifiable, Codable {
         case songUrl = "song_url"
         case songTitle = "song_title"
         case songArtist = "song_artist"
+        case status
+        case responseText = "response_text"
     }
     
     init(from decoder: Decoder) throws {
@@ -203,11 +240,15 @@ struct RecallMessage: Identifiable, Codable {
         role = try container.decode(RecallMessageRole.self, forKey: .role)
         messageType = try container.decode(RecallMessageType.self, forKey: .messageType)
         text = try container.decodeIfPresent(String.self, forKey: .text)
+        rawTranscript = try container.decodeIfPresent(String.self, forKey: .rawTranscript)
+        editedTranscript = try container.decodeIfPresent(String.self, forKey: .editedTranscript)
         mediaPath = try container.decodeIfPresent(String.self, forKey: .mediaPath)
         confidence = try container.decodeIfPresent(Double.self, forKey: .confidence)
         songUrl = try container.decodeIfPresent(String.self, forKey: .songUrl)
         songTitle = try container.decodeIfPresent(String.self, forKey: .songTitle)
         songArtist = try container.decodeIfPresent(String.self, forKey: .songArtist)
+        status = try container.decodeIfPresent(RecallMessageStatus.self, forKey: .status)
+        responseText = try container.decodeIfPresent(String.self, forKey: .responseText)
         
         // Decode candidate_json (JSONB)
         if let candidateData = try? container.decode([String: AnyCodable].self, forKey: .candidateJson) {
@@ -234,11 +275,15 @@ struct RecallMessage: Identifiable, Codable {
         try container.encode(role, forKey: .role)
         try container.encode(messageType, forKey: .messageType)
         try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(rawTranscript, forKey: .rawTranscript)
+        try container.encodeIfPresent(editedTranscript, forKey: .editedTranscript)
         try container.encodeIfPresent(mediaPath, forKey: .mediaPath)
         try container.encodeIfPresent(confidence, forKey: .confidence)
         try container.encodeIfPresent(songUrl, forKey: .songUrl)
         try container.encodeIfPresent(songTitle, forKey: .songTitle)
         try container.encodeIfPresent(songArtist, forKey: .songArtist)
+        try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(responseText, forKey: .responseText)
         try container.encode(candidateJson, forKey: .candidateJson)
         try container.encode(sourcesJson, forKey: .sourcesJson)
     }
@@ -284,16 +329,22 @@ struct RecallCandidateData: Codable {
 
 // MARK: - Recall Source
 
-struct RecallSource: Identifiable, Codable {
+struct RecallSource: Identifiable, Codable, Equatable {
     let id = UUID()
     let title: String
     let url: String
     let snippet: String?
+    let publisher: String?
     
     enum CodingKeys: String, CodingKey {
         case title
         case url
         case snippet
+        case publisher
+    }
+    
+    static func == (lhs: RecallSource, rhs: RecallSource) -> Bool {
+        return lhs.title == rhs.title && lhs.url == rhs.url && lhs.snippet == rhs.snippet
     }
 }
 
@@ -327,6 +378,7 @@ struct RecallResolveResponse: Codable {
     let status: String
     let responseType: String?
     let transcription: String? // Voice transcription from Whisper
+    let titleSuggestion: String? // Suggested thread title from GPT
     let assistantMessage: AssistantMessage?
     let error: String?
     let candidates: [CandidateInfo]?
@@ -338,6 +390,7 @@ struct RecallResolveResponse: Codable {
         case status
         case responseType = "response_type"
         case transcription
+        case titleSuggestion = "title_suggestion"
         case assistantMessage = "assistant_message"
         case error
         case candidates
@@ -363,9 +416,34 @@ struct AnswerInfo: Codable {
 
 // MARK: - Related Song
 
-struct RelatedSong: Codable {
+struct RelatedSong: Identifiable, Codable {
+    let id: UUID
     let title: String
     let artist: String
+    
+    init(title: String, artist: String, id: UUID = UUID()) {
+        self.id = id
+        self.title = title
+        self.artist = artist
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case title
+        case artist
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decode(String.self, forKey: .title)
+        artist = try container.decode(String.self, forKey: .artist)
+        id = UUID()
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(title, forKey: .title)
+        try container.encode(artist, forKey: .artist)
+    }
 }
 
 // MARK: - Assistant Message
@@ -418,7 +496,7 @@ struct CandidateInfo: Codable {
 
 // MARK: - AnyCodable Helper (for JSONB decoding)
 
-struct AnyCodable: Codable {
+struct AnyCodable: Codable, Equatable {
     let value: Any
     
     init(_ value: Any) {
@@ -463,6 +541,18 @@ struct AnyCodable: Codable {
             try container.encode(dict.mapValues { AnyCodable($0) })
         default:
             throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: container.codingPath, debugDescription: "AnyCodable value cannot be encoded"))
+        }
+    }
+    
+    static func == (lhs: AnyCodable, rhs: AnyCodable) -> Bool {
+        // Compare by encoding to JSON and comparing the data
+        do {
+            let lhsData = try JSONEncoder().encode(lhs)
+            let rhsData = try JSONEncoder().encode(rhs)
+            return lhsData == rhsData
+        } catch {
+            // If encoding fails, fall back to type and value comparison
+            return String(describing: lhs.value) == String(describing: rhs.value)
         }
     }
 }
