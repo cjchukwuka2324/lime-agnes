@@ -66,6 +66,8 @@ struct RecallMessageBubble: View {
                                 candidate: candidate,
                                 sources: message.sourcesJson,
                                 songUrl: message.songUrl,
+                                artworkUrl: message.candidateJson["artwork_url"]?.value as? String,
+                                sourceLabel: message.candidateJson["source"]?.value as? String,
                                 onOpenSong: {
                                     if let urlString = message.songUrl,
                                        let url = URL(string: urlString) {
@@ -98,8 +100,11 @@ struct RecallMessageBubble: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             
-            // Transcript display below each assistant response
-            if message.role == .assistant {
+            // Transcript display below assistant response only when not redundant.
+            // Omit for .answer and .text (assistant): main body is already the spoken response.
+            if message.role == .assistant,
+               message.messageType != .answer,
+               message.messageType != .text {
                 transcriptView
                     .padding(.horizontal, 16)
             }
@@ -113,9 +118,11 @@ struct RecallMessageBubble: View {
                     VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             Image(systemName: "waveform")
-                                .font(.subheadline)
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
                             Text("Voice note")
                                 .font(.subheadline)
+                                .foregroundColor(.white)
                         }
                         
                         // Show transcription if available
@@ -278,15 +285,16 @@ struct RecallMessageBubble: View {
                     HStack(spacing: 6) {
                         Image(systemName: "waveform")
                             .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.5))
+                            .foregroundColor(Color(hex: "#1ED760").opacity(0.9))
                         Text("Spoken:")
                             .font(.caption2)
-                            .foregroundColor(.white.opacity(0.6))
+                            .fontWeight(.medium)
+                            .foregroundColor(.white.opacity(0.7))
                             .textCase(.uppercase)
                     }
                     Text("\"\(transcript)\"")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
                         .italic()
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -502,12 +510,12 @@ struct RecallMessageBubble: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "waveform")
-                        .font(.system(size: 16))
+                        .font(.system(size: 14))
                         .foregroundColor(Color(hex: "#1ED760"))
                     Text("Spoken:")
                         .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.7))
                         .textCase(.uppercase)
                 }
                 
@@ -519,15 +527,12 @@ struct RecallMessageBubble: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(4)
             }
-            .padding(12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.black.opacity(0.5))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 1)
-                    )
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.white.opacity(0.15))
             )
             .accessibilityLabel("Transcript: \(transcript)")
         }
@@ -545,12 +550,12 @@ struct RecallMessageBubble: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "waveform")
-                        .font(.system(size: 16))
+                        .font(.system(size: 14))
                         .foregroundColor(Color(hex: "#1ED760"))
                     Text(voiceResponseService.isSpeaking ? "Speaking:" : "Preview:")
                         .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.7))
                         .textCase(.uppercase)
                 }
                 
@@ -610,14 +615,14 @@ struct RecallMessageBubble: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .font(.system(size: 14))
                                 Text("Confirm")
-                                    .font(.caption)
+                                    .font(.subheadline)
                                     .fontWeight(.medium)
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                             .background(
-                                RoundedRectangle(cornerRadius: 8)
+                                RoundedRectangle(cornerRadius: 12)
                                     .fill(Color(hex: "#1ED760"))
                             )
                         }
@@ -630,15 +635,15 @@ struct RecallMessageBubble: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 14))
-                                Text("Decline")
-                                    .font(.caption)
+                                Text("Not Quite")
+                                    .font(.subheadline)
                                     .fontWeight(.medium)
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                             .background(
-                                RoundedRectangle(cornerRadius: 8)
+                                RoundedRectangle(cornerRadius: 12)
                                     .fill(Color.red.opacity(0.7))
                             )
                         }
@@ -650,15 +655,12 @@ struct RecallMessageBubble: View {
                     .padding(.top, 8)
                 }
             }
-            .padding(12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.black.opacity(0.5))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 1)
-                    )
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.white.opacity(0.15))
             )
             .accessibilityLabel("Pending transcript: \(pending.text)")
         }

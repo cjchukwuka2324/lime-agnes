@@ -21,10 +21,10 @@ struct RecallSettingsView: View {
                 .ignoresSafeArea()
                 
                 Form {
-                    Section(header: Text("Audio Settings")) {
-                        Toggle("Auto-speak responses", isOn: $autoSpeakResponses)
-                            .accessibilityLabel("Auto-speak responses")
-                            .accessibilityHint("When enabled, assistant responses will automatically play audio. When disabled, you must tap the play button to hear responses.")
+                    Section(header: Text("Voice"), footer: Text("When auto voice response is on, Recall speaks answers automatically and keeps listening for follow-up until you tap the orb to end the session.")) {
+                        Toggle("Auto voice response", isOn: $autoSpeakResponses)
+                            .accessibilityLabel("Auto voice response")
+                            .accessibilityHint("When on, Recall speaks responses automatically. When off, tap the play button on a message to hear it.")
                         
                         if reduceMotion {
                             Text("Reduced motion is enabled. Audio playback may be limited.")

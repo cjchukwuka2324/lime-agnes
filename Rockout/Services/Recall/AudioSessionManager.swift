@@ -82,6 +82,15 @@ final class AudioSessionManager: NSObject, ObservableObject {
         currentRoute = audioSession.currentRoute
         updateReadyState()
     }
+
+    /// Voice Mode: playAndRecord for tap-to-start, VAD, STT, and barge-in during TTS.
+    func configureForPlayAndRecord() throws {
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
+        try audioSession.setActive(true)
+        currentRoute = audioSession.currentRoute
+        updateReadyState()
+        Logger.recall.debug("Audio session configured for Voice Mode (playAndRecord)")
+    }
     
     func deactivate() throws {
         try audioSession.setActive(false, options: [.notifyOthersOnDeactivation])

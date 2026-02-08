@@ -58,15 +58,18 @@ class VoiceResponseService: NSObject, ObservableObject {
         NotificationCenter.default.removeObserver(self)
     }
     
-    func speak(_ text: String, completion: (() -> Void)? = nil) {
+    func speak(_ text: String, completion: (() -> Void)? = nil, usePlayAndRecord: Bool = false) {
         stopSpeaking()
         
-        // Configure audio session for playback
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            if usePlayAndRecord {
+                try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+            } else {
+                try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            }
             try audioSession.setActive(true, options: [.notifyOthersOnDeactivation])
-            print("✅ Audio session configured for TTS playback")
+            print("✅ Audio session configured for TTS playback (playAndRecord: \(usePlayAndRecord))")
         } catch {
             print("❌ Failed to configure audio session for TTS: \(error)")
         }

@@ -9,12 +9,13 @@ struct RecallLiveTranscriptView: View {
             HStack(spacing: 8) {
                 Image(systemName: "waveform")
                     .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(Color(hex: "#1ED760"))
                     .accessibilityHidden(true)
                 Text("Live Transcript:")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundColor(.white.opacity(0.7))
+                    .textCase(.uppercase)
             }
             
             HStack(alignment: .top, spacing: 4) {
@@ -23,6 +24,7 @@ struct RecallLiveTranscriptView: View {
                     .foregroundColor(.white)
                     .italic()
                     .lineLimit(3)
+                    .lineSpacing(4)
                     .accessibilityLabel(transcript.isEmpty ? "Listening" : transcript)
                 
                 if isRecording && !transcript.isEmpty {
@@ -43,7 +45,7 @@ struct RecallLiveTranscriptView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 20)
                 .fill(Color.white.opacity(0.1))
         )
         .accessibilityLabel("Live transcript")

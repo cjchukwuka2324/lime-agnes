@@ -46,6 +46,10 @@ final class RecallStateMachine: ObservableObject {
             handleLongPressBegan()
         case .longPressEnded:
             handleLongPressEnded()
+        case .userTappedStart:
+            handleUserTappedStart()
+        case .userTappedStop:
+            handleUserTappedStop()
         case .wakeWordDetected:
             handleWakeWordDetected()
         case .scrollStarted:
@@ -84,19 +88,16 @@ final class RecallStateMachine: ObservableObject {
     func canEnterListening() -> Bool {
         let conditions = [
             !isScrolling,
-            !scrollCooldownActive, // Must wait for cooldown after scrolling
+            !scrollCooldownActive,
             hasAudioPermission,
             isAudioSessionReady,
             currentState != .listening && currentState != .processing,
             longPressBeganOnOrb
         ]
-        
         let allMet = conditions.allSatisfy { $0 }
-        
         if !allMet {
             Logger.recall.debug("Gate conditions not met: scrolling=\(isScrolling), cooldown=\(scrollCooldownActive), permission=\(hasAudioPermission), ready=\(isAudioSessionReady), state=\(currentState), onOrb=\(longPressBeganOnOrb)")
         }
-        
         return allMet
     }
     
@@ -134,21 +135,43 @@ final class RecallStateMachine: ObservableObject {
     }
     
     private func handleLongPressEnded() {
-        // Reset long press flag when contact is lost
         longPressBeganOnOrb = false
-        
         switch currentState {
         case .armed:
-            // Long press ended before entering listening - return to idle
             transition(to: .idle)
         case .listening:
-            // Contact lost - stop recording and move to processing
+            transition(to: .processing)
+        case .processing, .responding, .error, .idle:
+            break
+        }
+    }
+
+    private func handleUserTappedStart() {
+        longPressBeganOnOrb = true
+        switch currentState {
+        case .idle:
+            if canEnterListening() {
+                transition(to: .armed)
+                transition(to: .listening)
+            }
+        case .responding, .error:
+            transition(to: .idle)
+            handleUserTappedStart()
+        default:
+            break
+        }
+    }
+
+    private func handleUserTappedStop() {
+        longPressBeganOnOrb = false
+        switch currentState {
+        case .armed:
+            transition(to: .idle)
+        case .listening:
             transition(to: .processing)
         case .processing, .responding, .error:
-            // Already processing or responding, ignore
-            break
+            transition(to: .idle)
         case .idle:
-            // Already idle, ignore
             break
         }
     }
@@ -255,6 +278,8 @@ enum RecallState: Equatable {
 enum RecallStateMachineEvent {
     case longPressBegan
     case longPressEnded
+    case userTappedStart   // Tap to start (Voice Mode - no long-press)
+    case userTappedStop    // Tap to stop / deactivate listening
     case wakeWordDetected
     case scrollStarted
     case scrollEnded

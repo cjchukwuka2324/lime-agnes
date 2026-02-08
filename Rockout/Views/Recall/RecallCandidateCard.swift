@@ -4,20 +4,84 @@ struct RecallCandidateCard: View {
     let candidate: RecallCandidateData
     let sources: [RecallSource]
     let songUrl: String?
+    let artworkUrl: String?
+    let sourceLabel: String?
     let onOpenSong: () -> Void
     let onConfirm: () -> Void
     let onNotIt: () -> Void
     let onReprompt: ((String) -> Void)?
     let onAskGreenRoom: (() -> Void)? // CTA for low confidence
-    
+
+    init(
+        candidate: RecallCandidateData,
+        sources: [RecallSource],
+        songUrl: String?,
+        artworkUrl: String? = nil,
+        sourceLabel: String? = nil,
+        onOpenSong: @escaping () -> Void,
+        onConfirm: @escaping () -> Void,
+        onNotIt: @escaping () -> Void,
+        onReprompt: ((String) -> Void)? = nil,
+        onAskGreenRoom: (() -> Void)? = nil
+    ) {
+        self.candidate = candidate
+        self.sources = sources
+        self.songUrl = songUrl
+        self.artworkUrl = artworkUrl
+        self.sourceLabel = sourceLabel
+        self.onOpenSong = onOpenSong
+        self.onConfirm = onConfirm
+        self.onNotIt = onNotIt
+        self.onReprompt = onReprompt
+        self.onAskGreenRoom = onAskGreenRoom
+    }
+
     @State private var showSources = false
     @State private var showDetail = false
-    
+
+    private var artworkView: some View {
+        Group {
+            if let urlString = artworkUrl, let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    case .failure:
+                        artworkPlaceholder
+                    case .empty:
+                        artworkPlaceholder
+                    @unknown default:
+                        artworkPlaceholder
+                    }
+                }
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                artworkPlaceholder
+            }
+        }
+        .frame(width: 64, height: 64)
+    }
+
+    private var artworkPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.2))
+            .overlay(
+                Image(systemName: "music.note")
+                    .font(.title)
+                    .foregroundColor(.white.opacity(0.6))
+            )
+            .frame(width: 64, height: 64)
+            .accessibilityLabel("Album artwork placeholder")
+    }
+
     var body: some View {
         Button {
             showDetail = true
         } label: {
-        VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .top, spacing: 16) {
+            artworkView
+            VStack(alignment: .leading, spacing: 12) {
             // Title and Artist
             VStack(alignment: .leading, spacing: 4) {
                 Text(candidate.title)
@@ -29,6 +93,11 @@ struct RecallCandidateCard: View {
                     .foregroundColor(.white.opacity(0.8))
             }
             
+            if let label = sourceLabel {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundColor(Color(hex: "#1ED760").opacity(0.9))
+            }
             // Confidence bar
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -180,16 +249,14 @@ struct RecallCandidateCard: View {
                 .accessibilityLabel("Ask the crowd in GreenRoom")
                 .accessibilityHint("Double tap to post this query to GreenRoom for community help")
             }
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                )
+                .fill(Color.white.opacity(0.15))
         )
         }
         .buttonStyle(.plain)
@@ -201,6 +268,8 @@ struct RecallCandidateCard: View {
                 candidate: candidate,
                 sources: sources,
                 songUrl: songUrl,
+                artworkUrl: artworkUrl,
+                sourceLabel: sourceLabel,
                 onConfirm: {
                     showDetail = false
                     onConfirm()
@@ -241,6 +310,8 @@ private struct CandidateDetailSheet: View {
     let candidate: RecallCandidateData
     let sources: [RecallSource]
     let songUrl: String?
+    let artworkUrl: String?
+    let sourceLabel: String?
     let onConfirm: () -> Void
     let onNotIt: () -> Void
     let onReprompt: ((String) -> Void)?
@@ -256,6 +327,32 @@ private struct CandidateDetailSheet: View {
                 
                 ScrollView {
                     VStack(spacing: 24) {
+                        // Artwork and source
+                        if artworkUrl != nil || sourceLabel != nil {
+                            HStack(spacing: 16) {
+                                if let urlString = artworkUrl, let url = URL(string: urlString) {
+                                    AsyncImage(url: url) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().aspectRatio(contentMode: .fill)
+                                        default:
+                                            Image(systemName: "music.note")
+                                                .font(.largeTitle)
+                                                .foregroundColor(.white.opacity(0.6))
+                                        }
+                                    }
+                                    .frame(width: 100, height: 100)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                }
+                                if let label = sourceLabel {
+                                    Text(label)
+                                        .font(.subheadline)
+                                        .foregroundColor(Color(hex: "#1ED760"))
+                                        .padding(.top, 8)
+                                }
+                            }
+                            .padding(.top, 20)
+                        }
                         // Title and Artist
                         VStack(spacing: 8) {
                             Text(candidate.title)

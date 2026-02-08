@@ -183,104 +183,29 @@ struct MainTabView: View {
     }
     
     private func setRecallIcon() {
-            // Find the tab bar controller
             guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = windowScene.windows.first else {
-                return
-            }
+                  let window = windowScene.windows.first else { return }
             
-            // Traverse view hierarchy to find UITabBarController
             func findTabBarController(in viewController: UIViewController?) -> UITabBarController? {
                 guard let vc = viewController else { return nil }
-                if let tabBar = vc as? UITabBarController {
-                    return tabBar
-                }
+                if let tabBar = vc as? UITabBarController { return tabBar }
                 for child in vc.children {
-                    if let tabBar = findTabBarController(in: child) {
-                        return tabBar
-                    }
+                    if let tabBar = findTabBarController(in: child) { return tabBar }
                 }
                 return nil
             }
             
-            guard let tabBarController = findTabBarController(in: window.rootViewController) else {
-                // Fallback: Use system icon if tab bar controller not found
-                return
+            guard let tabBarController = findTabBarController(in: window.rootViewController),
+                  tabBarController.tabBar.items?.count ?? 0 > 1,
+                  let recallTabItem = tabBarController.tabBar.items?[1] else { return }
+            
+            // Use Recall tab icon from asset (glowing orb image)
+            let size = CGSize(width: 28, height: 28)
+            guard let original = UIImage(named: "recall-tab-icon") else { return }
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let iconImage = renderer.image { _ in
+                original.draw(in: CGRect(origin: .zero, size: size))
             }
-            
-            // Get the Recall tab (index 1)
-            guard tabBarController.tabBar.items?.count ?? 0 > 1,
-                  let recallTabItem = tabBarController.tabBar.items?[1] else {
-                // Fallback: Use system icon if tab item not found
-                return
-            }
-            
-            // Create pulsing orb icon using UIKit layers
-            let containerView = UIView(frame: CGRect(x: 0, y: 0, width: 30, height: 30))
-            containerView.backgroundColor = .clear
-            
-            // Create pulsing orb layer
-            let orbLayer = CAShapeLayer()
-            orbLayer.frame = CGRect(x: 7, y: 7, width: 16, height: 16)
-            orbLayer.path = UIBezierPath(ovalIn: orbLayer.bounds).cgPath
-            let spotifyGreen = Color(hex: "#1ED760")
-            orbLayer.fillColor = UIColor(spotifyGreen).cgColor
-            
-            // Add glow
-            orbLayer.shadowColor = UIColor(spotifyGreen).cgColor
-            orbLayer.shadowRadius = 4
-            orbLayer.shadowOpacity = 0.6
-            orbLayer.shadowOffset = .zero
-            
-            containerView.layer.addSublayer(orbLayer)
-            
-            // Add pulsing animation
-            let pulseAnimation = CABasicAnimation(keyPath: "transform.scale")
-            pulseAnimation.fromValue = 1.0
-            pulseAnimation.toValue = 1.2
-            pulseAnimation.duration = 1.5
-            pulseAnimation.autoreverses = true
-            pulseAnimation.repeatCount = .infinity
-            pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            
-            orbLayer.add(pulseAnimation, forKey: "pulse")
-            
-            // Add sparkles
-            for i in 0..<3 {
-                let sparkle = CAShapeLayer()
-                sparkle.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
-                sparkle.path = UIBezierPath(ovalIn: sparkle.bounds).cgPath
-                sparkle.fillColor = UIColor.white.cgColor
-                sparkle.opacity = 0.6
-                
-                let angle = CGFloat(i) * 2 * .pi / 3
-                sparkle.position = CGPoint(
-                    x: 15 + cos(angle) * 10,
-                    y: 15 + sin(angle) * 10
-                )
-                
-                containerView.layer.addSublayer(sparkle)
-                
-                // Animate sparkles
-                let sparkleAnimation = CABasicAnimation(keyPath: "opacity")
-                sparkleAnimation.fromValue = 0.3
-                sparkleAnimation.toValue = 0.8
-                sparkleAnimation.duration = 1.5
-                sparkleAnimation.beginTime = CACurrentMediaTime() + Double(i) * 0.5
-                sparkleAnimation.autoreverses = true
-                sparkleAnimation.repeatCount = .infinity
-                sparkleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                
-                sparkle.add(sparkleAnimation, forKey: "sparkle")
-            }
-            
-            // Render to image (static snapshot for tab bar)
-            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 30))
-            let iconImage = renderer.image { context in
-                containerView.layer.render(in: context.cgContext)
-            }
-            
-            // Set the icon
             recallTabItem.image = iconImage.withRenderingMode(.alwaysOriginal)
             recallTabItem.selectedImage = iconImage.withRenderingMode(.alwaysOriginal)
     }

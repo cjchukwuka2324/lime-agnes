@@ -53,24 +53,62 @@ final class RecallViewModel: ObservableObject {
     private let voiceRecorder = VoiceRecorder()
     let stateMachine = RecallStateMachine() // State machine for gate conditions
     private let audioSessionManager = AudioSessionManager.shared
-    
+    /// Voice Mode: tap-to-start, VAD-based end-of-utterance (ChatGPT-style).
+    let voiceOrchestrator = RecallVoiceOrchestrator()
+    private let vadService = VADService()
+    private let audioIOManager = AudioIOManager.shared
+    private let sttService = STTService()
+    private let toolRouter = RecallToolRouter.shared
+
+    /// True when voice session is active (listening or processing); drives orb from orchestrator.
+    @Published var isVoiceModeActive: Bool = false
+
     private var cancellables = Set<AnyCancellable>()
     private var messageLoadTask: Task<Void, Never>?
-    
+    /// STT-based fallback: when no new partial for this duration, treat as "done speaking" and auto-send (even if VAD didn't fire).
+    private var utteranceSilenceTimer: Timer?
+    private let utteranceSilenceInterval: TimeInterval = 1.0
+    /// Throttle VAD to this interval so we don't flood MainActor (efficient ~30 Hz sampling).
+    private let vadSampleInterval: TimeInterval = 0.032
+    private var lastVadProcessTime: Date = .distantPast
+
+    /// UserDefaults key for Recall settings (must match RecallSettingsView @AppStorage).
+    private static let autoSpeakResponsesKey = "recall.autoSpeakResponses"
+
+    private var autoSpeakResponses: Bool {
+        UserDefaults.standard.object(forKey: Self.autoSpeakResponsesKey) as? Bool ?? true
+    }
+
     init() {
-        // Observe state machine state and update orbState
+        // Voice Mode: drive orb state from orchestrator when voice session is active
+        voiceOrchestrator.$currentState
+            .sink { [weak self] state in
+                guard let self = self else { return }
+                self.syncOrbStateFromVoiceOrchestrator(state)
+            }
+            .store(in: &cancellables)
+        audioIOManager.$audioLevel
+            .sink { [weak self] level in
+                guard let self = self else { return }
+                if self.isVoiceModeActive, case .listening = self.orbState {
+                    self.orbState = .listening(level: level)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Observe state machine state and update orbState (when not in voice mode)
         stateMachine.$currentState
             .sink { [weak self] state in
                 guard let self = self else { return }
+                guard !self.isVoiceModeActive else { return }
                 // Convert RecallState to RecallOrbState
                 switch state {
                 case .idle:
-                    if case .idle = self.orbState { return } // Avoid unnecessary updates
+                    if case .idle = self.orbState { return }
                     self.orbState = .idle
                 case .armed:
                     self.orbState = .armed
                 case .listening:
-                    // Keep current level if already listening
                     if case .listening(let level) = self.orbState {
                         self.orbState = .listening(level: level)
                     } else {
@@ -114,6 +152,17 @@ final class RecallViewModel: ObservableObject {
             }
             .store(in: &cancellables)
         
+        audioSessionManager.$isInterrupted
+            .removeDuplicates()
+            .sink { [weak self] interrupted in
+                guard let self = self else { return }
+                if !interrupted, self.voiceOrchestrator.currentState == .error {
+                    Logger.recall.info("Audio session recovered from interruption")
+                    self.voiceOrchestrator.handleEvent(.recovered)
+                }
+            }
+            .store(in: &cancellables)
+
         voiceRecorder.$meterLevel
             .sink { [weak self] level in
                 guard let self = self else { return }
@@ -123,7 +172,408 @@ final class RecallViewModel: ObservableObject {
             }
             .store(in: &cancellables)
     }
-    
+
+    // MARK: - Voice Mode (Orchestrator + VAD)
+
+    private func syncOrbStateFromVoiceOrchestrator(_ state: RecallVoiceState) {
+        switch state {
+        case .idle, .interrupted:
+            isVoiceModeActive = false
+            orbState = .idle
+        case .listening, .capturingUtterance:
+            isVoiceModeActive = true
+            orbState = .listening(level: CGFloat(audioIOManager.audioLevel))
+        case .classifyingAudio, .transcribing, .thinking:
+            isVoiceModeActive = true
+            orbState = .thinking
+        case .speaking:
+            isVoiceModeActive = true
+            orbState = .responding
+        case .error:
+            isVoiceModeActive = true
+            orbState = .error
+        }
+    }
+
+    private func startVoiceModeCapture() {
+        vadService.reset()
+        vadService.bargeInMode = false
+        vadService.onSpeechStart = { [weak self] in
+            Task { @MainActor in
+                self?.voiceOrchestrator.handleEvent(.vadSpeechStart)
+            }
+        }
+        vadService.onSpeechEnd = { [weak self] in
+            Task { @MainActor in
+                self?.handleVadSpeechEnd()
+            }
+        }
+        vadService.onBargeIn = { [weak self] in
+            Task { @MainActor in
+                VoiceResponseService.shared.stopSpeaking()
+                self?.voiceOrchestrator.handleEvent(.bargeInDetected)
+            }
+        }
+        lastVadProcessTime = .distantPast
+        audioIOManager.onAudioLevel = { [weak self] level in
+            Task { @MainActor in
+                self?.processLevelForVadIfNeeded(level)
+            }
+        }
+        Task {
+            do {
+                let hasPermission = await audioSessionManager.requestMicrophonePermission()
+                guard hasPermission else {
+                    let err = NSError(domain: "RecallViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Microphone access denied"])
+                    Logger.recall.error("Voice Mode: mic permission denied")
+                    voiceOrchestrator.handleEvent(.errorOccurred(err))
+                    errorMessage = "Microphone access is required. Enable it in Settings."
+                    return
+                }
+                try audioSessionManager.configureForPlayAndRecord()
+                try audioIOManager.startCapture()
+                let sttAuthorized = await STTService.requestAuthorization()
+                if sttAuthorized == .authorized {
+                    sttService.onPartialResult = { [weak self] text in
+                        Task { @MainActor in
+                            self?.voiceOrchestrator.handleEvent(.sttPartial(text))
+                            self?.liveTranscript = text
+                            self?.scheduleUtteranceSilenceTimer()
+                        }
+                    }
+                    sttService.onFinalResult = { [weak self] text in
+                        Task { @MainActor in
+                            self?.voiceOrchestrator.handleEvent(.sttFinal(text))
+                            self?.handleVoiceModeSttFinal(transcript: text)
+                        }
+                    }
+                    audioIOManager.onAudioBufferForSTT = { [weak self] buffer in
+                        self?.sttService.appendBuffer(buffer)
+                    }
+                    try sttService.startRecognition()
+                    Logger.recall.info("Voice Mode: capture started with STT")
+                } else {
+                    startVoiceModeCaptureFallback()
+                }
+            } catch {
+                Logger.recall.warning("Voice Mode STT failed, using fallback: \(error.localizedDescription)")
+                startVoiceModeCaptureFallback()
+            }
+        }
+    }
+
+    /// Fallback when STT unavailable: VoiceRecorder + upload + Whisper. Uses 2.5s silence auto-stop.
+    private func startVoiceModeCaptureFallback() {
+        audioIOManager.stopCapture()
+        audioIOManager.onAudioLevel = nil
+        audioIOManager.onAudioBufferForSTT = nil
+        var hasHandled = false
+        let cancellable = voiceRecorder.$isRecording
+            .dropFirst()
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                guard let self = self, !hasHandled else { return }
+                hasHandled = true
+                Task { @MainActor in
+                    self.voiceOrchestrator.handleEvent(.vadSpeechEnd)
+                    let audioType = self.classifyFallbackAudio()
+                    self.voiceOrchestrator.handleEvent(.audioClassified(audioType))
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    if audioType == .speech {
+                        await self.handleVoiceRecording()
+                    } else if audioType == .music || audioType == .hum {
+                        await self.handleVoiceRecordingAsMusicHum(audioType: audioType)
+                    } else {
+                        self.voiceOrchestrator.handleEvent(.errorOccurred(RecallToolRouterError.noiseIgnored))
+                    }
+                }
+            }
+        cancellables.insert(AnyCancellable { cancellable.cancel() })
+        Task {
+            do {
+                try await voiceRecorder.startRecording()
+                Logger.recall.info("Voice Mode: capture started (fallback: upload+Whisper)")
+            } catch {
+                Logger.recall.error("Voice Mode fallback start failed: \(error.localizedDescription)")
+                voiceOrchestrator.handleEvent(.errorOccurred(error))
+            }
+        }
+    }
+
+    private func classifyFallbackAudio() -> AudioClassificationType {
+        guard let url = voiceRecorder.recordingURL else { return .speech }
+        return AudioTypeClassifier.shared.classify(file: url) ?? .speech
+    }
+
+    private func handleVoiceRecordingAsMusicHum(audioType: AudioClassificationType) async {
+        guard let threadId = currentThreadId,
+              let recordingURL = voiceRecorder.recordingURL else {
+            voiceOrchestrator.handleEvent(.errorOccurred(NSError(domain: "RecallViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "No recording"])))
+            return
+        }
+        isProcessing = true
+        orbState = .thinking
+        do {
+            let audioData = try Data(contentsOf: recordingURL)
+            let fileName = "voice_\(Int(Date().timeIntervalSince1970)).m4a"
+            let mediaPath = try await service.uploadMedia(
+                data: audioData,
+                threadId: threadId,
+                fileName: fileName,
+                contentType: "audio/m4a"
+            )
+            let messageId = try await service.insertMessage(
+                threadId: threadId,
+                role: .user,
+                messageType: .voice,
+                mediaPath: mediaPath
+            )
+            await loadMessages()
+            _ = try await service.insertMessage(
+                threadId: threadId,
+                role: .assistant,
+                messageType: .status,
+                text: "Identifying song..."
+            )
+            await loadMessages()
+            let response = try await toolRouter.resolve(
+                threadId: threadId,
+                messageId: messageId,
+                audioType: audioType,
+                text: nil,
+                mediaPath: mediaPath
+            )
+            voiceOrchestrator.handleEvent(.llmResponseReady)
+            isProcessing = false
+            let textToSpeak = response.assistantMessage.map({ "I found \($0.songTitle) by \($0.songArtist). \($0.reason)" })
+                ?? response.candidates?.first.map({ "I found \($0.title) by \($0.artist). \($0.reason)" })
+            if let text = textToSpeak, autoSpeakResponses {
+                startBargeInCapture()
+                VoiceResponseService.shared.speak(text, completion: { [weak self] in
+                    Task { @MainActor in
+                        self?.stopBargeInCapture()
+                        self?.voiceOrchestrator.handleEvent(.ttsFinished)
+                        self?.isProcessing = false
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        self?.startVoiceModeCapture()
+                    }
+                }, usePlayAndRecord: true)
+                voiceOrchestrator.handleEvent(.ttsStarted)
+            } else {
+                voiceOrchestrator.handleEvent(.ttsFinished)
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    startVoiceModeCapture()
+                }
+            }
+            Task { await handleVoiceResponse(response, messageId: messageId, threadId: threadId) }
+            try? FileManager.default.removeItem(at: recordingURL)
+            voiceRecorder.recordingURL = nil
+        } catch {
+            voiceOrchestrator.handleEvent(.errorOccurred(error))
+            errorMessage = error.localizedDescription
+            isProcessing = false
+        }
+    }
+
+    private func stopVoiceModeCapture(clearSttCallbacks: Bool = true) {
+        utteranceSilenceTimer?.invalidate()
+        utteranceSilenceTimer = nil
+        audioIOManager.onAudioLevel = nil
+        audioIOManager.onAudioBufferForSTT = nil
+        audioIOManager.onAudioBuffer = nil
+        vadService.onSpeechStart = nil
+        vadService.onSpeechEnd = nil
+        vadService.onBargeIn = nil
+        vadService.reset()
+        if clearSttCallbacks {
+            sttService.onPartialResult = nil
+            sttService.onFinalResult = nil
+            sttService.stopRecognition()
+        }
+        audioIOManager.stopCapture()
+        if voiceRecorder.isRecording {
+            voiceRecorder.stopRecording()
+        }
+        Logger.recall.info("Voice Mode: capture stopped")
+    }
+
+    /// Throttle VAD to ~30 Hz so we don't flood MainActor; keeps speech detection responsive and efficient.
+    private func processLevelForVadIfNeeded(_ level: Float) {
+        let now = Date()
+        guard now.timeIntervalSince(lastVadProcessTime) >= vadSampleInterval else { return }
+        lastVadProcessTime = now
+        vadService.processLevel(level)
+    }
+
+    /// When we have partial STT and no new partial for a short time, treat as "done speaking" and send (fallback if VAD didn't fire).
+    private func scheduleUtteranceSilenceTimer() {
+        utteranceSilenceTimer?.invalidate()
+        utteranceSilenceTimer = nil
+        guard !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        utteranceSilenceTimer = Timer.scheduledTimer(withTimeInterval: utteranceSilenceInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.utteranceSilenceTimer = nil
+                guard let self = self else { return }
+                let state = self.voiceOrchestrator.currentState
+                guard state == .listening || state == .capturingUtterance else { return }
+                guard !self.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                Logger.recall.info("Voice Mode: STT utterance silence (\(self.utteranceSilenceInterval)s) — auto-sending")
+                self.handleVadSpeechEnd()
+            }
+        }
+        utteranceSilenceTimer?.tolerance = 0.1
+        if let t = utteranceSilenceTimer {
+            RunLoop.main.add(t, forMode: .common)
+        }
+    }
+
+    private func handleVadSpeechEnd() {
+        sttService.endAudio()
+        stopVoiceModeCapture(clearSttCallbacks: false)
+        voiceOrchestrator.handleEvent(.vadSpeechEnd)
+        voiceOrchestrator.handleEvent(.audioClassified(.speech))
+    }
+
+    private func handleVoiceModeSttFinal(transcript: String) {
+        stopVoiceModeCapture(clearSttCallbacks: true)
+        liveTranscript = ""
+        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            voiceOrchestrator.handleEvent(.errorOccurred(RecallToolRouterError.emptyTranscript))
+            return
+        }
+        Task {
+            await resolveVoiceModeWithTranscript(text)
+        }
+    }
+
+    private func resolveVoiceModeWithTranscript(_ transcript: String) async {
+        guard let threadId = currentThreadId else {
+            voiceOrchestrator.handleEvent(.errorOccurred(NSError(domain: "RecallViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "No thread"])))
+            return
+        }
+        isProcessing = true
+        do {
+            let messageId = try await service.insertMessage(
+                threadId: threadId,
+                role: .user,
+                messageType: .voice,
+                text: transcript
+            )
+            await loadMessages()
+            _ = try await service.insertMessage(
+                threadId: threadId,
+                role: .assistant,
+                messageType: .status,
+                text: "Searching..."
+            )
+            await loadMessages()
+            let response = try await toolRouter.resolve(
+                threadId: threadId,
+                messageId: messageId,
+                audioType: .speech,
+                text: transcript,
+                mediaPath: nil
+            )
+            voiceOrchestrator.handleEvent(.llmResponseReady)
+            isProcessing = false
+            let textToSpeak: String? = {
+                if let answerText = response.answer?.text { return answerText }
+                if let msg = response.assistantMessage {
+                    return "I found \(msg.songTitle) by \(msg.songArtist). \(msg.reason)"
+                }
+                if let first = response.candidates?.first {
+                    return "I found \(first.title) by \(first.artist). \(first.reason)"
+                }
+                return nil
+            }()
+            if let text = textToSpeak, autoSpeakResponses {
+                startBargeInCapture()
+                VoiceResponseService.shared.speak(text, completion: { [weak self] in
+                    Task { @MainActor in
+                        self?.stopBargeInCapture()
+                        self?.voiceOrchestrator.handleEvent(.ttsFinished)
+                        self?.isProcessing = false
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        self?.startVoiceModeCapture()
+                    }
+                }, usePlayAndRecord: true)
+                voiceOrchestrator.handleEvent(.ttsStarted)
+            } else {
+                voiceOrchestrator.handleEvent(.ttsFinished)
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    startVoiceModeCapture()
+                }
+            }
+            Task { await handleVoiceResponse(response, messageId: messageId, threadId: threadId) }
+        } catch {
+            voiceOrchestrator.handleEvent(.errorOccurred(error))
+            errorMessage = error.localizedDescription
+            isProcessing = false
+        }
+    }
+
+    private func startBargeInCapture() {
+        vadService.reset()
+        vadService.bargeInMode = true
+        vadService.onBargeIn = { [weak self] in
+            Task { @MainActor in
+                VoiceResponseService.shared.stopSpeaking()
+                self?.stopBargeInCapture()
+                self?.voiceOrchestrator.handleEvent(.bargeInDetected)
+                self?.startVoiceModeCapture()
+            }
+        }
+        lastVadProcessTime = .distantPast
+        audioIOManager.onAudioLevel = { [weak self] level in
+            Task { @MainActor in
+                self?.processLevelForVadIfNeeded(level)
+            }
+        }
+        do {
+            try audioSessionManager.configureForPlayAndRecord()
+            try audioIOManager.startCapture()
+            Logger.recall.info("Voice Mode: barge-in capture started")
+        } catch {
+            Logger.recall.error("Voice Mode barge-in start failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func stopBargeInCapture() {
+        audioIOManager.onAudioLevel = nil
+        vadService.onBargeIn = nil
+        vadService.reset()
+        audioIOManager.stopCapture()
+        Logger.recall.info("Voice Mode: barge-in capture stopped")
+    }
+
+    /// Voice Mode: Mute = pause listening (stay in session).
+    func voiceModeMute() {
+        voiceOrchestrator.handleEvent(.userTappedMute)
+        stopVoiceModeCapture()
+    }
+
+    /// Voice Mode: Unmute = resume listening.
+    func voiceModeUnmute() {
+        voiceOrchestrator.handleEvent(.userTappedUnmute)
+        if voiceOrchestrator.currentState == .idle {
+            voiceOrchestrator.handleEvent(.userTappedStart)
+        }
+        startVoiceModeCapture()
+    }
+
+    /// Voice Mode: Exit = end session, return to idle.
+    func voiceModeExit() {
+        voiceOrchestrator.handleEvent(.userTappedStop)
+        stopVoiceModeCapture()
+        voiceOrchestrator.reset()
+        isVoiceModeActive = false
+        orbState = .idle
+        stateMachine.reset()
+    }
+
     // MARK: - Thread Management
     
     func startNewThreadIfNeeded() async {
@@ -197,6 +647,16 @@ final class RecallViewModel: ObservableObject {
     // MARK: - Send Transcript
     
     func sendTranscript(_ finalText: String) async {
+        if currentThreadId == nil {
+            do {
+                let threadId = try await service.createNewThread()
+                currentThreadId = threadId
+                await loadMessages()
+            } catch {
+                errorMessage = "Failed to create thread: \(error.localizedDescription)"
+                return
+            }
+        }
         guard let threadId = currentThreadId,
               !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
@@ -256,6 +716,16 @@ final class RecallViewModel: ObservableObject {
     // MARK: - Send Text
     
     func sendText() async {
+        if currentThreadId == nil {
+            do {
+                let threadId = try await service.createNewThread()
+                currentThreadId = threadId
+                await loadMessages()
+            } catch {
+                errorMessage = "Failed to create thread: \(error.localizedDescription)"
+                return
+            }
+        }
         guard let threadId = currentThreadId,
               !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
@@ -577,25 +1047,50 @@ final class RecallViewModel: ObservableObject {
     }
     
     func orbTapped() async {
-        // For tap (not long press), use same logic but trigger state machine
         if voiceRecorder.isRecording {
-            // Stop recording
             stateMachine.handleEvent(.longPressEnded)
             voiceRecorder.stopRecording()
             await handleVoiceRecording()
         } else {
-            // Start recording (check gate conditions)
             stateMachine.handleEvent(.longPressBegan)
-            guard stateMachine.currentState == .armed || stateMachine.currentState == .listening else {
-                return
-            }
+            guard stateMachine.currentState == .armed || stateMachine.currentState == .listening else { return }
             do {
                 try await voiceRecorder.startRecording()
             } catch {
                 errorMessage = "Failed to start recording: \(error.localizedDescription)"
                 stateMachine.handleEvent(.error(error))
-                print("❌ Failed to start recording: \(error)")
             }
+        }
+    }
+
+    /// Voice Mode: tap to start, tap again to stop. VAD drives end-of-utterance. No long-press.
+    func orbTappedForVoiceMode() async {
+        let state = voiceOrchestrator.currentState
+        switch state {
+        case .idle, .error, .interrupted:
+            // After ending a session, currentThreadId is nil — create a new thread so requests can be processed
+            if currentThreadId == nil {
+                do {
+                    let threadId = try await service.createNewThread()
+                    currentThreadId = threadId
+                    await loadMessages()
+                    Logger.recall.info("Created new thread for voice session: \(threadId.uuidString)")
+                } catch {
+                    errorMessage = "Failed to create thread: \(error.localizedDescription)"
+                    Logger.recall.error("Failed to create thread for voice mode: \(error.localizedDescription)")
+                    return
+                }
+            }
+            voiceOrchestrator.handleEvent(.userTappedStart)
+            if voiceOrchestrator.currentState == .listening {
+                startVoiceModeCapture()
+            }
+        case .listening, .capturingUtterance:
+            voiceOrchestrator.handleEvent(.userTappedStop)
+            stopVoiceModeCapture()
+        case .classifyingAudio, .transcribing, .thinking, .speaking:
+            voiceOrchestrator.handleEvent(.userTappedStop)
+            stopVoiceModeCapture()
         }
     }
     
@@ -620,6 +1115,8 @@ final class RecallViewModel: ObservableObject {
             print("   recordingURL: \(voiceRecorder.recordingURL?.lastPathComponent ?? "nil")")
             orbState = .error
             stateMachine.handleEvent(.error(NSError(domain: "RecallViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "No recording URL"])))
+            voiceOrchestrator.reset()
+            isVoiceModeActive = false
             return
         }
         
@@ -804,6 +1301,8 @@ final class RecallViewModel: ObservableObject {
                     if case .done = orbState {
                         orbState = .idle
                         stateMachine.reset()
+                        voiceOrchestrator.reset()
+                        isVoiceModeActive = false
                     }
                 }
             } else if response.answer != nil {
@@ -814,6 +1313,8 @@ final class RecallViewModel: ObservableObject {
                     if case .done = orbState {
                         orbState = .idle
                         stateMachine.reset()
+                        voiceOrchestrator.reset()
+                        isVoiceModeActive = false
                     }
                 }
             } else if let candidates = response.candidates, !candidates.isEmpty {
@@ -825,6 +1326,8 @@ final class RecallViewModel: ObservableObject {
                     if case .done = orbState {
                         orbState = .idle
                         stateMachine.reset()
+                        voiceOrchestrator.reset()
+                        isVoiceModeActive = false
                     }
                 }
             } else {
@@ -841,11 +1344,12 @@ final class RecallViewModel: ObservableObject {
             voiceRecorder.recordingURL = nil
             
             // Reset state machine to idle after processing completes
-            // This allows user to start new recording/session
             if stateMachine.currentState == .processing {
                 stateMachine.reset()
             }
-            
+            voiceOrchestrator.reset()
+            isVoiceModeActive = false
+
             let totalDuration = Date().timeIntervalSince(startTime)
             print("✅ [RECALL-VIEWMODEL] [\(requestId)] handleVoiceRecording() completed successfully in \(String(format: "%.3f", totalDuration))s")
             
@@ -867,6 +1371,8 @@ final class RecallViewModel: ObservableObject {
             
             // Reset state machine to allow recovery
             stateMachine.reset()
+            voiceOrchestrator.reset()
+            isVoiceModeActive = false
         }
     }
     
@@ -878,31 +1384,8 @@ final class RecallViewModel: ObservableObject {
         print("📊 [RECALL-VIEWMODEL] [\(requestId)] Response: status=\(response.status), type=\(response.responseType ?? "nil"), candidates=\(response.candidates?.count ?? 0), hasAnswer=\(response.answer != nil), hasAssistantMessage=\(response.assistantMessage != nil)")
         
         do {
-            // Update with candidate or answer
-            if let assistantMessage = response.assistantMessage {
-                print("📝 [RECALL-VIEWMODEL] [\(requestId)] Processing assistant message (candidate)")
-                let candidateJson: [String: AnyCodable] = [
-                    "title": AnyCodable(assistantMessage.songTitle),
-                    "artist": AnyCodable(assistantMessage.songArtist),
-                    "confidence": AnyCodable(assistantMessage.confidence),
-                    "reason": AnyCodable(assistantMessage.reason),
-                    "lyric_snippet": AnyCodable(assistantMessage.lyricSnippet ?? "")
-                ]
-                
-                _ = try await service.insertMessage(
-                    threadId: threadId,
-                    role: .assistant,
-                    messageType: .candidate,
-                    text: "\(assistantMessage.songTitle) by \(assistantMessage.songArtist)",
-                    candidateJson: candidateJson,
-                    sourcesJson: assistantMessage.sources,
-                    confidence: assistantMessage.confidence,
-                    songUrl: assistantMessage.songUrl,
-                    songTitle: assistantMessage.songTitle,
-                    songArtist: assistantMessage.songArtist
-                )
-                print("✅ [RECALL-VIEWMODEL] [\(requestId)] Candidate message inserted")
-            } else if let answer = response.answer {
+            // Update with answer or candidates only (never both assistantMessage and candidates to avoid duplicates)
+            if let answer = response.answer {
                 print("📝 [RECALL-VIEWMODEL] [\(requestId)] Processing answer response")
                 // Convert sources from [String] to [RecallSource] format
                 let answerSources = answer.sources.enumerated().map { index, url in
@@ -924,7 +1407,6 @@ final class RecallViewModel: ObservableObject {
                 print("✅ [RECALL-VIEWMODEL] [\(requestId)] Answer message inserted")
             } else if let candidates = response.candidates, !candidates.isEmpty {
                 print("📝 [RECALL-VIEWMODEL] [\(requestId)] Processing candidates array (\(candidates.count) candidates)")
-                // Insert all candidates
                 for candidate in candidates {
                     let candidateJson: [String: AnyCodable] = [
                         "title": AnyCodable(candidate.title),
@@ -956,8 +1438,30 @@ final class RecallViewModel: ObservableObject {
                     )
                 }
                 print("✅ [RECALL-VIEWMODEL] [\(requestId)] All candidates inserted")
+            } else if let assistantMessage = response.assistantMessage {
+                print("📝 [RECALL-VIEWMODEL] [\(requestId)] Processing single assistant message (candidate)")
+                let candidateJson: [String: AnyCodable] = [
+                    "title": AnyCodable(assistantMessage.songTitle),
+                    "artist": AnyCodable(assistantMessage.songArtist),
+                    "confidence": AnyCodable(assistantMessage.confidence),
+                    "reason": AnyCodable(assistantMessage.reason),
+                    "lyric_snippet": AnyCodable(assistantMessage.lyricSnippet ?? "")
+                ]
+                _ = try await service.insertMessage(
+                    threadId: threadId,
+                    role: .assistant,
+                    messageType: .candidate,
+                    text: "\(assistantMessage.songTitle) by \(assistantMessage.songArtist)",
+                    candidateJson: candidateJson,
+                    sourcesJson: assistantMessage.sources,
+                    confidence: assistantMessage.confidence,
+                    songUrl: assistantMessage.songUrl,
+                    songTitle: assistantMessage.songTitle,
+                    songArtist: assistantMessage.songArtist
+                )
+                print("✅ [RECALL-VIEWMODEL] [\(requestId)] Single candidate message inserted")
             } else {
-                print("⚠️ [RECALL-VIEWMODEL] [\(requestId)] No assistant message, answer, or candidates in response")
+                print("⚠️ [RECALL-VIEWMODEL] [\(requestId)] No answer, candidates, or assistant message in response")
             }
             
             await loadMessages()
@@ -974,6 +1478,8 @@ final class RecallViewModel: ObservableObject {
                     if case .done = orbState {
                         orbState = .idle
                         stateMachine.reset()
+                        voiceOrchestrator.reset()
+                        isVoiceModeActive = false
                     }
                 }
             } else if response.answer != nil {
@@ -984,6 +1490,8 @@ final class RecallViewModel: ObservableObject {
                     if case .done = orbState {
                         orbState = .idle
                         stateMachine.reset()
+                        voiceOrchestrator.reset()
+                        isVoiceModeActive = false
                     }
                 }
             } else if let candidates = response.candidates, !candidates.isEmpty {
@@ -1077,18 +1585,15 @@ final class RecallViewModel: ObservableObject {
     // MARK: - Additional Methods for UI Integration
     
     func startNewSession(showWelcome: Bool = true) async {
-        // Stop any active recording first
+        stopVoiceModeCapture()
         if voiceRecorder.isRecording {
-            print("🛑 Stopping active recording before starting new session...")
             voiceRecorder.stopRecording()
-            // Wait for recording to fully stop
-            try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+            try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        
-        // Clear recording state
         voiceRecorder.recordingURL = nil
-        
-        // Reset all state
+        voiceOrchestrator.reset()
+        isVoiceModeActive = false
+
         currentThreadId = nil
         messages = []
         composerText = ""
@@ -1099,6 +1604,7 @@ final class RecallViewModel: ObservableObject {
         pendingTranscript = nil
         stateMachine.reset()
         stateMachine.setLongPressBeganOnOrb(false)
+        Logger.recall.info("Started new session")
         
         if showWelcome {
             await checkAndShowWelcomeOnAppOpen()
@@ -1114,15 +1620,12 @@ final class RecallViewModel: ObservableObject {
     }
     
     func terminateSession() {
-        // Stop any active recording
+        voiceModeExit()
         if voiceRecorder.isRecording {
             voiceRecorder.stopRecording()
         }
-        
-        // Clear recording state
         voiceRecorder.recordingURL = nil
-        
-        // Reset all state
+
         currentThreadId = nil
         messages = []
         composerText = ""
@@ -1133,6 +1636,7 @@ final class RecallViewModel: ObservableObject {
         pendingTranscript = nil
         stateMachine.reset()
         stateMachine.setLongPressBeganOnOrb(false)
+        Logger.recall.info("Terminated session")
     }
     
     func confirmPendingTranscript() async {
@@ -1149,13 +1653,20 @@ final class RecallViewModel: ObservableObject {
     }
     
     func confirmCandidate(messageId: UUID, title: String, artist: String, url: String? = nil) async {
-        // Confirm candidate - implementation depends on service method
-        print("✅ Confirmed candidate: \(title) by \(artist)")
+        guard let threadId = currentThreadId else { return }
+        do {
+            try await service.confirmRecall(recallId: messageId, title: title, artist: artist)
+            try await service.addToStash(threadId: threadId, songTitle: title, songArtist: artist, confidence: nil)
+            await loadMessages()
+            Logger.recall.info("Confirmed and saved candidate: \(title) by \(artist)")
+        } catch {
+            errorMessage = "Failed to save: \(error.localizedDescription)"
+            Logger.recall.error("confirmCandidate failed: \(error.localizedDescription)")
+        }
     }
     
     func confirmAnswerResponse(messageId: UUID) async {
-        // Confirm answer response
-        print("✅ Confirmed answer response for message: \(messageId)")
+        await loadMessages()
         conversationMode = .idle
     }
     
@@ -1199,9 +1710,9 @@ final class RecallViewModel: ObservableObject {
             return
         }
         
-        // Create thread and show welcome message
+        // Create thread and show welcome message (new thread on app refresh)
         do {
-            let threadId = try await service.createThreadIfNeeded()
+            let threadId = try await service.createNewThread()
             currentThreadId = threadId
             
             // Insert welcome message

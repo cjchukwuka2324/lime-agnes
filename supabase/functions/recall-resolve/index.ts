@@ -1409,7 +1409,6 @@ serve(async (req) => {
             const errorText = await whisperResponse.text();
             console.error(`❌ Video audio transcription failed: ${whisperResponse.status} - ${errorText}`);
           }
-          }
         }
       } catch (error) {
         console.error("Error transcribing video audio:", error);
@@ -1417,14 +1416,86 @@ serve(async (req) => {
       }
     }
 
-    // If image input, use OCR text if provided, otherwise use placeholder
+    // If image input, use GPT vision (OCR/description) when no query text provided
     if (input_type === "image") {
       if (queryText && queryText.trim().length > 0) {
-        // OCR text was provided from client-side OCR processing
-        console.log(`📷 [RECALL-RESOLVE] Using OCR text from image: "${queryText.substring(0, 100)}..."`);
+        // Client provided OCR or caption
+        console.log(`📷 [RECALL-RESOLVE] [${requestId}] Using provided text from image: "${queryText.substring(0, 100)}..."`);
+      } else if (media_path && openaiApiKey && !audioTranscription) {
+        // Run GPT vision to describe image and extract text (OCR)
+        try {
+          await supabase
+            .from("recall_messages")
+            .update({ text: "Reading image..." })
+            .eq("id", statusMessage.id);
+
+          const imageBucket = "recall-images";
+          const { data: signedUrlData, error: urlError } = await supabase.storage
+            .from(imageBucket)
+            .createSignedUrl(media_path, 3600);
+
+          if (urlError || !signedUrlData?.signedUrl) {
+            console.log(`❌ [RECALL-RESOLVE] [${requestId}] Failed to get signed URL for image: ${urlError?.message || "No data"}`);
+            queryText = "Image uploaded - searching for matching songs";
+          } else {
+            const imageResponse = await fetch(signedUrlData.signedUrl);
+            const imageBlob = await imageResponse.blob();
+            const imageArrayBuffer = await imageBlob.arrayBuffer();
+            const bytes = new Uint8Array(imageArrayBuffer);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64Image = btoa(binary);
+
+            const visionPrompt = `Describe this image and extract all visible text (OCR). If it shows album art, lyrics, a playlist, song title, artist name, or anything music-related, include every word you can see. Output only the description and extracted text in one block, nothing else.`;
+
+            const visionResponse = await openAICircuitBreaker.execute(() =>
+              fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${openaiApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model: "gpt-4o",
+                  messages: [
+                    {
+                      role: "user",
+                      content: [
+                        { type: "text", text: visionPrompt },
+                        {
+                          type: "image_url",
+                          image_url: { url: `data:image/jpeg;base64,${base64Image}` },
+                        },
+                      ],
+                    },
+                  ],
+                  max_tokens: 1024,
+                }),
+              })
+            );
+
+            if (visionResponse.ok) {
+              const visionData = await visionResponse.json();
+              const visionText = (visionData.choices?.[0]?.message?.content || "").trim();
+              if (visionText.length > 0) {
+                queryText = visionText;
+                console.log(`📷 [RECALL-RESOLVE] [${requestId}] GPT vision OCR/description: "${queryText.substring(0, 120)}..."`);
+              } else {
+                queryText = "Image uploaded - searching for matching songs";
+              }
+            } else {
+              const errText = await visionResponse.text();
+              console.error(`❌ [RECALL-RESOLVE] [${requestId}] GPT vision failed: ${visionResponse.status} - ${errText}`);
+              queryText = "Image uploaded - searching for matching songs";
+            }
+          }
+        } catch (visionError) {
+          console.error(`❌ [RECALL-RESOLVE] [${requestId}] Image vision error:`, visionError);
+          queryText = "Image uploaded - searching for matching songs";
+        }
       } else if (!audioTranscription) {
-        // No OCR text and no audio transcription - use placeholder
-        console.log(`📷 [RECALL-RESOLVE] No OCR text provided, using placeholder`);
         queryText = "Image uploaded - searching for matching songs";
       }
     }
@@ -1599,7 +1670,7 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
   },
   "should_ask_crowd": false,
   "crowd_prompt": "Optional prompt for asking the crowd",
-  "follow_up_question": "Natural conversational question to help refine search or continue conversation (only if overall_confidence < 0.7 or conversation needs continuation)",
+  "follow_up_question": "Optional. Only after you have fully answered the user's question or request. Natural follow-up to refine or continue (only if overall_confidence < 0.7 or conversation needs continuation). Never lead with a question—always answer first.",
   "conversation_state": "searching" | "refining_search" | "found" | "needs_clarification" | "answering" | "general_question"
 }
 
@@ -1619,6 +1690,7 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
    - Always verify song exists and information is current
 
 8. **Answer Strategy** (for questions):
+   - ALWAYS answer the user's question or request first in the "answer" object. Never lead with a follow-up question.
    - Provide comprehensive, accurate answers based on web search
    - Include relevant facts, dates, and context
    - Cite sources in the sources array
@@ -1628,6 +1700,7 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
    - Keep answers concise but informative (2-4 sentences for most questions)
    - For complex topics, break into digestible chunks
    - Always respond with voice-friendly text (avoid complex formatting, use natural pauses)
+   - Only add follow_up_question after the answer is complete—as an optional next step, not instead of answering
    - **SONG MEANING QUERIES**: When user asks about what a song is about, what it means, or what message it conveys:
      * The system will automatically fetch lyrics from lyrics.ovh API
      * Lyrics will be analyzed to generate a summary of the song's message
@@ -1643,7 +1716,7 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
 12. source_urls must include at least 3 verified sources from reputable music platforms
 13. background field is REQUIRED for all candidates - provide meaningful context
 14. If overall_confidence < 0.65, set should_ask_crowd to true and provide a helpful crowd_prompt
-15. If overall_confidence < 0.7 and candidates are weak, set follow_up_question and conversation_state to "refining_search"
+15. If overall_confidence < 0.7 and candidates are weak, set follow_up_question (after the answer/candidates) and conversation_state to "refining_search"
 16. Be extremely specific and accurate - verify all information via web search before returning
 17. If the user query is vague, search for multiple interpretations and return the most likely matches
 18. Consider alternative spellings, common misheard lyrics, and similar-sounding artists
@@ -1685,6 +1758,7 @@ CRITICAL RULES FOR MAXIMUM ACCURACY:
     let conversationFlow: 'initial' | 'refining' | 'found' | 'general_question' = 'initial';
     
     if (previousMessages && previousMessages.length > 1) {
+      const contextBuildStartTime = Date.now();
       // Sort messages chronologically for proper context building
       const sortedMessages = [...previousMessages].sort((a, b) => 
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -2341,8 +2415,91 @@ Return both search results and answers as JSON.`;
       };
     }
 
-    // Insert all candidates as separate messages (deduplicated)
-    // First, check existing candidates in this thread to avoid duplicates
+    // 1. Insert ANSWER first so the user sees the response to their question before suggestions or follow-up
+    const insertAnswerTime = Date.now();
+    let answerMessageId: string | null = null;
+    if (aiResult.answer && (aiResult.response_type === "answer" || aiResult.response_type === "both")) {
+      console.log(`📝 [RECALL-RESOLVE] Inserting answer message (first)...`);
+      
+      let enhancedAnswerText = aiResult.answer.text;
+      let enhancedSources = [...aiResult.answer.sources];
+      
+      const meaningQuery = detectSongMeaningQuery(queryText, finalCandidates, previousMessages);
+      
+      if (meaningQuery.isSongMeaningQuery) {
+        const songTitle = meaningQuery.songTitle || (finalCandidates.length > 0 ? finalCandidates[0].title : undefined);
+        const artistName = meaningQuery.artistName || (finalCandidates.length > 0 ? finalCandidates[0].artist : undefined);
+        
+        if (songTitle && artistName) {
+          console.log(`🎵 [LYRICS] Detected song meaning query for "${songTitle}" by ${artistName}, fetching lyrics from lyrics.ovh...`);
+          
+          try {
+            const lyricsResult = await fetchLyricsFromGenius(songTitle, artistName);
+            
+            if (lyricsResult.success && lyricsResult.lyrics) {
+              console.log(`✅ [LYRICS] Successfully fetched lyrics (${lyricsResult.lyrics.length} chars)`);
+              
+              const detectedLanguage = await detectLanguage(lyricsResult.lyrics, openaiApiKey);
+              console.log(`🌍 [LANG] Detected language: ${detectedLanguage}`);
+              
+              const summary = await summarizeSongMessage(lyricsResult.lyrics, detectedLanguage, openaiApiKey);
+              
+              const isEnglish = detectedLanguage.toLowerCase().includes("english");
+              
+              if (isEnglish) {
+                enhancedAnswerText = `${enhancedAnswerText}\n\n**Song Summary:** ${summary.summary}`;
+              } else {
+                enhancedAnswerText = `${enhancedAnswerText}\n\n**Song Summary (${detectedLanguage}):** ${summary.summary}`;
+                if (summary.englishTranslation) {
+                  enhancedAnswerText = `${enhancedAnswerText}\n\n**In English:** ${summary.englishTranslation}`;
+                }
+              }
+              
+              if (lyricsResult.sourceUrl) {
+                enhancedSources.push(lyricsResult.sourceUrl);
+              }
+              
+              console.log(`✅ [LYRICS] Enhanced answer with lyrics summary`);
+            } else {
+              console.log(`⚠️ [LYRICS] Could not fetch lyrics: ${lyricsResult.error || "Unknown error"}`);
+            }
+          } catch (lyricsError) {
+            console.error(`❌ [LYRICS] Error fetching/processing lyrics:`, lyricsError);
+          }
+        } else {
+          console.log(`⚠️ [LYRICS] Song meaning query detected but couldn't determine song title/artist`);
+        }
+      }
+      
+      const answerSources = enhancedSources.map((url, index) => ({
+        title: `Source ${index + 1}`,
+        url,
+        snippet: undefined,
+      }));
+
+      const { data: answerMessage, error: answerError } = await supabase
+        .from("recall_messages")
+        .insert({
+          thread_id,
+          user_id: userMessage.user_id,
+          role: "assistant",
+          message_type: "answer",
+          text: enhancedAnswerText,
+          sources_json: answerSources,
+        })
+        .select("id")
+        .single();
+
+      if (!answerError && answerMessage) {
+        answerMessageId = answerMessage.id;
+        console.log(`✅ [RECALL-RESOLVE] [${requestId}] Inserted answer message (${aiResult.answer.text.length} chars)`);
+      } else {
+        console.error(`❌ [RECALL-RESOLVE] [${requestId}] Failed to insert answer:`, answerError);
+      }
+    }
+    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Insert answer: ${Date.now() - insertAnswerTime}ms`);
+
+    // 2. Insert candidates (song suggestion cards) after the answer
     const { data: existingCandidates } = await supabase
       .from("recall_messages")
       .select("song_title, song_artist")
@@ -2355,7 +2512,6 @@ Return both search results and answers as JSON.`;
         .map(c => `${c.song_title.toLowerCase()}|${c.song_artist.toLowerCase()}`)
     );
 
-    // Insert only new candidates (not already in thread)
     const insertCandidatesTime = Date.now();
     let insertedCount = 0;
     for (const candidate of finalCandidates) {
@@ -2392,102 +2548,6 @@ Return both search results and answers as JSON.`;
       }
     }
     console.log(`⏱️ [RECALL-RESOLVE] Insert candidates: ${Date.now() - insertCandidatesTime}ms (inserted: ${insertedCount})`);
-
-    // Handle answer-type responses
-    const insertAnswerTime = Date.now();
-    let answerMessageId: string | null = null;
-    if (aiResult.answer && (aiResult.response_type === "answer" || aiResult.response_type === "both")) {
-      console.log(`📝 [RECALL-RESOLVE] Inserting answer message...`);
-      
-      // Check if this is a song meaning query and fetch lyrics if needed
-      let enhancedAnswerText = aiResult.answer.text;
-      let enhancedSources = [...aiResult.answer.sources];
-      
-      const meaningQuery = detectSongMeaningQuery(queryText, finalCandidates, previousMessages);
-      
-      if (meaningQuery.isSongMeaningQuery) {
-        const songTitle = meaningQuery.songTitle || (finalCandidates.length > 0 ? finalCandidates[0].title : undefined);
-        const artistName = meaningQuery.artistName || (finalCandidates.length > 0 ? finalCandidates[0].artist : undefined);
-        
-        if (songTitle && artistName) {
-          console.log(`🎵 [LYRICS] Detected song meaning query for "${songTitle}" by ${artistName}, fetching lyrics from lyrics.ovh...`);
-          
-          try {
-            // Fetch lyrics from lyrics.ovh
-            const lyricsResult = await fetchLyricsFromGenius(songTitle, artistName);
-            
-            if (lyricsResult.success && lyricsResult.lyrics) {
-              console.log(`✅ [LYRICS] Successfully fetched lyrics (${lyricsResult.lyrics.length} chars)`);
-              
-              // Detect language
-              const detectedLanguage = await detectLanguage(lyricsResult.lyrics, openaiApiKey);
-              console.log(`🌍 [LANG] Detected language: ${detectedLanguage}`);
-              
-              // Generate summary
-              const summary = await summarizeSongMessage(lyricsResult.lyrics, detectedLanguage, openaiApiKey);
-              
-              // Enhance answer with lyrics summary
-              const isEnglish = detectedLanguage.toLowerCase().includes("english");
-              
-              if (isEnglish) {
-                // English song - add summary to answer
-                enhancedAnswerText = `${enhancedAnswerText}\n\n**Song Summary:** ${summary.summary}`;
-              } else {
-                // Foreign language - add both original and English translation
-                enhancedAnswerText = `${enhancedAnswerText}\n\n**Song Summary (${detectedLanguage}):** ${summary.summary}`;
-                if (summary.englishTranslation) {
-                  enhancedAnswerText = `${enhancedAnswerText}\n\n**In English:** ${summary.englishTranslation}`;
-                }
-              }
-              
-              // Add lyrics source URL to sources
-              if (lyricsResult.sourceUrl) {
-                enhancedSources.push(lyricsResult.sourceUrl);
-              }
-              
-              console.log(`✅ [LYRICS] Enhanced answer with lyrics summary`);
-            } else {
-              console.log(`⚠️ [LYRICS] Could not fetch lyrics: ${lyricsResult.error || "Unknown error"}`);
-              // Continue without lyrics - answer will still be returned
-            }
-          } catch (lyricsError) {
-            console.error(`❌ [LYRICS] Error fetching/processing lyrics:`, lyricsError);
-            // Continue without lyrics - answer will still be returned
-          }
-        } else {
-          console.log(`⚠️ [LYRICS] Song meaning query detected but couldn't determine song title/artist`);
-        }
-      }
-      
-      // Build sources array for answer
-      const answerSources = enhancedSources.map((url, index) => ({
-        title: `Source ${index + 1}`,
-        url,
-        snippet: undefined,
-      }));
-
-      // Insert answer as assistant message
-      const { data: answerMessage, error: answerError } = await supabase
-        .from("recall_messages")
-        .insert({
-          thread_id,
-          user_id: userMessage.user_id,
-          role: "assistant",
-          message_type: "answer", // Use answer type for answers
-          text: enhancedAnswerText,
-          sources_json: answerSources,
-        })
-        .select("id")
-        .single();
-
-      if (!answerError && answerMessage) {
-        answerMessageId = answerMessage.id;
-        console.log(`✅ [RECALL-RESOLVE] [${requestId}] Inserted answer message (${aiResult.answer.text.length} chars)`);
-      } else {
-        console.error(`❌ [RECALL-RESOLVE] [${requestId}] Failed to insert answer:`, answerError);
-      }
-    }
-    console.log(`⏱️ [RECALL-RESOLVE] [${requestId}] Insert answer: ${Date.now() - insertAnswerTime}ms`);
 
     // Handle follow-up question if confidence is low or conversation needs continuation
     const insertFollowUpTime = Date.now();
@@ -2590,37 +2650,10 @@ Return both search results and answers as JSON.`;
     console.log(`   candidates: ${responseBody.candidates.length}`);
     console.log(`   has_answer: ${responseBody.answer != null}`);
     console.log(`   has_follow_up: ${responseBody.follow_up_question != null}`);
-    
-    return new Response(
-      JSON.stringify(responseBody),
-      JSON.stringify({
-        status: aiResult.follow_up_question ? "refining" : "done",
-        response_type: aiResult.response_type || "search",
-        transcription: audioTranscription || null, // Include transcription in response
-        assistant_message: assistantMessage || undefined,
-        candidates: finalCandidates.map(c => ({
-          title: c.title,
-          artist: c.artist,
-          confidence: c.confidence,
-          reason: c.reason,
-          background: c.background || "",
-          lyric_snippet: c.highlight_snippet,
-          source_urls: c.source_urls,
-        })),
-        answer: aiResult.answer ? {
-          text: aiResult.answer.text,
-          sources: aiResult.answer.sources,
-          related_songs: aiResult.answer.related_songs || [],
-        } : null,
-        follow_up_question: aiResult.follow_up_question || null,
-        conversation_state: aiResult.conversation_state || (aiResult.follow_up_question ? "refining_search" : (aiResult.response_type === "answer" ? "answering" : "searching")),
-        error: null,
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+
+    const responseBodyStr = JSON.stringify(responseBody);
+    const responseInit = { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } };
+    return new Response(responseBodyStr, responseInit);
   } catch (error) {
     console.error("Error in recall-resolve:", error);
     

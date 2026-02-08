@@ -35,13 +35,14 @@ final class TTSManager: ObservableObject {
     }
     
     /// Speak text for a specific message
-    func speak(_ text: String, messageId: UUID, completion: (() -> Void)? = nil) {
+    /// - Parameter usePlayAndRecord: When true, keeps mic active for barge-in during TTS
+    func speak(_ text: String, messageId: UUID, completion: (() -> Void)? = nil, usePlayAndRecord: Bool = false) {
         currentMessageId = messageId
         fullText = text
         voiceResponseService.speak(text, completion: { [weak self] in
             self?.currentMessageId = nil
             completion?()
-        })
+        }, usePlayAndRecord: usePlayAndRecord)
     }
     
     /// Stop speaking

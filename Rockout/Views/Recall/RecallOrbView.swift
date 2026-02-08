@@ -4,6 +4,8 @@ struct RecallOrbView: View {
     let state: RecallOrbState
     let conversationMode: ConversationMode?
     let isSpeaking: Bool
+    let useTapMode: Bool
+    let onTap: (() -> Void)?
     let onLongPress: () -> Void
     let onLongPressEnd: () -> Void
     
@@ -11,12 +13,16 @@ struct RecallOrbView: View {
         state: RecallOrbState,
         conversationMode: ConversationMode? = nil,
         isSpeaking: Bool = false,
+        useTapMode: Bool = false,
+        onTap: (() -> Void)? = nil,
         onLongPress: @escaping () -> Void,
         onLongPressEnd: @escaping () -> Void
     ) {
         self.state = state
         self.conversationMode = conversationMode
         self.isSpeaking = isSpeaking
+        self.useTapMode = useTapMode
+        self.onTap = onTap
         self.onLongPress = onLongPress
         self.onLongPressEnd = onLongPressEnd
     }
@@ -33,183 +39,171 @@ struct RecallOrbView: View {
         }
         return isPressed || glowIntensity > 0
     }
-    
+
+    private func recordingGlowOverlay(size: CGFloat) -> some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color(hex: "#1ED760").opacity(isRecording ? 0.3 * glowIntensity : 0),
+                        Color(hex: "#1ED760").opacity(isRecording ? 0.15 * glowIntensity : 0),
+                        Color.clear
+                    ],
+                    center: .center,
+                    startRadius: size * 0.4,
+                    endRadius: size * 0.6
+                )
+            )
+            .frame(width: size, height: size)
+    }
+
+    @ViewBuilder
+    private func conversationModeOverlay(size: CGFloat) -> some View {
+        if conversationMode == .waitingForRefinement {
+            Circle()
+                .stroke(Color(hex: "#1ED760"), lineWidth: 3)
+                .frame(width: size * 1.2, height: size * 1.2)
+                .scaleEffect(pulseAnimation ? 1.1 : 1.0)
+                .opacity(pulseAnimation ? 0.3 : 0.6)
+                .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulseAnimation)
+                .onAppear { pulseAnimation = true }
+        } else if conversationMode == .speaking || isSpeaking || state == .responding {
+            Circle()
+                .stroke(Color(hex: "#1ED760").opacity(0.5), lineWidth: 2)
+                .frame(width: size * 1.1, height: size * 1.1)
+        } else if state == .armed {
+            Circle()
+                .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 2)
+                .frame(width: size * 1.05, height: size * 1.05)
+                .scaleEffect(pulseAnimation ? 1.05 : 1.0)
+                .opacity(pulseAnimation ? 0.5 : 0.3)
+                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
+                .onAppear { pulseAnimation = true }
+        }
+    }
+
+    @ViewBuilder
+    private func listeningIndicatorOverlay(size: CGFloat) -> some View {
+        if case .listening = state {
+            VStack(spacing: 8) {
+                Image(systemName: "mic.fill")
+                    .font(.title2)
+                    .foregroundColor(Color(hex: "#1ED760"))
+                    .symbolEffect(.pulse, options: .repeating)
+                Text("Listening...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.black.opacity(0.8))
+                    .shadow(color: Color(hex: "#1ED760").opacity(0.5), radius: 10)
+            )
+            .transition(.scale.combined(with: .opacity))
+            .offset(y: -size * 0.7)
+            .accessibilityLabel("Listening indicator")
+            .accessibilityValue(useTapMode ? "Listening, tap to stop" : "Listening, release to stop")
+            .accessibilityAddTraits(.updatesFrequently)
+        }
+    }
+
+    @ViewBuilder
+    private var orbGestureOverlay: some View {
+        Group {
+            if useTapMode {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .gesture(
+                        TapGesture().onEnded { _ in
+                            withAnimation(.easeInOut(duration: 0.2)) { scale = 1.0 }
+                            onTap?()
+                        }
+                    )
+            } else {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .gesture(
+                        LongPressGesture(minimumDuration: 1.5)
+                            .sequenced(before: DragGesture(minimumDistance: 10))
+                            .updating($isPressed) { value, state, _ in
+                                switch value {
+                                case .first(true):
+                                    if !state {
+                                        state = true
+                                        withAnimation(.easeInOut(duration: 0.2)) { scale = 0.9 }
+                                        glowIntensity = 0.8
+                                        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) { glowIntensity = 1.0 }
+                                        onLongPress()
+                                    }
+                                case .second(true, let dragValue):
+                                    if let drag = dragValue, abs(drag.translation.width) > 50 || abs(drag.translation.height) > 50 {
+                                        state = false
+                                        onLongPressEnd()
+                                    }
+                                default:
+                                    break
+                                }
+                            }
+                            .onEnded { _ in
+                                withAnimation(.easeInOut(duration: 0.2)) { scale = 1.0 }
+                                withAnimation(.easeOut(duration: 0.3)) { glowIntensity = 0.0 }
+                                onLongPressEnd()
+                            }
+                    )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func orbContent(size: CGFloat) -> some View {
+        if Bundle.main.path(forResource: "recallOrb", ofType: "GIF") != nil {
+            GifImage("recallOrb.GIF")
+                .frame(width: size, height: size)
+                .scaleEffect(scale)
+                .opacity(stateBasedOpacity)
+                .overlay(recordingGlowOverlay(size: size))
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.white.opacity(0.9),
+                            Color(hex: "#1ED760").opacity(0.7),
+                            Color(hex: "#1ED760").opacity(0.3)
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: size / 2
+                    )
+                )
+                .frame(width: size, height: size)
+                .scaleEffect(scale)
+                .overlay(recordingGlowOverlay(size: size))
+                .clipShape(Circle())
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let size = min(geometry.size.width, geometry.size.height)
-            
+
             ZStack {
-                // GIF Orb
-                if Bundle.main.path(forResource: "recallOrb", ofType: "GIF") != nil {
-                    GifImage("recallOrb.GIF")
-                        .frame(width: size, height: size)
-                        .scaleEffect(scale)
-                        .opacity(stateBasedOpacity)
-                        .overlay(
-                            // Green glow overlay - clipped to orb bounds
-                            Circle()
-                                .fill(
-                                    RadialGradient(
-                                        colors: [
-                                            Color(hex: "#1ED760").opacity(isRecording ? 0.3 * glowIntensity : 0),
-                                            Color(hex: "#1ED760").opacity(isRecording ? 0.15 * glowIntensity : 0),
-                                            Color.clear
-                                        ],
-                                        center: .center,
-                                        startRadius: size * 0.4,
-                                        endRadius: size * 0.6
-                                    )
-                                )
-                                .frame(width: size, height: size)
-                        )
-                        .clipShape(Circle()) // Clip to prevent glow from extending beyond orb
-                } else {
-                    // Fallback if GIF not found
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    Color.white.opacity(0.9),
-                                    Color(hex: "#1ED760").opacity(0.7),
-                                    Color(hex: "#1ED760").opacity(0.3)
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: size / 2
-                            )
-                        )
-                        .frame(width: size, height: size)
-                        .scaleEffect(scale)
-                        .overlay(
-                            // Green glow overlay - clipped to orb bounds
-                            Circle()
-                                .fill(
-                                    RadialGradient(
-                                        colors: [
-                                            Color(hex: "#1ED760").opacity(isRecording ? 0.3 * glowIntensity : 0),
-                                            Color(hex: "#1ED760").opacity(isRecording ? 0.15 * glowIntensity : 0),
-                                            Color.clear
-                                        ],
-                                        center: .center,
-                                        startRadius: size * 0.4,
-                                        endRadius: size * 0.6
-                                    )
-                                )
-                                .frame(width: size, height: size)
-                        )
-                        .clipShape(Circle()) // Clip to prevent glow from extending beyond orb
-                }
+                orbContent(size: size)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped() // Additional clipping to ensure nothing extends beyond bounds
+            .clipped()
+            .overlay(conversationModeOverlay(size: size))
             .overlay(
-                // Conversation mode indicator - pulsing when waiting for refinement
-                Group {
-                    if conversationMode == .waitingForRefinement {
-                        Circle()
-                            .stroke(Color(hex: "#1ED760"), lineWidth: 3)
-                            .frame(width: size * 1.2, height: size * 1.2)
-                            .scaleEffect(pulseAnimation ? 1.1 : 1.0)
-                            .opacity(pulseAnimation ? 0.3 : 0.6)
-                            .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulseAnimation)
-                            .onAppear {
-                                pulseAnimation = true
-                            }
-                    } else if conversationMode == .speaking || isSpeaking || state == .responding {
-                        Circle()
-                            .stroke(Color(hex: "#1ED760").opacity(0.5), lineWidth: 2)
-                            .frame(width: size * 1.1, height: size * 1.1)
-                    } else if state == .armed {
-                        // Show subtle pulsing when armed
-                        Circle()
-                            .stroke(Color(hex: "#1ED760").opacity(0.3), lineWidth: 2)
-                            .frame(width: size * 1.05, height: size * 1.05)
-                            .scaleEffect(pulseAnimation ? 1.05 : 1.0)
-                            .opacity(pulseAnimation ? 0.5 : 0.3)
-                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulseAnimation)
-                            .onAppear {
-                                pulseAnimation = true
-                            }
-                    }
-                }
-            )
-            .overlay(
-                // Listening indicator - appears when actually recording (state is .listening)
-                Group {
-                    if case .listening = state {
-                        VStack(spacing: 8) {
-                            Image(systemName: "mic.fill")
-                                .font(.title2)
-                                .foregroundColor(Color(hex: "#1ED760"))
-                                .symbolEffect(.pulse, options: .repeating)
-                            
-                            Text("Listening...")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.black.opacity(0.8))
-                                .shadow(color: Color(hex: "#1ED760").opacity(0.5), radius: 10)
-                        )
-                        .transition(.scale.combined(with: .opacity))
-                        .offset(y: -size * 0.7) // Position above orb
-                        .accessibilityLabel("Listening indicator")
-                        .accessibilityValue("Listening, release to stop")
-                        .accessibilityAddTraits(.updatesFrequently)
-                    }
-                }
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: state)
+                listeningIndicatorOverlay(size: size)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: state)
             )
             .contentShape(Rectangle())
-            .highPriorityGesture(
-                LongPressGesture(minimumDuration: 1.5)
-                    .sequenced(before: DragGesture(minimumDistance: 10))
-                    .updating($isPressed) { value, state, _ in
-                        switch value {
-                        case .first(true):
-                            // Long press started
-                            if !state {
-                                state = true
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    scale = 0.9
-                                }
-                                // Start glow immediately
-                                glowIntensity = 0.8
-                                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                                    glowIntensity = 1.0
-                                }
-                                // Don't show indicator here - wait for state to change to .listening
-                                onLongPress()
-                            }
-                        case .second(true, let dragValue):
-                            // Still pressing and dragging - check if drag distance is too large
-                            if let drag = dragValue, abs(drag.translation.width) > 50 || abs(drag.translation.height) > 50 {
-                                // User dragged too far - cancel
-                                state = false
-                                onLongPressEnd()
-                                return
-                            }
-                            // Still pressing within acceptable range - keep recording
-                            break
-                        default:
-                            break
-                        }
-                    }
-                    .onEnded { value in
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            scale = 1.0
-                        }
-                        // Fade out glow
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            glowIntensity = 0.0
-                        }
-                        // Contact lost - stop recording immediately
-                        onLongPressEnd()
-                    }
-            )
+            .overlay(orbGestureOverlay)
             .onChange(of: state) { oldState, newState in
                 updateScaleForState(newState)
                 
@@ -272,11 +266,9 @@ struct RecallOrbView: View {
     
     private var orbAccessibilityHint: String {
         if isRecording {
-            return "Recording. Release to stop recording."
-        } else if showRecordingIndicator {
-            return "Long press to record voice query, release to stop. Double tap to start new query."
+            return useTapMode ? "Tap to stop recording." : "Release to stop recording."
         } else {
-            return "Long press to record voice query, release to stop. Double tap to start new query."
+            return useTapMode ? "Tap to start voice query." : "Long press to record voice query, release to stop."
         }
     }
     
@@ -387,7 +379,7 @@ struct RecallOrbView: View {
     ZStack {
         Color.black
         VStack {
-            RecallOrbView(state: RecallOrbState.idle, onLongPress: {}, onLongPressEnd: {})
+            RecallOrbView(state: .idle, onLongPress: {}, onLongPressEnd: {})
             RecallOrbView(state: .listening(level: 0.5), onLongPress: {}, onLongPressEnd: {})
             RecallOrbView(state: .thinking, onLongPress: {}, onLongPressEnd: {})
             RecallOrbView(state: .done(confidence: 0.9), onLongPress: {}, onLongPressEnd: {})

@@ -7,7 +7,6 @@ struct RecallHomeView: View {
     @State private var showSettings = false
     @FocusState private var isTextFieldFocused: Bool
     @State private var dragOffset: CGFloat = 0
-    @GestureState private var isLongPressing: Bool = false
     @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
@@ -16,62 +15,7 @@ struct RecallHomeView: View {
                 backgroundView
                 mainContent
             }
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 1.5)
-                    .sequenced(before: DragGesture(minimumDistance: 10))
-                    .updating($isLongPressing) { value, state, _ in
-                        switch value {
-                        case .first(true):
-                            // Long press started - notify state machine
-                            // Only proceed if NOT scrolling and gate conditions are met
-                            if !state {
-                                // Check if user is scrolling or in cooldown - if so, ignore the gesture
-                                if viewModel.stateMachine.isScrolling || viewModel.stateMachine.scrollCooldownActive {
-                                    return
-                                }
-                                
-                                state = true
-                                // Check gate conditions via state machine
-                                if viewModel.stateMachine.currentState == .listening || viewModel.stateMachine.currentState == .processing {
-                                    return
-                                }
-                                // Notify state machine first
-                                viewModel.stateMachine.handleEvent(.longPressBegan)
-                                // Only proceed if state machine allows (checks scrolling and cooldown again)
-                                guard viewModel.stateMachine.currentState == .armed || viewModel.stateMachine.currentState == .listening else {
-                                    return
-                                }
-                                Task {
-                                    await viewModel.orbLongPressed()
-                                }
-                            }
-                        case .second(true, let dragValue):
-                            // Still pressing and dragging - check if drag distance is too large
-                            // If user drags too far, cancel the gesture
-                            if let drag = dragValue, abs(drag.translation.width) > 50 || abs(drag.translation.height) > 50 {
-                                // User dragged too far - cancel
-                                state = false
-                                viewModel.stateMachine.handleEvent(.longPressEnded)
-                                Task {
-                                    await viewModel.orbLongPressEnded()
-                                }
-                                return
-                            }
-                            // Still pressing within acceptable range - keep recording
-                            state = true
-                            break
-                        default:
-                            break
-                        }
-                    }
-                    .onEnded { _ in
-                        // Contact lost - stop recording immediately
-                        viewModel.stateMachine.handleEvent(.longPressEnded)
-                        Task {
-                            await viewModel.orbLongPressEnded()
-                        }
-                    }
-            )
+            // Voice Mode: tap-to-start/tap-to-stop handled by RecallOrbView (no long-press)
             .navigationTitle("Recall")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -97,11 +41,9 @@ struct RecallHomeView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
-                        // New Thread option - only show when there are messages
                         if !viewModel.messages.isEmpty {
                             Button {
                                 Task {
-                                    // Don't show welcome when user manually creates new thread
                                     await viewModel.startNewSession(showWelcome: false)
                                 }
                             } label: {
@@ -109,7 +51,15 @@ struct RecallHomeView: View {
                             }
                             .accessibilityLabel("New Thread")
                             .accessibilityHint("Double tap to start a new conversation thread")
-                            
+
+                            Button {
+                                viewModel.terminateSession()
+                            } label: {
+                                Label("End Session", systemImage: "xmark.circle.fill")
+                            }
+                            .accessibilityLabel("End Session")
+                            .accessibilityHint("Double tap to end the current conversation and return to idle")
+
                             Divider()
                         }
                         
@@ -203,18 +153,15 @@ struct RecallHomeView: View {
                     await viewModel.checkAndShowWelcomeOnAppOpen()
                 }
             }
-            .onChange(of: scenePhase) { oldPhase, newPhase in
+            .onDisappear {
+                // Stop speaking when user leaves Recall tab (e.g. switches to another tab)
+                VoiceResponseService.shared.stopSpeaking()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
                 // Stop speaking when app goes to background or becomes inactive
                 if newPhase == .background || newPhase == .inactive {
                     VoiceResponseService.shared.stopSpeaking()
                     print("🔇 [LIFECYCLE] Stopped speaking because app went to \(newPhase == .background ? "background" : "inactive")")
-                }
-                
-                // When app comes to foreground after being in background/inactive, reset welcome flag
-                // so welcome shows again on next app open (app restart)
-                if (oldPhase == .background || oldPhase == .inactive) && newPhase == .active {
-                    // Reset welcome flag so it shows on next Recall open after app restart
-                    viewModel.resetWelcomeFlag()
                 }
             }
         }
@@ -251,6 +198,49 @@ struct RecallHomeView: View {
             orbView
             conversationModeIndicator
             messagesOverlay
+            voiceModeControls
+        }
+    }
+
+    /// ChatGPT-style: Mute (bottom-left), Exit (bottom-right) when voice session is active.
+    @ViewBuilder
+    private var voiceModeControls: some View {
+        if viewModel.isVoiceModeActive {
+            HStack {
+                Button {
+                    if viewModel.voiceOrchestrator.isMuted {
+                        viewModel.voiceModeUnmute()
+                    } else {
+                        viewModel.voiceModeMute()
+                    }
+                } label: {
+                    Image(systemName: viewModel.voiceOrchestrator.isMuted ? "mic.slash.fill" : "mic.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(viewModel.voiceOrchestrator.isMuted ? "Unmute microphone" : "Mute microphone")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Double tap to \(viewModel.voiceOrchestrator.isMuted ? "resume listening" : "pause listening")")
+
+                Spacer()
+
+                Button {
+                    viewModel.voiceModeExit()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("End voice session")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Double tap to end the voice conversation and return to idle")
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 140)
         }
     }
     
@@ -259,6 +249,12 @@ struct RecallHomeView: View {
             state: viewModel.orbState,
             conversationMode: viewModel.conversationMode,
             isSpeaking: viewModel.isSpeaking,
+            useTapMode: true,
+            onTap: {
+                Task {
+                    await viewModel.orbTappedForVoiceMode()
+                }
+            },
             onLongPress: {
                 Task {
                     await viewModel.orbLongPressed()
@@ -270,15 +266,6 @@ struct RecallHomeView: View {
                 }
             }
         )
-        .onTapGesture {
-            // Tap to stop recording if currently recording
-            // Check if recording by checking the state
-            if case .listening = viewModel.orbState {
-                Task {
-                    await viewModel.orbTapped()
-                }
-            }
-        }
         .ignoresSafeArea()
     }
     
@@ -336,20 +323,33 @@ struct RecallHomeView: View {
         if !viewModel.messages.isEmpty {
             VStack(spacing: 0) {
                 messagesScrollView
-                    .opacity(1.0) // Ensure messages are always fully visible
-                
-                // Live transcript and transcript composer removed (files were deleted in stash revert)
-                
+                    .opacity(1.0)
+                liveTranscriptView
                 composerBar
+                    .padding(.bottom, 50)
             }
         } else {
             VStack {
                 Spacer()
-                
-                // Live transcript and transcript composer removed (files were deleted in stash revert)
-                
+                liveTranscriptView
                 composerBar
+                    .padding(.bottom, 50)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var liveTranscriptView: some View {
+        if viewModel.isVoiceModeActive,
+           case .listening = viewModel.orbState,
+           viewModel.voiceOrchestrator.currentState == .listening || viewModel.voiceOrchestrator.currentState == .capturingUtterance {
+            RecallLiveTranscriptView(
+                transcript: viewModel.liveTranscript,
+                isRecording: true
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .transition(.opacity)
         }
     }
     
