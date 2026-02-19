@@ -45,14 +45,18 @@ final class AudioIOManager: ObservableObject {
         let format = inputNode.outputFormat(forBus: 0)
 
         // 512 frames ≈ 11.6 ms at 44.1 kHz — lower latency for faster speech start detection
+        // Callback runs on audio thread; STT/level callbacks must run on MainActor. Copy buffer so it's valid when task runs.
         inputNode.installTap(onBus: 0, bufferSize: 512, format: format) { [weak self] buffer, _ in
             let level = Self.computeLevel(from: buffer)
-            self?.onAudioBufferForSTT?(buffer)
+            let bufferCopy = Self.copyPCMBuffer(buffer)
             Task { @MainActor in
                 self?.lastBufferLevel = level
                 self?.audioLevel = CGFloat(level)
                 self?.onAudioLevel?(level)
-                self?.onAudioBuffer?(buffer)
+                if let copy = bufferCopy {
+                    self?.onAudioBufferForSTT?(copy)
+                    self?.onAudioBuffer?(copy)
+                }
             }
         }
 
@@ -125,5 +129,27 @@ final class AudioIOManager: ObservableObject {
             return min(1.0, max(0, rms * 5))
         }
         return 0
+    }
+
+    /// Copy PCM buffer so it remains valid when passed to MainActor (tap callback buffer is reused by the engine).
+    private static func copyPCMBuffer(_ source: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let format = source.format
+        let frameLength = source.frameLength
+        guard frameLength > 0,
+              let dest = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else { return nil }
+        dest.frameLength = frameLength
+        if let srcFloat = source.floatChannelData, let dstFloat = dest.floatChannelData {
+            for ch in 0..<Int(format.channelCount) {
+                memcpy(dstFloat[ch], srcFloat[ch], Int(frameLength) * MemoryLayout<Float>.size)
+            }
+            return dest
+        }
+        if let srcInt16 = source.int16ChannelData, let dstInt16 = dest.int16ChannelData {
+            for ch in 0..<Int(format.channelCount) {
+                memcpy(dstInt16[ch], srcInt16[ch], Int(frameLength) * MemoryLayout<Int16>.size)
+            }
+            return dest
+        }
+        return nil
     }
 }

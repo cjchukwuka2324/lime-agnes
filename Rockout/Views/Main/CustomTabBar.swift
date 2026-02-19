@@ -17,7 +17,8 @@ struct CustomTabBar: View {
             TabBarButton(
                 icon: "sparkles.magnifyingglass",
                 title: "Recall",
-                isSelected: selectedTab == 1
+                isSelected: selectedTab == 1,
+                customImage: "recall-tab-icon"
             ) {
                 selectedTab = 1
             }
@@ -65,13 +66,25 @@ private struct TabBarButton: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
+    var customImage: String? = nil
     
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 24))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+                Group {
+                    if let name = customImage {
+                        Image(name)
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 24, height: 24)
+                            .clipShape(Circle())
+                    } else {
+                        Image(systemName: icon)
+                            .font(.system(size: 24))
+                    }
+                }
+                .foregroundColor(isSelected ? .white : .white.opacity(0.6))
                 
                 Text(title)
                     .font(.system(size: 10))

@@ -199,15 +199,15 @@ struct MainTabView: View {
                   tabBarController.tabBar.items?.count ?? 0 > 1,
                   let recallTabItem = tabBarController.tabBar.items?[1] else { return }
             
-            // Use Recall tab icon from asset (glowing orb image)
+            // Use Recall tab icon from asset (template so it matches other tab icons: white/60% white)
             let size = CGSize(width: 28, height: 28)
             guard let original = UIImage(named: "recall-tab-icon") else { return }
             let renderer = UIGraphicsImageRenderer(size: size)
             let iconImage = renderer.image { _ in
                 original.draw(in: CGRect(origin: .zero, size: size))
             }
-            recallTabItem.image = iconImage.withRenderingMode(.alwaysOriginal)
-            recallTabItem.selectedImage = iconImage.withRenderingMode(.alwaysOriginal)
+            recallTabItem.image = iconImage.withRenderingMode(.alwaysTemplate)
+            recallTabItem.selectedImage = iconImage.withRenderingMode(.alwaysTemplate)
     }
 }
 
